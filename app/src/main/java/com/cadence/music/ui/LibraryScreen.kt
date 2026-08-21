@@ -1,0 +1,119 @@
+package com.cadence.music.ui
+
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Shuffle
+import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.cadence.music.AppContainer
+import com.cadence.music.data.db.TrackEntity
+import com.cadence.music.data.downloads.DownloadWorker
+import kotlinx.coroutines.launch
+
+@Composable
+fun LibraryScreen(container: AppContainer) {
+    val tracks by container.library.tracks().collectAsStateWithLifecycle(initialValue = emptyList())
+    val player = container.player
+    val context = LocalContext.current
+
+    Scaffold(
+        floatingActionButton = {
+            ExtendedFloatingActionButton(
+                onClick = { player.shuffleAll(tracks.map { it.toTrack() }) },
+                icon = { Icon(Icons.Filled.Shuffle, null) },
+                text = { Text("Shuffle all") },
+            )
+        }
+    ) { padding ->
+        if (tracks.isEmpty()) {
+            Column(
+                modifier = Modifier.fillMaxSize().padding(padding),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text("No music found", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "Add a server or rescan in Settings",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        } else {
+            LazyColumn(modifier = Modifier.fillMaxSize().padding(padding)) {
+                items(tracks, key = { it.id }) { track ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { player.playNow(listOf(track.toTrack())) }
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(track.title, style = MaterialTheme.typography.bodyLarge, maxLines = 1)
+                            Text(
+                                when {
+                                    track.sourceId == "local" -> "Local"
+                                    track.path != null -> "Downloaded"
+                                    else -> "Stream"
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        if (track.sourceId == "subsonic" && track.path == null) {
+                            val scope = rememberCoroutineScope()
+                            IconButton(onClick = {
+                                scope.launch {
+                                    val url = container.library.subsonic.streamUrl(track.toTrack())
+                                    if (url != null) DownloadWorker.enqueue(context, track.id, url)
+                                }
+                            }) {
+                                Icon(Icons.Filled.Download, "Download")
+                            }
+                        }
+                        Text(
+                            formatDuration(track.durationMs),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+fun formatDuration(ms: Long): String {
+    val s = ms / 1000
+    return "%d:%02d".format(s / 60, s % 60)
+}
+
+fun TrackEntity.toTrack() = com.cadence.music.data.source.Track(
+    key = serverId,
+    sourceId = sourceId,
+    title = title,
+    artist = "",
+    album = "",
+    durationMs = durationMs,
+    localPath = path,
+)

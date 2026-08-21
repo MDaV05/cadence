@@ -1,0 +1,24 @@
+package com.cadence.music.data.source
+
+data class Track(
+    val key: String,
+    val sourceId: String,
+    val title: String,
+    val artist: String,
+    val album: String,
+    val durationMs: Long,
+    val localPath: String?,
+    val streamUrl: String? = null,
+)
+
+data class Album(
+    val key: String,
+    val sourceId: String,
+    val title: String,
+    val artist: String,
+    val year: Int?,
+)
+
+suspend fun resolvePlayable(track: Track): String =
+    track.localPath ?: track.streamUrl
+        ?: throw IllegalStateException("No playable URI for ${track.title}")
