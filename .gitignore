@@ -1,0 +1,26 @@
+.gradle/
+build/
+local.properties
+.idea/
+*.iml
+.DS_Store
+captures/
+.kotlin/
+
+# agent tooling / caches
+.agents/
+.claude/
+.commandcode/
+.continue/
+.fastembed_cache/
+.hermes/
+.kilo/
+.kilocode/
+.opencode/
+.pi/
+.qoder/
+.qwen/
+.windsurf/
+.zcode/
+skills/
+skills-lock.json
