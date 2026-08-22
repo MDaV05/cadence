@@ -48,4 +48,11 @@ class Prefs(context: Context) {
     var listenBrainzToken: String?
         get() = sp.getString("lb_token", null)
         set(value) = sp.edit().putString("lb_token", value).apply()
+
+    enum class TrackGesture { HORIZONTAL, VERTICAL }
+
+    var trackGesture: TrackGesture
+        get() = runCatching { TrackGesture.valueOf(sp.getString("track_gesture", null) ?: "") }
+            .getOrDefault(TrackGesture.HORIZONTAL)
+        set(value) = sp.edit().putString("track_gesture", value.name).apply()
 }
