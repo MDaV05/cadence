@@ -12,6 +12,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -24,86 +25,70 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.cadence.music.AppContainer
-import com.cadence.music.data.db.TrackEntity
-import com.cadence.music.data.metadata.ArtistInfo
-import com.cadence.music.data.metadata.Wikipedia
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 
 @Composable
-fun ArtistScreen(container: AppContainer, artistName: String, onAlbumClick: (String) -> Unit = {}) {
+fun AlbumScreen(container: AppContainer, albumName: String) {
     val player = container.player
-    var tracks by remember { mutableStateOf<List<TrackEntity>>(emptyList()) }
-    var info by remember { mutableStateOf<ArtistInfo?>(null) }
-    val context = LocalContext.current
+    var tracks by remember { mutableStateOf<List<com.cadence.music.data.db.TrackEntity>>(emptyList()) }
+    var art by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(artistName) {
-        tracks = container.library.tracksByArtist(artistName)
-        info = withContext(Dispatchers.IO) { Wikipedia.artistInfoBlocking(artistName) }
+    LaunchedEffect(albumName) {
+        tracks = container.library.tracksByAlbum(albumName)
+        art = tracks.firstOrNull()?.let { container.artResolver.urlFor(it) }
     }
 
     Scaffold { padding ->
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(padding),
-        ) {
+        LazyColumn(modifier = Modifier.fillMaxSize().padding(padding)) {
             item {
                 Row(
                     Modifier.fillMaxWidth().padding(16.dp),
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     AsyncImage(
-                        model = info?.imageUrl,
-                        contentDescription = artistName,
+                        model = art,
+                        contentDescription = null,
                         modifier = Modifier.size(96.dp).clip(RoundedCornerShape(12.dp)),
                     )
-                    Column {
-                        Text(artistName, style = MaterialTheme.typography.headlineSmall)
+                    Column(Modifier.weight(1f)) {
+                        Text(albumName, style = MaterialTheme.typography.titleLarge)
                         Text(
-                            "${tracks.map { it.albumKey ?: it.albumName }.distinct().size} albums • ${tracks.size} tracks",
+                            "${tracks.size} tracks",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                    }
+                    Column {
+                        IconButton(onClick = { player.playNow(tracks.map { it.toTrack() }) }) {
+                            Icon(Icons.Filled.PlayArrow, "Play album")
+                        }
                         IconButton(onClick = { player.shuffleAll(tracks.map { it.toTrack() }) }) {
-                            Icon(Icons.Filled.Shuffle, "Shuffle artist")
+                            Icon(Icons.Filled.Shuffle, "Shuffle album")
                         }
                     }
-                }
-            }
-            info?.bio?.let { bio ->
-                item {
-                    Text(
-                        bio,
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
                 }
             }
             items(tracks, key = { it.id }) { track ->
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { player.playNow(listOf(track.toTrack())) }
+                        .clickable { player.playNow(tracks.map { it.toTrack() }, tracks.indexOf(track)) }
                         .padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Column(Modifier.weight(1f)) {
-                        Text(track.title, style = MaterialTheme.typography.bodyLarge, maxLines = 1)
-                        Text(
-                            track.albumName.ifBlank { track.sourceId },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            modifier = Modifier.clickable {
-                                if (track.albumName.isNotBlank()) onAlbumClick(track.albumName)
-                            },
-                        )
-                    }
+                    Text(
+                        "${track.trackNumber.takeIf { it > 0 } ?: ""}",
+                        modifier = Modifier.padding(end = 12.dp),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(track.title, modifier = Modifier.weight(1f), maxLines = 1)
                     Text(
                         formatDuration(track.durationMs),
                         style = MaterialTheme.typography.bodySmall,

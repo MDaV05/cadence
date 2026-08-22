@@ -113,7 +113,17 @@ fun AppNav() {
             composable("nowplaying") { NowPlayingScreen(container) }
             composable("artist/{name}") { entry ->
                 val name = entry.arguments?.getString("name") ?: return@composable
-                ArtistScreen(container, java.net.URLDecoder.decode(name, "UTF-8"))
+                ArtistScreen(
+                    container,
+                    java.net.URLDecoder.decode(name, "UTF-8"),
+                    onAlbumClick = { album ->
+                        navController.navigate("album/${Uri.encode(album)}")
+                    },
+                )
+            }
+            composable("album/{name}") { entry ->
+                val name = entry.arguments?.getString("name") ?: return@composable
+                AlbumScreen(container, java.net.URLDecoder.decode(name, "UTF-8"))
             }
         }
     }
