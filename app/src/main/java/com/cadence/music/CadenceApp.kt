@@ -25,7 +25,7 @@ class AppContainer(app: Application) {
     val database: AppDatabase = AppDatabase.build(app)
     val localSource = LocalSource(app)
     val subsonic = SubsonicSource { prefs.server }
-    val library = LibraryRepository(database, localSource, subsonic, prefs)
+    val library = LibraryRepository(database, localSource, subsonic, prefs, app)
     val artResolver = ArtResolver(subsonic)
     val player = PlayerConnection(app) { prefs.listenBrainzToken }
 }

@@ -9,6 +9,7 @@ import com.cadence.music.data.prefs.LibraryMode
 import com.cadence.music.data.prefs.Prefs
 import com.cadence.music.data.source.LocalSource
 import com.cadence.music.data.source.SubsonicSource
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.Flow
 
 class LibraryRepository(
@@ -16,6 +17,7 @@ class LibraryRepository(
     private val local: LocalSource,
     val subsonic: SubsonicSource,
     private val prefs: Prefs,
+    private val context: android.content.Context,
 ) {
     fun tracks(): Flow<List<TrackEntity>> = db.trackDao().observeAll()
     fun albums(): Flow<List<AlbumEntity>> = db.albumDao().observeAll()
@@ -37,21 +39,27 @@ class LibraryRepository(
         }
     }
 
-    suspend fun syncLocal() {
-        val mediaStoreTracks = local.scan()
-        val entities = mediaStoreTracks.map { t ->
+    suspend fun syncLocal() = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        // Preserve previously-read values (tag parsing is file I/O; only parse once per track).
+        val known = db.trackDao().observeAll().first().associateBy { it.serverId }
+
+        val entities = local.scan().map { t ->
             val mediaId = t.key.removePrefix("local:").toLong()
+            val uri = ContentUris.withAppendedId(
+                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, mediaId
+            )
+            val replayGainDb = known[t.key]?.replayGainDb
+                ?: com.cadence.music.data.tags.ReplayGainReader.read(context, uri)
             TrackEntity(
                 sourceId = "local",
                 serverId = t.key,
                 title = t.title,
                 artistName = t.artist,
                 albumName = t.album,
-                path = ContentUris.withAppendedId(
-                    MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, mediaId
-                ).toString(),
+                path = uri.toString(),
                 durationMs = t.durationMs,
                 trackNumber = 0,
+                replayGainDb = replayGainDb,
             )
         }
         db.trackDao().insertAll(entities)

@@ -70,4 +70,9 @@ class Prefs(context: Context) {
     var eqBassBoost: Int
         get() = sp.getInt("eq_bass", 0)
         set(value) = sp.edit().putInt("eq_bass", value).apply()
+
+    // ReplayGain volume normalization from file tags
+    var rgEnabled: Boolean
+        get() = sp.getBoolean("rg_enabled", false)
+        set(value) = sp.edit().putBoolean("rg_enabled", value).apply()
 }

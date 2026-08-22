@@ -93,6 +93,7 @@ fun SettingsScreen(container: AppContainer) {
     var eqEnabled by remember { mutableStateOf(container.prefs.eqEnabled) }
     var eqBands by remember { mutableStateOf(container.prefs.eqBands) }
     var eqBass by remember { mutableIntStateOf(container.prefs.eqBassBoost) }
+    var rgEnabled by remember { mutableStateOf(container.prefs.rgEnabled) }
 
     val cacheUsage by produceCacheUsage()
 
@@ -237,6 +238,19 @@ fun SettingsScreen(container: AppContainer) {
                         label = { Text("Swipe up/down") },
                     )
                 }
+            }
+
+            item {
+                SettingRow(
+                    title = "ReplayGain normalization",
+                    subtitle = "Levels playback using file tags — rescan library to read them",
+                    trailing = {
+                        androidx.compose.material3.Switch(
+                            checked = rgEnabled,
+                            onCheckedChange = { rgEnabled = it; container.prefs.rgEnabled = it },
+                        )
+                    },
+                )
             }
 
             item { HorizontalDivider() }
