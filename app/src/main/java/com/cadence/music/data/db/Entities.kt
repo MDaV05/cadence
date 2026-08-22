@@ -4,6 +4,8 @@ import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
+data class AlbumGroup(val name: String, val artistName: String, val trackCount: Int)
+
 @Entity(
     tableName = "tracks",
     indices = [Index("albumKey"), Index("sourceId", "serverId")]

@@ -48,28 +48,39 @@ fun AppNav() {
             Column {
                 val np by container.player.state.collectAsState()
                 if (np.title.isNotEmpty()) {
-                    Row(
+                    androidx.compose.material3.Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        shape = MaterialTheme.shapes.large,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { navController.navigate("nowplaying") }
-                            .padding(horizontal = 16.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                            .clickable { navController.navigate("nowplaying") },
                     ) {
-                        Icon(Icons.Filled.MusicNote, null)
-                        Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                            Text(np.title, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
-                            Text(
-                                np.artist,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                            )
-                        }
-                        IconButton(onClick = { container.player.togglePlayPause() }) {
+                        Row(
+                            modifier = Modifier.padding(start = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
                             Icon(
-                                if (np.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                                "Play/pause",
+                                Icons.Filled.MusicNote,
+                                null,
+                                tint = MaterialTheme.colorScheme.primary,
                             )
+                            Column(Modifier.weight(1f).padding(start = 10.dp)) {
+                                Text(np.title, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
+                                Text(
+                                    np.artist,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                )
+                            }
+                            IconButton(onClick = { container.player.togglePlayPause() }) {
+                                Icon(
+                                    if (np.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                                    "Play/pause",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                )
+                            }
                         }
                     }
                 }
@@ -107,6 +118,8 @@ fun AppNav() {
         ) {
             composable("library") { LibraryScreen(container, onArtistClick = { name ->
                 navController.navigate("artist/${Uri.encode(name)}")
+            }, onAlbumClick = { name ->
+                navController.navigate("album/${Uri.encode(name)}")
             }) }
             composable("search") { SearchScreen(container) }
             composable("settings") { SettingsScreen(container) }

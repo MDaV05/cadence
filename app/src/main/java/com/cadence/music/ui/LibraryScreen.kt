@@ -9,11 +9,15 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -23,11 +27,16 @@ import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -40,53 +49,57 @@ import com.cadence.music.data.db.TrackEntity
 import kotlinx.coroutines.launch
 
 @Composable
-fun LibraryScreen(container: AppContainer, onArtistClick: (String) -> Unit = {}) {
-    val tracks by container.library.tracks().collectAsStateWithLifecycle(initialValue = emptyList())
+fun LibraryScreen(
+    container: AppContainer,
+    onArtistClick: (String) -> Unit = {},
+    onAlbumClick: (String) -> Unit = {},
+) {
     val player = container.player
+    val tracks by container.library.tracks().collectAsStateWithLifecycle(initialValue = emptyList())
+    val albumGroups by container.library.albumGroups()
+        .collectAsStateWithLifecycle(initialValue = emptyList())
+    val artists by container.library.artistNames()
+        .collectAsStateWithLifecycle(initialValue = emptyList())
+
+    var tab by remember { mutableIntStateOf(0) }
 
     Scaffold(
         floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = { player.shuffleAll(tracks.map { it.toTrack() }) },
-                icon = { Icon(Icons.Filled.Shuffle, null) },
-                text = { Text("Shuffle all") },
-            )
+            if (tab == 0) {
+                ExtendedFloatingActionButton(
+                    onClick = { player.shuffleAll(tracks.map { it.toTrack() }) },
+                    icon = { Icon(Icons.Filled.Shuffle, null) },
+                    text = { Text("Shuffle all") },
+                )
+            }
         }
     ) { padding ->
-        if (tracks.isEmpty()) {
-            val scope = rememberCoroutineScope()
-            val permLauncher = rememberLauncherForActivityResult(
-                ActivityResultContracts.RequestPermission()
-            ) { granted ->
-                if (granted) scope.launch { container.library.syncAll() }
-            }
-            Column(
-                modifier = Modifier.fillMaxSize().padding(padding).padding(32.dp),
-                verticalArrangement = Arrangement.Center,
-                horizontalAlignment = Alignment.CenterHorizontally,
+        Column(Modifier.fillMaxSize().padding(padding)) {
+
+            // Collapsing-style large header
+            Text(
+                "Library",
+                style = MaterialTheme.typography.headlineMedium,
+                modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 4.dp),
+            )
+
+            TabRow(
+                selectedTabIndex = tab,
+                containerColor = MaterialTheme.colorScheme.background,
             ) {
-                Text("Your library is empty", style = MaterialTheme.typography.titleMedium)
-                Text(
-                    "Grant access to your music files, or connect a server in Settings.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 4.dp),
-                )
-                Button(
-                    onClick = {
-                        val permission = if (Build.VERSION.SDK_INT >= 33)
-                            Manifest.permission.READ_MEDIA_AUDIO
-                        else Manifest.permission.READ_EXTERNAL_STORAGE
-                        permLauncher.launch(permission)
-                    },
-                    modifier = Modifier.padding(top = 16.dp),
-                ) { Text("Grant audio access") }
-            }
-        } else {
-            LazyColumn(modifier = Modifier.fillMaxSize().padding(padding)) {
-                items(tracks, key = { it.id }) { track ->
-                    TrackRow(container, track, onArtistClick) { player.playNow(listOf(track.toTrack())) }
+                listOf("Songs", "Albums", "Artists").forEachIndexed { i, label ->
+                    Tab(
+                        selected = tab == i,
+                        onClick = { tab = i },
+                        text = { Text(label) },
+                    )
                 }
+            }
+
+            when (tab) {
+                0 -> songsTab(tracks, container, onArtistClick, player)
+                1 -> albumsTab(albumGroups, container, onAlbumClick)
+                2 -> artistsTab(artists, onArtistClick)
             }
         }
     }
@@ -139,6 +152,115 @@ fun TrackRow(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+    }
+}
+
+@Composable
+private fun EmptyLibrary(onGrant: () -> Unit) {
+    Column(
+        modifier = Modifier.fillMaxSize().padding(32.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text("Your library is empty", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "Grant access to your music files, or connect a server in Settings.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+        Button(onClick = onGrant, modifier = Modifier.padding(top = 16.dp)) {
+            Text("Grant audio access")
+        }
+    }
+}
+
+@Composable
+private fun songsTab(
+    tracks: List<TrackEntity>,
+    container: AppContainer,
+    onArtistClick: (String) -> Unit,
+    player: com.cadence.music.playback.PlayerConnection,
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val permLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) scope.launch { container.library.syncAll() }
+    }
+
+    if (tracks.isEmpty()) {
+        val permission = if (Build.VERSION.SDK_INT >= 33)
+            Manifest.permission.READ_MEDIA_AUDIO else Manifest.permission.READ_EXTERNAL_STORAGE
+        EmptyLibrary { permLauncher.launch(permission) }
+        return
+    }
+    LazyColumn(Modifier.fillMaxSize()) {
+        items(tracks, key = { it.id }) { track ->
+            TrackRow(container, track, onArtistClick) { player.playNow(listOf(track.toTrack())) }
+        }
+    }
+}
+
+@Composable
+private fun albumsTab(
+    albums: List<com.cadence.music.data.db.AlbumGroup>,
+    container: AppContainer,
+    onAlbumClick: (String) -> Unit,
+) {
+    LazyVerticalGrid(
+        columns = GridCells.Adaptive(104.dp),
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        items(albums, key = { it.name }) { album ->
+            val art by produceState<String?>(null, album.name) {
+                value = container.library.tracksByAlbum(album.name).firstOrNull()
+                    ?.let { container.artResolver.urlFor(it) }
+            }
+            Column(Modifier.clickable { if (album.name.isNotBlank()) onAlbumClick(album.name) }) {
+                AsyncImage(
+                    model = art,
+                    contentDescription = album.name,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(1f)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                )
+                Text(
+                    album.name,
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 1,
+                    modifier = Modifier.padding(top = 6.dp),
+                )
+                Text(
+                    album.artistName,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun artistsTab(artists: List<String>, onArtistClick: (String) -> Unit) {
+    LazyColumn(Modifier.fillMaxSize()) {
+        items(artists, key = { it }) { name ->
+            Text(
+                name,
+                style = MaterialTheme.typography.bodyLarge,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onArtistClick(name) }
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+            )
+        }
     }
 }
 
