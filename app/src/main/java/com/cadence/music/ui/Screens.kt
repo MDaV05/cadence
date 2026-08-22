@@ -45,6 +45,7 @@ fun SettingsScreen(container: AppContainer) {
     var dlFormat by remember { mutableStateOf(container.prefs.downloadFormat) }
     var dlBitrate by remember { mutableIntStateOf(container.prefs.downloadBitrate) }
     var cacheGb by remember { mutableIntStateOf(container.prefs.cacheGb) }
+    var lbToken by remember { mutableStateOf(container.prefs.listenBrainzToken ?: "") }
 
     Scaffold { padding ->
         Column(
@@ -151,6 +152,26 @@ fun SettingsScreen(container: AppContainer) {
                 },
                 valueRange = 1f..8f,
                 steps = 6,
+            )
+
+            HorizontalDivider()
+
+            Text("Scrobbling", style = MaterialTheme.typography.titleMedium)
+            OutlinedTextField(
+                lbToken,
+                {
+                    lbToken = it
+                    container.prefs.listenBrainzToken = it.ifBlank { null }
+                },
+                label = { Text("ListenBrainz user token") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+            )
+
+            Text(
+                "Get your token at listenbrainz.org/profile",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }
