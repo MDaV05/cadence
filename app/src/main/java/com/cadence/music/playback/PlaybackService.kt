@@ -1,6 +1,7 @@
 package com.cadence.music.playback
 
 import android.content.Intent
+import kotlinx.coroutines.runBlocking
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.Player
@@ -51,6 +52,7 @@ class PlaybackService : MediaLibraryService() {
 
             override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
                 pushWidget(mediaItem, player.isPlaying)
+                applyReplayGain(mediaItem?.mediaId)
             }
 
             override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -70,6 +72,27 @@ class PlaybackService : MediaLibraryService() {
             mediaItem?.mediaMetadata?.artist?.toString() ?: "",
             playing,
         )
+    }
+
+    private fun applyReplayGain(mediaId: String?) {
+        val p = getSharedPreferences("cadence", MODE_PRIVATE)
+        if (!p.getBoolean("rg_enabled", false)) {
+            session?.player?.volume = 1f
+            return
+        }
+        if (mediaId == null) return
+        val container = (application as? com.cadence.music.CadenceApp)?.container ?: return
+        Thread {
+            val rg = runBlocking {
+                runCatching { container.database.trackDao().byServerId(mediaId)?.replayGainDb }
+                    .getOrNull()
+            }
+            val volume = rg?.let { Math.pow(10.0, it.toDouble() / 20.0).toFloat() }
+                ?.coerceIn(0f, 1f) ?: 1f
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                session?.player?.volume = volume
+            }
+        }.start()
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo) = session

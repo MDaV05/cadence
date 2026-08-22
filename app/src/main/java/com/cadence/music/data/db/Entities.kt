@@ -8,7 +8,10 @@ data class AlbumGroup(val name: String, val artistName: String, val trackCount: 
 
 @Entity(
     tableName = "tracks",
-    indices = [Index("albumKey"), Index("sourceId", "serverId")]
+    indices = [
+        Index("albumKey"),
+        Index(value = ["sourceId", "serverId"], unique = true),
+    ]
 )
 data class TrackEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
