@@ -1,5 +1,6 @@
 package com.cadence.music.ui
 
+import android.net.Uri
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -104,10 +105,16 @@ fun AppNav() {
                 .fillMaxSize()
                 .padding(padding),
         ) {
-            composable("library") { LibraryScreen(container) }
+            composable("library") { LibraryScreen(container, onArtistClick = { name ->
+                navController.navigate("artist/${Uri.encode(name)}")
+            }) }
             composable("search") { SearchScreen(container) }
             composable("settings") { SettingsScreen(container) }
             composable("nowplaying") { NowPlayingScreen(container) }
+            composable("artist/{name}") { entry ->
+                val name = entry.arguments?.getString("name") ?: return@composable
+                ArtistScreen(container, java.net.URLDecoder.decode(name, "UTF-8"))
+            }
         }
     }
 }

@@ -28,6 +28,12 @@ interface TrackDao {
 
     @Query("DELETE FROM tracks WHERE albumKey = :albumKey")
     suspend fun deleteByAlbumKey(albumKey: String)
+
+    @Query("SELECT DISTINCT artistName FROM tracks WHERE artistName != '' ORDER BY artistName")
+    fun observeArtistNames(): Flow<List<String>>
+
+    @Query("SELECT * FROM tracks WHERE artistName = :name ORDER BY albumName, trackNumber")
+    suspend fun byArtist(name: String): List<TrackEntity>
 }
 
 @Dao
