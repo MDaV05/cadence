@@ -48,11 +48,28 @@ class PlaybackService : MediaLibraryService() {
         fun attachEq(sessionId: Int) = EqManager.attach(sessionId)
         player.addListener(object : Player.Listener {
             override fun onAudioSessionIdChanged(audioSessionId: Int) = attachEq(audioSessionId)
+
+            override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
+                pushWidget(mediaItem, player.isPlaying)
+            }
+
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                pushWidget(player.currentMediaItem, isPlaying)
+            }
         })
         attachEq(player.audioSessionId)
 
         session = MediaLibrarySession.Builder(this, player, object : MediaLibrarySession.Callback {})
             .build()
+    }
+
+    private fun pushWidget(mediaItem: androidx.media3.common.MediaItem?, playing: Boolean) {
+        PlayerWidget.push(
+            this,
+            mediaItem?.mediaMetadata?.title?.toString() ?: "",
+            mediaItem?.mediaMetadata?.artist?.toString() ?: "",
+            playing,
+        )
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo) = session
