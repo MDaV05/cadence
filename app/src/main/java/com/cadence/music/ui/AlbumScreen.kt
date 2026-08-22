@@ -12,6 +12,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material3.Icon
@@ -35,8 +36,14 @@ import com.cadence.music.AppContainer
 @Composable
 fun AlbumScreen(container: AppContainer, albumName: String) {
     val player = container.player
+    val context = androidx.compose.ui.platform.LocalContext.current
     var tracks by remember { mutableStateOf<List<com.cadence.music.data.db.TrackEntity>>(emptyList()) }
     var art by remember { mutableStateOf<String?>(null) }
+
+    fun downloadAll() {
+        tracks.filter { it.sourceId == "subsonic" && it.path == null }
+            .forEach { com.cadence.music.data.downloads.DownloadWorker.enqueue(context, it.id) }
+    }
 
     LaunchedEffect(albumName) {
         tracks = container.library.tracksByAlbum(albumName)
@@ -70,6 +77,9 @@ fun AlbumScreen(container: AppContainer, albumName: String) {
                         }
                         IconButton(onClick = { player.shuffleAll(tracks.map { it.toTrack() }) }) {
                             Icon(Icons.Filled.Shuffle, "Shuffle album")
+                        }
+                        IconButton(onClick = { downloadAll() }) {
+                            Icon(Icons.Filled.Download, "Download album")
                         }
                     }
                 }
