@@ -44,4 +44,8 @@ class Prefs(context: Context) {
     var cacheGb: Int
         get() = sp.getInt("cache_gb", 2)
         set(value) = sp.edit().putInt("cache_gb", value).apply()
+
+    var listenBrainzToken: String?
+        get() = sp.getString("lb_token", null)
+        set(value) = sp.edit().putString("lb_token", value).apply()
 }

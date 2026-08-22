@@ -25,7 +25,7 @@ data class NowPlaying(
     val durationMs: Long = 0,
 )
 
-class PlayerConnection(context: Context) {
+class PlayerConnection(context: Context, private val lbTokenProvider: () -> String? = { null }) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val appContext = context.applicationContext
@@ -46,10 +46,18 @@ class PlayerConnection(context: Context) {
                 }
 
                 override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                    _state.value = _state.value.copy(
-                        title = mediaItem?.mediaMetadata?.title?.toString() ?: "",
-                        artist = mediaItem?.mediaMetadata?.artist?.toString() ?: "",
-                    )
+                    val title = mediaItem?.mediaMetadata?.title?.toString() ?: ""
+                    val artist = mediaItem?.mediaMetadata?.artist?.toString() ?: ""
+                    val album = mediaItem?.mediaMetadata?.albumTitle?.toString()
+                    _state.value = _state.value.copy(title = title, artist = artist)
+                    val token = lbTokenProvider()
+                    if (token != null && title.isNotBlank() && artist.isNotBlank()) {
+                        Thread {
+                            com.cadence.music.data.metadata.ListenBrainz.submitBlocking(
+                                token, artist, title, album,
+                            )
+                        }.start()
+                    }
                 }
             })
         }
@@ -79,6 +87,21 @@ class PlayerConnection(context: Context) {
 
     fun next() { controller?.seekToNextMediaItem() }
     fun previous() { controller?.seekToPreviousMediaItem() }
+
+    val queue: List<MediaItem> get() = controller?.mediaItemCount?.let { n ->
+        (0 until n).map { controller!!.getMediaItemAt(it) }
+    } ?: emptyList()
+
+    val queueIndex: Int get() = controller?.currentMediaItemIndex ?: 0
+
+    fun jumpTo(index: Int) {
+        controller?.seekToDefaultPosition(index)
+        controller?.play()
+    }
+
+    fun removeFromQueue(index: Int) {
+        controller?.removeMediaItem(index)
+    }
 
     fun release() {
         controller?.release()

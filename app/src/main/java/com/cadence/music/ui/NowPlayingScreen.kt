@@ -1,5 +1,6 @@
 package com.cadence.music.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -11,6 +12,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
@@ -21,6 +23,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -53,6 +56,8 @@ fun NowPlayingScreen(container: AppContainer) {
     var lyrics by remember { mutableStateOf<List<SyncedLine>>(emptyList()) }
     var currentLine by remember { mutableIntStateOf(-1) }
     var showLyrics by remember { mutableStateOf(true) }
+    var showQueue by remember { mutableStateOf(false) }
+    var queueVersion by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(state.isPlaying) {
         while (true) {
@@ -140,11 +145,50 @@ fun NowPlayingScreen(container: AppContainer) {
                 }
             }
 
-            if (showLyrics && lyrics.isNotEmpty()) {
+            if (showQueue) {
+                Text(
+                    "Up next",
+                    style = MaterialTheme.typography.titleSmall,
+                    modifier = Modifier.padding(top = 16.dp),
+                )
+                val q = player.queue
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp).weight(1f, fill = false),
+                ) {
+                    items(q.size) { i ->
+                        val item = q[i]
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { player.jumpTo(i) }
+                                .padding(vertical = 6.dp, horizontal = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                item.mediaMetadata.title?.toString() ?: "",
+                                modifier = Modifier.weight(1f),
+                                maxLines = 1,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = if (i == player.queueIndex) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurface,
+                            )
+                            IconButton(onClick = { player.removeFromQueue(i) }) {
+                                Icon(Icons.Filled.Close, "Remove", Modifier.size(16.dp))
+                            }
+                        }
+                    }
+                }
+            }
+
+            TextButton(onClick = { showQueue = !showQueue }) {
+                Text(if (showQueue) "Hide queue" else "Up next / lyrics")
+            }
+
+            if (!showQueue && lyrics.isNotEmpty()) {
                 LazyColumn(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 16.dp)
+                        .padding(top = 8.dp)
                         .weight(1f, fill = false),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
