@@ -40,6 +40,20 @@
                 <action android:name="android.media.browse.MediaBrowserService" />
             </intent-filter>
         </service>
+
+        <receiver
+            android:name=".playback.PlayerWidget"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="com.cadence.music.WIDGET_TOGGLE" />
+                <action android:name="com.cadence.music.WIDGET_NEXT" />
+                <action android:name="com.cadence.music.WIDGET_PREV" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_player_info" />
+        </receiver>
     </application>
 
 </manifest>
