@@ -24,6 +24,9 @@ class LibraryRepository(
     suspend fun tracksByArtist(name: String): List<TrackEntity> =
         db.trackDao().byArtist(name)
 
+    suspend fun tracksByAlbum(name: String): List<TrackEntity> =
+        db.trackDao().byAlbum(name)
+
     suspend fun syncAll() {
         when (prefs.mode) {
             LibraryMode.LOCAL_ONLY -> syncLocal()
