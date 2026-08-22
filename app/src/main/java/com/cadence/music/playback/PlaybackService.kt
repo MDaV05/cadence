@@ -3,6 +3,7 @@ package com.cadence.music.playback
 import android.content.Intent
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.Player
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.cache.CacheDataSource
@@ -15,14 +16,22 @@ import com.cadence.music.CadenceApp
 class PlaybackService : MediaLibraryService() {
 
     private var session: MediaLibrarySession? = null
+    private val prefsListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
+        EqManager.apply()
+    }
 
     override fun onCreate() {
         super.onCreate()
+        EqManager.init(this)
+        getSharedPreferences("cadence", MODE_PRIVATE)
+            .registerOnSharedPreferenceChangeListener(prefsListener)
+
         val upstream: DataSource.Factory = DefaultDataSource.Factory(this)
         val cached: DataSource.Factory = CacheDataSource.Factory()
             .setCache(StreamCache.get(applicationContext))
             .setUpstreamDataSourceFactory(upstream)
             .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+
         val player = ExoPlayer.Builder(this)
             .setMediaSourceFactory(DefaultMediaSourceFactory(cached))
             .setAudioAttributes(
@@ -35,6 +44,13 @@ class PlaybackService : MediaLibraryService() {
             .setHandleAudioBecomingNoisy(true)
             .setWakeMode(C.WAKE_MODE_LOCAL)
             .build()
+
+        fun attachEq(sessionId: Int) = EqManager.attach(sessionId)
+        player.addListener(object : Player.Listener {
+            override fun onAudioSessionIdChanged(audioSessionId: Int) = attachEq(audioSessionId)
+        })
+        attachEq(player.audioSessionId)
+
         session = MediaLibrarySession.Builder(this, player, object : MediaLibrarySession.Callback {})
             .build()
     }
@@ -49,6 +65,9 @@ class PlaybackService : MediaLibraryService() {
     }
 
     override fun onDestroy() {
+        getSharedPreferences("cadence", MODE_PRIVATE)
+            .unregisterOnSharedPreferenceChangeListener(prefsListener)
+        EqManager.detach()
         session?.run {
             player.release()
             release()
