@@ -13,9 +13,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -40,6 +42,9 @@ fun SettingsScreen(container: AppContainer) {
     var mode by remember { mutableStateOf(container.prefs.mode) }
     var status by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
+    var dlFormat by remember { mutableStateOf(container.prefs.downloadFormat) }
+    var dlBitrate by remember { mutableIntStateOf(container.prefs.downloadBitrate) }
+    var cacheGb by remember { mutableIntStateOf(container.prefs.cacheGb) }
 
     Scaffold { padding ->
         Column(
@@ -81,7 +86,7 @@ fun SettingsScreen(container: AppContainer) {
                                     com.cadence.music.data.prefs.ServerConfig(url, user, pass)
                                 status = if (container.library.subsonic.ping()) {
                                     val n = container.library.syncServer()
-                                    "Connected — synced $n tracks"
+                                    "Connected — synced ${n.tracksFetched} tracks (${n.albumsFetched} albums)"
                                 } else "Connection failed"
                             } catch (e: Exception) {
                                 status = "Error: ${e.message}"
@@ -107,6 +112,46 @@ fun SettingsScreen(container: AppContainer) {
 
             if (busy) CircularProgressIndicator()
             if (status.isNotEmpty()) Text(status, style = MaterialTheme.typography.bodySmall)
+
+            HorizontalDivider()
+
+            Text("Downloads", style = MaterialTheme.typography.titleMedium)
+            Text("Format", style = MaterialTheme.typography.bodySmall)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("raw" to "Original", "opus" to "Opus", "mp3" to "MP3").forEach { (f, label) ->
+                    androidx.compose.material3.FilterChip(
+                        selected = dlFormat == f,
+                        onClick = {
+                            dlFormat = f
+                            container.prefs.downloadFormat = f
+                        },
+                        label = { Text(label) },
+                    )
+                }
+            }
+            if (dlFormat != "raw") {
+                Text("Bitrate: ${dlBitrate} kbps", style = MaterialTheme.typography.bodySmall)
+                Slider(
+                    value = dlBitrate.toFloat(),
+                    onValueChange = { dlBitrate = it.toInt() },
+                    onValueChangeFinished = { container.prefs.downloadBitrate = dlBitrate },
+                    valueRange = 64f..320f,
+                )
+            }
+
+            HorizontalDivider()
+
+            Text("Stream cache: ${cacheGb} GB", style = MaterialTheme.typography.titleMedium)
+            Slider(
+                value = cacheGb.toFloat(),
+                onValueChange = { cacheGb = it.toInt() },
+                onValueChangeFinished = {
+                    container.prefs.cacheGb = cacheGb
+                    status = "Cache cap applies after app restart"
+                },
+                valueRange = 1f..8f,
+                steps = 6,
+            )
         }
     }
 }

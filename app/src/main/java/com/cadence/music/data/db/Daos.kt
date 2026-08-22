@@ -25,6 +25,9 @@ interface TrackDao {
 
     @Query("UPDATE tracks SET path = :path WHERE id = :id")
     suspend fun setPath(id: Long, path: String)
+
+    @Query("DELETE FROM tracks WHERE albumKey = :albumKey")
+    suspend fun deleteByAlbumKey(albumKey: String)
 }
 
 @Dao
@@ -44,8 +47,14 @@ interface AlbumDao {
     @Query("SELECT * FROM albums WHERE id = :id")
     suspend fun byId(id: Long): AlbumEntity?
 
+    @Query("SELECT * FROM albums WHERE sourceId = :sourceId")
+    suspend fun bySource(sourceId: String): List<AlbumEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(albums: List<AlbumEntity>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(album: AlbumEntity)
 }
 
 @Dao

@@ -6,15 +6,16 @@ import androidx.room.PrimaryKey
 
 @Entity(
     tableName = "tracks",
-    indices = [Index("albumId"), Index("artistId"), Index("sourceId", "serverId")]
+    indices = [Index("albumKey"), Index("sourceId", "serverId")]
 )
 data class TrackEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val sourceId: String,
     val serverId: String,
     val title: String,
-    val artistId: Long?,
-    val albumId: Long?,
+    val artistName: String = "",
+    val albumName: String = "",
+    val albumKey: String? = null,
     val path: String?,
     val durationMs: Long,
     val trackNumber: Int,
@@ -23,16 +24,17 @@ data class TrackEntity(
     val lastPlayed: Long? = null,
 )
 
-@Entity(tableName = "albums", indices = [Index("mbid")])
+@Entity(tableName = "albums", indices = [Index(value = ["sourceId", "serverId"], unique = true), Index("mbid")])
 data class AlbumEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val sourceId: String,
     val serverId: String,
     val title: String,
-    val artistId: Long?,
-    val year: Int?,
+    val artistName: String = "",
+    val year: Int? = null,
     val mbid: String? = null,
     val artPath: String? = null,
+    val remoteCreated: String? = null,
 )
 
 @Entity(tableName = "artists", indices = [Index("mbid")])

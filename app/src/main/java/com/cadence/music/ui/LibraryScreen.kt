@@ -20,7 +20,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -29,7 +28,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.cadence.music.AppContainer
 import com.cadence.music.data.db.TrackEntity
 import com.cadence.music.data.downloads.DownloadWorker
-import kotlinx.coroutines.launch
 
 @Composable
 fun LibraryScreen(container: AppContainer) {
@@ -70,24 +68,29 @@ fun LibraryScreen(container: AppContainer) {
                     ) {
                         Column(Modifier.weight(1f)) {
                             Text(track.title, style = MaterialTheme.typography.bodyLarge, maxLines = 1)
+                            val sub = when {
+                                track.sourceId == "local" -> listOfNotNull(
+                                    track.artistName.ifBlank { null },
+                                    "Local",
+                                )
+                                track.path != null -> listOfNotNull(
+                                    track.artistName.ifBlank { null },
+                                    "Downloaded",
+                                )
+                                else -> listOfNotNull(
+                                    track.artistName.ifBlank { null },
+                                    "Stream",
+                                )
+                            }
                             Text(
-                                when {
-                                    track.sourceId == "local" -> "Local"
-                                    track.path != null -> "Downloaded"
-                                    else -> "Stream"
-                                },
+                                sub.joinToString(" • "),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
                             )
                         }
                         if (track.sourceId == "subsonic" && track.path == null) {
-                            val scope = rememberCoroutineScope()
-                            IconButton(onClick = {
-                                scope.launch {
-                                    val url = container.library.subsonic.streamUrl(track.toTrack())
-                                    if (url != null) DownloadWorker.enqueue(context, track.id, url)
-                                }
-                            }) {
+                            IconButton(onClick = { DownloadWorker.enqueue(context, track.id) }) {
                                 Icon(Icons.Filled.Download, "Download")
                             }
                         }
@@ -112,8 +115,9 @@ fun TrackEntity.toTrack() = com.cadence.music.data.source.Track(
     key = serverId,
     sourceId = sourceId,
     title = title,
-    artist = "",
-    album = "",
+    artist = artistName,
+    album = albumName,
+    albumKey = albumKey,
     durationMs = durationMs,
     localPath = path,
 )

@@ -6,6 +6,7 @@ data class Track(
     val title: String,
     val artist: String,
     val album: String,
+    val albumKey: String? = null,
     val durationMs: Long,
     val localPath: String?,
     val streamUrl: String? = null,
@@ -17,6 +18,7 @@ data class Album(
     val title: String,
     val artist: String,
     val year: Int?,
+    val remoteCreated: String? = null,
 )
 
 suspend fun resolvePlayable(track: Track): String =

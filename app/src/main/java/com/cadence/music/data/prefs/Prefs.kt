@@ -31,4 +31,17 @@ class Prefs(context: Context) {
         get() = runCatching { LibraryMode.valueOf(sp.getString("mode", null) ?: "") }
             .getOrDefault(LibraryMode.HYBRID)
         set(value) = sp.edit().putString("mode", value.name).apply()
+
+    // "raw" keeps original bitrate; otherwise a Subsonic transcode format like "opus" or "mp3"
+    var downloadFormat: String
+        get() = sp.getString("download_format", null) ?: "raw"
+        set(value) = sp.edit().putString("download_format", value).apply()
+
+    var downloadBitrate: Int
+        get() = sp.getInt("download_bitrate", 128)
+        set(value) = sp.edit().putInt("download_bitrate", value).apply()
+
+    var cacheGb: Int
+        get() = sp.getInt("cache_gb", 2)
+        set(value) = sp.edit().putInt("cache_gb", value).apply()
 }
