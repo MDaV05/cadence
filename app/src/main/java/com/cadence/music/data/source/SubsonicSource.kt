@@ -71,28 +71,8 @@ class SubsonicSource(private val configProvider: () -> ServerConfig?) : MusicSou
         return tracks
     }
 
-    private fun albumTracks(albumId: String): List<Track> {
-        val resp = get("getAlbum", mapOf("id" to albumId))
-        val album = resp.getJSONObject("album")
-        val albumName = album.optString("name", "Unknown")
-        val songs = album.optJSONArray("song") ?: return emptyList()
-        return (0 until songs.length()).map { i ->
-            val s = songs.getJSONObject(i)
-            Track(
-                key = "sub:${s.getString("id")}",
-                sourceId = id,
-                title = s.optString("title", "Unknown"),
-                artist = s.optString("artist", ""),
-                album = albumName,
-                durationMs = s.optLong("duration", 0) * 1000,
-                localPath = null,
-                streamUrl = streamUrlFor(s.getString("id")),
-            )
-        }
-    }
-
-    suspend fun albums(): List<Pair<String, String>> {
-        val out = mutableListOf<Pair<String, String>>()
+    suspend fun listAlbums(): List<Album> {
+        val out = mutableListOf<Album>()
         var offset = 0
         while (true) {
             val resp = get(
@@ -103,12 +83,47 @@ class SubsonicSource(private val configProvider: () -> ServerConfig?) : MusicSou
             if (albums.length() == 0) break
             for (i in 0 until albums.length()) {
                 val a = albums.getJSONObject(i)
-                out += a.getString("id") to a.optString("name", "Unknown")
+                out += Album(
+                    key = "sub:${a.getString("id")}",
+                    sourceId = id,
+                    title = a.optString("name", "Unknown"),
+                    artist = a.optString("artist", ""),
+                    year = a.optInt("year", 0).takeIf { it > 0 },
+                    remoteCreated = a.optString("created", null),
+                )
             }
             offset += albums.length()
         }
         return out
     }
+
+    suspend fun albumTracksByKey(albumKey: String): List<Track> =
+        albumTracks(albumKey.removePrefix("sub:"))
+
+    private fun albumTracks(albumId: String): List<Track> {
+        val resp = get("getAlbum", mapOf("id" to albumId))
+        val album = resp.getJSONObject("album")
+        val albumName = album.optString("name", "Unknown")
+        val key = "sub:$albumId"
+        val songs = album.optJSONArray("song") ?: return emptyList()
+        return (0 until songs.length()).map { i ->
+            val s = songs.getJSONObject(i)
+            Track(
+                key = "sub:${s.getString("id")}",
+                sourceId = id,
+                title = s.optString("title", "Unknown"),
+                artist = s.optString("artist", ""),
+                album = albumName,
+                albumKey = key,
+                durationMs = s.optLong("duration", 0) * 1000,
+                localPath = null,
+                streamUrl = streamUrlFor(s.getString("id")),
+            )
+        }
+    }
+
+    fun coverArtUrl(albumKey: String): String =
+        url("getCoverArt", mapOf("id" to albumKey.removePrefix("sub:")))
 
     override suspend fun search(query: String): List<Track> {
         val resp = get("search3", mapOf("query" to query, "songCount" to "50"))
@@ -121,6 +136,7 @@ class SubsonicSource(private val configProvider: () -> ServerConfig?) : MusicSou
                 title = s.optString("title", "Unknown"),
                 artist = s.optString("artist", ""),
                 album = s.optString("album", ""),
+                albumKey = s.optString("albumId", null)?.let { "sub:$it" },
                 durationMs = s.optLong("duration", 0) * 1000,
                 localPath = null,
                 streamUrl = streamUrlFor(s.getString("id")),
@@ -129,6 +145,13 @@ class SubsonicSource(private val configProvider: () -> ServerConfig?) : MusicSou
     }
 
     private fun streamUrlFor(songId: String) = url("stream", mapOf("id" to songId))
+
+    fun downloadUrl(songId: String, format: String, bitrate: Int): String =
+        if (format == "raw") url("download", mapOf("id" to songId))
+        else url(
+            "download",
+            mapOf("id" to songId, "format" to format, "maxBitRate" to bitrate.toString()),
+        )
 
     override suspend fun streamUrl(track: Track): String? =
         track.streamUrl ?: track.key.removePrefix("sub:").let { streamUrlFor(it) }

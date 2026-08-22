@@ -23,11 +23,16 @@ class DownloadWorker(context: Context, params: WorkerParameters) :
     override suspend fun doWork(): Result {
         val app = applicationContext as CadenceApp
         val trackId = inputData.getLong("trackRowId", -1)
-        val url = inputData.getString("url") ?: return Result.failure()
         if (trackId <= 0) return Result.failure()
 
         val db = app.container.database
         val track = db.trackDao().byId(trackId) ?: return Result.failure()
+
+        val songId = track.serverId.removePrefix("sub:")
+        val prefsFormat = app.container.prefs.downloadFormat
+        val url = app.container.library.subsonic.downloadUrl(
+            songId, prefsFormat, app.container.prefs.downloadBitrate,
+        )
 
         db.downloadDao().upsert(
             DownloadEntity(track.serverId, track.sourceId, "running")
@@ -83,9 +88,9 @@ class DownloadWorker(context: Context, params: WorkerParameters) :
     private fun isRetryableStop() = runAttemptCount < 3
 
     companion object {
-        fun enqueue(context: Context, trackRowId: Long, url: String) {
+        fun enqueue(context: Context, trackRowId: Long) {
             val request = OneTimeWorkRequestBuilder<DownloadWorker>()
-                .setInputData(workDataOf("trackRowId" to trackRowId, "url" to url))
+                .setInputData(workDataOf("trackRowId" to trackRowId))
                 .setConstraints(
                     Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
                 )
