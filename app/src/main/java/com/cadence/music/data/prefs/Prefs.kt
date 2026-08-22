@@ -55,4 +55,19 @@ class Prefs(context: Context) {
         get() = runCatching { TrackGesture.valueOf(sp.getString("track_gesture", null) ?: "") }
             .getOrDefault(TrackGesture.HORIZONTAL)
         set(value) = sp.edit().putString("track_gesture", value.name).apply()
+
+    // Equalizer: band levels in milliBel, comma-separated (e.g. "0,-300,0,200,400")
+    var eqEnabled: Boolean
+        get() = sp.getBoolean("eq_enabled", false)
+        set(value) = sp.edit().putBoolean("eq_enabled", value).apply()
+
+    var eqBands: List<Int>
+        get() = (sp.getString("eq_bands", null) ?: "0,0,0,0,0")
+            .split(",").mapNotNull { it.toIntOrNull() }
+        set(value) = sp.edit().putString("eq_bands", value.joinToString(",")).apply()
+
+    // Bass boost strength 0..1000 (per android.media.audiofx.BassBoost)
+    var eqBassBoost: Int
+        get() = sp.getInt("eq_bass", 0)
+        set(value) = sp.edit().putInt("eq_bass", value).apply()
 }

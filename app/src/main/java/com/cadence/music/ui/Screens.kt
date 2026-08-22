@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import com.cadence.music.AppContainer
 import com.cadence.music.data.prefs.LibraryMode
 import com.cadence.music.data.prefs.Prefs
+import com.cadence.music.playback.EqManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -89,6 +90,9 @@ fun SettingsScreen(container: AppContainer) {
     var cacheGb by remember { mutableIntStateOf(container.prefs.cacheGb) }
     var lbToken by remember { mutableStateOf(container.prefs.listenBrainzToken ?: "") }
     var gesture by remember { mutableStateOf(container.prefs.trackGesture) }
+    var eqEnabled by remember { mutableStateOf(container.prefs.eqEnabled) }
+    var eqBands by remember { mutableStateOf(container.prefs.eqBands) }
+    var eqBass by remember { mutableIntStateOf(container.prefs.eqBassBoost) }
 
     val cacheUsage by produceCacheUsage()
 
@@ -232,6 +236,65 @@ fun SettingsScreen(container: AppContainer) {
                         onClick = { gesture = Prefs.TrackGesture.VERTICAL; container.prefs.trackGesture = Prefs.TrackGesture.VERTICAL },
                         label = { Text("Swipe up/down") },
                     )
+                }
+            }
+
+            item { HorizontalDivider() }
+            item { SectionHeader("Equalizer") }
+            item {
+                SettingRow(
+                    title = "Enable equalizer",
+                    subtitle = "Takes effect during playback",
+                    trailing = {
+                        androidx.compose.material3.Switch(
+                            checked = eqEnabled,
+                            onCheckedChange = {
+                                eqEnabled = it
+                                container.prefs.eqEnabled = it
+                            },
+                        )
+                    },
+                )
+            }
+            if (eqEnabled) {
+                items(EqManager.bandCount) { band ->
+                    val level = eqBands.getOrElse(band) { 0 }
+                    Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+                        Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                            Text(EqManager.centerFreqLabel(band) + " Hz", style = MaterialTheme.typography.bodySmall)
+                            Text(
+                                "%+d dB".format(level / 100),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Slider(
+                            value = level.toFloat(),
+                            onValueChange = {
+                                val updated = eqBands.toMutableList().also { l ->
+                                    while (l.size <= band) l.add(0)
+                                    l[band] = it.toInt()
+                                }
+                                eqBands = updated
+                                container.prefs.eqBands = updated
+                            },
+                            valueRange = -1500f..1500f,
+                        )
+                    }
+                }
+                item {
+                    Column(Modifier.padding(horizontal = 16.dp)) {
+                        Text(
+                            "Bass boost: ${eqBass / 10}%",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        Slider(
+                            value = eqBass.toFloat(),
+                            onValueChange = { eqBass = it.toInt() },
+                            onValueChangeFinished = { container.prefs.eqBassBoost = eqBass },
+                            valueRange = 0f..1000f,
+                        )
+                    }
                 }
             }
 
