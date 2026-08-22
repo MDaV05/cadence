@@ -14,6 +14,9 @@ interface TrackDao {
     @Query("SELECT * FROM tracks WHERE id = :id")
     suspend fun byId(id: Long): TrackEntity?
 
+    @Query("SELECT * FROM tracks WHERE serverId = :serverId LIMIT 1")
+    suspend fun byServerId(serverId: String): TrackEntity?
+
     @Query("SELECT COUNT(*) FROM tracks")
     suspend fun count(): Int
 
