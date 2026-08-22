@@ -40,6 +40,12 @@ interface TrackDao {
 
     @Query("SELECT * FROM tracks WHERE albumName = :name ORDER BY trackNumber")
     suspend fun byAlbum(name: String): List<TrackEntity>
+
+    @Query(
+        "SELECT albumName AS name, MIN(artistName) AS artistName, COUNT(*) AS trackCount " +
+        "FROM tracks WHERE albumName != '' GROUP BY albumName ORDER BY name COLLATE NOCASE"
+    )
+    fun observeAlbumGroups(): Flow<List<AlbumGroup>>
 }
 
 @Dao
