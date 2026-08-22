@@ -19,6 +19,10 @@ class LibraryRepository(
 ) {
     fun tracks(): Flow<List<TrackEntity>> = db.trackDao().observeAll()
     fun albums(): Flow<List<AlbumEntity>> = db.albumDao().observeAll()
+    fun artistNames(): Flow<List<String>> = db.trackDao().observeArtistNames()
+
+    suspend fun tracksByArtist(name: String): List<TrackEntity> =
+        db.trackDao().byArtist(name)
 
     suspend fun syncAll() {
         when (prefs.mode) {

@@ -30,7 +30,7 @@ import com.cadence.music.data.db.TrackEntity
 import com.cadence.music.data.downloads.DownloadWorker
 
 @Composable
-fun LibraryScreen(container: AppContainer) {
+fun LibraryScreen(container: AppContainer, onArtistClick: (String) -> Unit = {}) {
     val tracks by container.library.tracks().collectAsStateWithLifecycle(initialValue = emptyList())
     val player = container.player
     val context = LocalContext.current
@@ -87,6 +87,9 @@ fun LibraryScreen(container: AppContainer) {
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
+                                modifier = Modifier.clickable {
+                                    if (track.artistName.isNotBlank()) onArtistClick(track.artistName)
+                                },
                             )
                         }
                         if (track.sourceId == "subsonic" && track.path == null) {
