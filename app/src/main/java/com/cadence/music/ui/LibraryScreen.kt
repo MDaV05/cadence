@@ -31,11 +31,14 @@ import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -156,21 +159,33 @@ fun TrackRow(
 }
 
 @Composable
-private fun EmptyLibrary(onGrant: () -> Unit) {
+private fun EmptyLibrary(granted: Boolean, deniedForever: Boolean, onGrant: () -> Unit) {
     Column(
         modifier = Modifier.fillMaxSize().padding(32.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text("Your library is empty", style = MaterialTheme.typography.titleMedium)
+        val title = when {
+            deniedForever -> "Audio access is turned off"
+            granted -> "No music found"
+            else -> "Your library is empty"
+        }
+        val subtitle = when {
+            deniedForever -> "Allow Cadence to read your music files in system settings, or connect a server in Settings."
+            granted -> "No audio files were found on this device, or connect a server in Settings."
+            else -> "Grant access to your music files, or connect a server in Settings."
+        }
+        Text(title, style = MaterialTheme.typography.titleMedium)
         Text(
-            "Grant access to your music files, or connect a server in Settings.",
+            subtitle,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 4.dp),
         )
-        Button(onClick = onGrant, modifier = Modifier.padding(top = 16.dp)) {
-            Text("Grant audio access")
+        if (!granted) {
+            Button(onClick = onGrant, modifier = Modifier.padding(top = 16.dp)) {
+                Text(if (deniedForever) "Open settings" else "Grant audio access")
+            }
         }
     }
 }
@@ -184,16 +199,54 @@ private fun songsTab(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val permLauncher = rememberLauncherForActivityResult(
+
+    var audioGranted by remember { mutableStateOf(isGranted(context, audioPermission())) }
+    var audioAsked by rememberSaveable { mutableStateOf(false) }
+    var deniedForever by rememberSaveable { mutableStateOf(false) }
+    var notifAsked by rememberSaveable { mutableStateOf(false) }
+
+    val notifLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { }
+
+    fun askNotifications() {
+        if (Build.VERSION.SDK_INT >= 33 && !notifAsked &&
+            !isGranted(context, Manifest.permission.POST_NOTIFICATIONS)
+        ) {
+            notifAsked = true
+            notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
+    val audioLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
-        if (granted) scope.launch { container.library.syncAll() }
+        audioGranted = granted
+        if (!granted) {
+            context.hostActivity()?.let { deniedForever = permanentlyDenied(it, audioPermission()) }
+        } else {
+            scope.launch { container.library.syncAll() }
+        }
+        askNotifications()
+    }
+
+    // Ask once per session on first entry; never nag again until re-entry.
+    LaunchedEffect(Unit) {
+        when {
+            audioGranted -> askNotifications()
+            !audioAsked -> {
+                audioAsked = true
+                audioLauncher.launch(audioPermission())
+            }
+        }
     }
 
     if (tracks.isEmpty()) {
-        val permission = if (Build.VERSION.SDK_INT >= 33)
-            Manifest.permission.READ_MEDIA_AUDIO else Manifest.permission.READ_EXTERNAL_STORAGE
-        EmptyLibrary { permLauncher.launch(permission) }
+        EmptyLibrary(audioGranted, deniedForever) {
+            if (!audioGranted) {
+                if (deniedForever) openAppSettings(context) else audioLauncher.launch(audioPermission())
+            }
+        }
         return
     }
     LazyColumn(Modifier.fillMaxSize()) {
