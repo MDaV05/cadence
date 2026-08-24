@@ -12,22 +12,40 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      # Actions pinned to SHAs (supply-chain hardening); update the SHA when bumping versions.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # Full history so versionCode (commit count) increases monotonically.
+          fetch-depth: 0
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with:
           distribution: temurin
           java-version: 17
-          cache: gradle
 
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
+      - name: Decode release keystore
+        env:
+          SIGNING_KEYSTORE_BASE64: ${{ secrets.SIGNING_KEYSTORE_BASE64 }}
+        run: |
+          echo "$SIGNING_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/cadence-release.jks"
+          if [ ! -s "$RUNNER_TEMP/cadence-release.jks" ]; then
+            echo "::error::SIGNING_KEYSTORE_BASE64 secret is missing or empty — refusing to publish a debug-signed release"
+            exit 1
+          fi
+          echo "SIGNING_KEYSTORE_PATH=$RUNNER_TEMP/cadence-release.jks" >> "$GITHUB_ENV"
+
       - name: Build APKs
+        env:
+          SIGNING_KEYSTORE_PASSWORD: ${{ secrets.SIGNING_KEYSTORE_PASSWORD }}
+          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
         run: ./gradlew assembleDebug assembleRelease --stacktrace
 
       - name: Rename APKs
@@ -36,12 +54,12 @@ jobs:
           if [ "${{ github.ref_type }}" != "tag" ]; then
             TAG="dev-${GITHUB_RUN_NUMBER}"
           fi
-          cp app/build/outputs/apk/debug/app-debug.apk "cadence-${TAG}-debug.apk" || true
-          cp app/build/outputs/apk/release/app-release.apk "cadence-${TAG}-release.apk" || true
+          cp app/build/outputs/apk/debug/app-debug.apk "cadence-${TAG}-debug.apk"
+          cp app/build/outputs/apk/release/app-release.apk "cadence-${TAG}-release.apk"
           ls -lh *.apk
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('dev-build-{0}', github.run_number) }}
           name: ${{ github.ref_type == 'tag' && github.ref_name || format('Dev Build {0}', github.run_number) }}
@@ -49,7 +67,5 @@ jobs:
           generate_release_notes: true
           files: |
             cadence-*.apk
-            app/build/outputs/apk/debug/app-debug.apk
-            app/build/outputs/apk/release/app-release.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
