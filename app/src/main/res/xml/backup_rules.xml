@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- API <= 30 auto-backup rules: never back up the prefs file, it holds the
+     server password and ListenBrainz token in plaintext. -->
+<full-backup-content>
+    <exclude domain="sharedpref" path="cadence.xml" />
+</full-backup-content>

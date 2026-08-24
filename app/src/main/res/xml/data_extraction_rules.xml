@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- API 31+ backup/transfer rules: never send the prefs file to cloud backup
+     or device-to-device transfer; it holds credentials in plaintext. -->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="cadence.xml" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="cadence.xml" />
+    </device-transfer>
+</data-extraction-rules>
