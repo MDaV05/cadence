@@ -24,3 +24,6 @@ captures/
 .zcode/
 skills/
 skills-lock.json
+
+# Release signing key — never commit
+keystore/

@@ -5,6 +5,14 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+// Monotonic version code from commit count (+100 so it always exceeds the
+// historical hand-set 1). Needs full git history — CI checks out with
+// fetch-depth: 0; falls back on shallow/missing git.
+val commitCount = runCatching {
+    providers.exec { commandLine("git", "rev-list", "--count", "HEAD") }
+        .standardOutput.asText.get().trim().toInt()
+}.getOrDefault(1)
+
 android {
     namespace = "com.cadence.music"
     compileSdk = 36
@@ -13,8 +21,10 @@ android {
         applicationId = "com.cadence.music"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = commitCount + 100
+        // Tag builds (v1.2.3) take the version name from the tag; local builds get the default.
+        val ciTag = System.getenv("GITHUB_REF_NAME")?.takeIf { it.matches(Regex("v\\d+\\.\\d+.*")) }
+        versionName = ciTag?.removePrefix("v") ?: "0.2.0"
     }
 
     signingConfigs {

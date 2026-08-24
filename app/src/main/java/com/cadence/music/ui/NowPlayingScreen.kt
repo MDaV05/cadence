@@ -37,6 +37,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -153,9 +154,24 @@ fun NowPlayingScreen(container: AppContainer) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
+            // Drag updates a local value; the seek fires once on release instead
+            // of on every tick (which stuttered playback).
+            var dragging by remember { mutableStateOf(false) }
+            var dragValue by remember { mutableFloatStateOf(0f) }
             Slider(
-                value = if (duration > 0) position.toFloat() / duration else 0f,
-                onValueChange = { player.seekTo((it * duration).toLong()) },
+                value = when {
+                    dragging -> dragValue
+                    duration > 0 -> position.toFloat() / duration
+                    else -> 0f
+                },
+                onValueChange = {
+                    dragging = true
+                    dragValue = it
+                },
+                onValueChangeFinished = {
+                    player.seekTo((dragValue * duration).toLong())
+                    dragging = false
+                },
                 modifier = Modifier.fillMaxWidth().padding(top = 20.dp),
                 colors = SliderDefaults.colors(
                     thumbColor = MaterialTheme.colorScheme.primary,
