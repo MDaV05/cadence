@@ -1,7 +1,6 @@
 package com.cadence.music.playback
 
 import android.content.Intent
-import kotlinx.coroutines.runBlocking
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.Player
@@ -13,10 +12,18 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaSession
 import com.cadence.music.CadenceApp
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class PlaybackService : MediaLibraryService() {
 
     private var session: MediaLibrarySession? = null
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var replayGainJob: kotlinx.coroutines.Job? = null
     private val prefsListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
         EqManager.apply()
     }
@@ -27,9 +34,12 @@ class PlaybackService : MediaLibraryService() {
         getSharedPreferences("cadence", MODE_PRIVATE)
             .registerOnSharedPreferenceChangeListener(prefsListener)
 
+        val container = (application as? CadenceApp)?.container
+        val cacheBytes = container?.prefs?.cacheGb?.coerceIn(1, 20)?.let { it * 1024L * 1024 * 1024 }
+            ?: 2L * 1024 * 1024 * 1024
         val upstream: DataSource.Factory = DefaultDataSource.Factory(this)
         val cached: DataSource.Factory = CacheDataSource.Factory()
-            .setCache(StreamCache.get(applicationContext))
+            .setCache(StreamCache.get(applicationContext, cacheBytes))
             .setUpstreamDataSourceFactory(upstream)
             .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
 
@@ -77,22 +87,24 @@ class PlaybackService : MediaLibraryService() {
     private fun applyReplayGain(mediaId: String?) {
         val p = getSharedPreferences("cadence", MODE_PRIVATE)
         if (!p.getBoolean("rg_enabled", false)) {
+            replayGainJob?.cancel()
             session?.player?.volume = 1f
             return
         }
         if (mediaId == null) return
         val container = (application as? com.cadence.music.CadenceApp)?.container ?: return
-        Thread {
-            val rg = runBlocking {
+        // Cancel any in-flight lookup so a slow stale read can't overwrite the
+        // volume of a track that already transitioned.
+        replayGainJob?.cancel()
+        replayGainJob = serviceScope.launch {
+            val rg = withContext(Dispatchers.IO) {
                 runCatching { container.database.trackDao().byServerId(mediaId)?.replayGainDb }
                     .getOrNull()
             }
             val volume = rg?.let { Math.pow(10.0, it.toDouble() / 20.0).toFloat() }
                 ?.coerceIn(0f, 1f) ?: 1f
-            android.os.Handler(android.os.Looper.getMainLooper()).post {
-                session?.player?.volume = volume
-            }
-        }.start()
+            session?.player?.volume = volume
+        }
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo) = session
@@ -105,6 +117,7 @@ class PlaybackService : MediaLibraryService() {
     }
 
     override fun onDestroy() {
+        serviceScope.cancel()
         getSharedPreferences("cadence", MODE_PRIVATE)
             .unregisterOnSharedPreferenceChangeListener(prefsListener)
         EqManager.detach()

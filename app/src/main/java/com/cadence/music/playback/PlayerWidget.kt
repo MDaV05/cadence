@@ -5,13 +5,17 @@ import android.appwidget.AppWidgetProvider
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.os.Bundle
 import android.widget.RemoteViews
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.cadence.music.R
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.guava.await
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.launch
 
 class PlayerWidget : AppWidgetProvider() {
 
@@ -23,9 +27,23 @@ class PlayerWidget : AppWidgetProvider() {
     override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
         when (intent.action) {
-            ACTION_TOGGLE -> controller(context)?.let { c -> if (c.isPlaying) c.pause() else c.play() }
-            ACTION_NEXT -> controller(context)?.seekToNextMediaItem()
-            ACTION_PREV -> controller(context)?.seekToPreviousMediaItem()
+            ACTION_TOGGLE, ACTION_NEXT, ACTION_PREV -> {
+                // Connecting is async (never block the broadcast thread — that ANRs);
+                // goAsync keeps the process alive while the coroutine runs.
+                val pending = goAsync()
+                widgetScope.launch {
+                    try {
+                        val c = controller(context) ?: return@launch
+                        when (intent.action) {
+                            ACTION_TOGGLE -> if (c.isPlaying) c.pause() else c.play()
+                            ACTION_NEXT -> c.seekToNextMediaItem()
+                            ACTION_PREV -> c.seekToPreviousMediaItem()
+                        }
+                    } finally {
+                        pending.finish()
+                    }
+                }
+            }
         }
     }
 
@@ -34,20 +52,30 @@ class PlayerWidget : AppWidgetProvider() {
         const val ACTION_NEXT = "com.cadence.music.WIDGET_NEXT"
         const val ACTION_PREV = "com.cadence.music.WIDGET_PREV"
 
-        private var cached: MediaController? = null
+        private val widgetScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
-        private fun controller(context: Context): MediaController? {
+        // One app-scoped controller, kept for the widget's lifetime on purpose:
+        // reconnecting on every tap costs a full service bind. Concurrent
+        // connects share a single Deferred so we never leak extra bindings.
+        @Volatile private var cached: MediaController? = null
+        @Volatile private var connecting: Deferred<MediaController?>? = null
+
+        private suspend fun controller(context: Context): MediaController? {
             cached?.let { return it }
-            return try {
-                runBlocking {
-                    val token = SessionToken(
-                        context.applicationContext,
-                        ComponentName(context.applicationContext, PlaybackService::class.java),
-                    )
-                    MediaController.Builder(context.applicationContext, token)
-                        .buildAsync().await()
-                }.also { cached = it }
-            } catch (_: Exception) { null }
+            val appContext = context.applicationContext
+            val deferred = synchronized(this) {
+                connecting ?: widgetScope.async {
+                    try {
+                        val token = SessionToken(appContext, ComponentName(appContext, PlaybackService::class.java))
+                        MediaController.Builder(appContext, token).buildAsync().await()
+                    } catch (_: Exception) {
+                        null
+                    }
+                }.also { connecting = it }
+            }
+            val c = deferred.await()
+            if (c != null) cached = c else synchronized(this) { connecting = null }
+            return c
         }
 
         fun togglePending(context: Context, action: String) =

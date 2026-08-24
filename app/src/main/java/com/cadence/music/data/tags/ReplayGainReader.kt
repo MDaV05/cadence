@@ -86,8 +86,11 @@ object ReplayGainReader {
             val ext = ByteArray(4)
             if (!readFully(s, ext)) return null
             val n = if (majorVersion >= 4) syncsafe(ext[0], ext[1], ext[2], ext[3]) else be32(ext, 0)
-            remaining -= n + 4
-            if (!skipFully(s, n)) return null
+            // v2.4 sizes include the size field itself; v2.3 sizes exclude it.
+            val skip = if (majorVersion >= 4) n - 4 else n
+            if (skip < 0) return null
+            remaining -= skip + 4
+            if (!skipFully(s, skip)) return null
         }
 
         while (remaining >= 10) {
