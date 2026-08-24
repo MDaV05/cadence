@@ -33,22 +33,24 @@ class SubsonicSource(private val configProvider: () -> ServerConfig?) : MusicSou
         return "${cfg.url.trimEnd('/')}/rest/$endpoint?$query"
     }
 
-    private fun get(endpoint: String, params: Map<String, String> = emptyMap()): JSONObject {
-        val conn = URL(url(endpoint, params)).openConnection() as HttpURLConnection
-        conn.connectTimeout = 10_000
-        conn.readTimeout = 30_000
-        try {
-            if (conn.responseCode !in 200..299) throw IOException("${conn.responseCode} $endpoint")
-            val body = conn.inputStream.bufferedReader().readText()
-            val resp = JSONObject(body).getJSONObject("subsonic-response")
-            if (resp.getString("status") != "ok") {
-                throw IOException("Subsonic error: ${resp.optJSONObject("error")}")
+    // All network I/O happens here so callers can't accidentally block the main thread.
+    private suspend fun get(endpoint: String, params: Map<String, String> = emptyMap()): JSONObject =
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val conn = URL(url(endpoint, params)).openConnection() as HttpURLConnection
+            conn.connectTimeout = 10_000
+            conn.readTimeout = 30_000
+            try {
+                if (conn.responseCode !in 200..299) throw IOException("${conn.responseCode} $endpoint")
+                val body = conn.inputStream.bufferedReader().readText()
+                val resp = JSONObject(body).getJSONObject("subsonic-response")
+                if (resp.getString("status") != "ok") {
+                    throw IOException("Subsonic error: ${resp.optJSONObject("error")}")
+                }
+                resp
+            } finally {
+                conn.disconnect()
             }
-            return resp
-        } finally {
-            conn.disconnect()
         }
-    }
 
     suspend fun ping(): Boolean = try { get("ping"); true } catch (_: Exception) { false }
 
@@ -100,7 +102,7 @@ class SubsonicSource(private val configProvider: () -> ServerConfig?) : MusicSou
     suspend fun albumTracksByKey(albumKey: String): List<Track> =
         albumTracks(albumKey.removePrefix("sub:"))
 
-    private fun albumTracks(albumId: String): List<Track> {
+    private suspend fun albumTracks(albumId: String): List<Track> {
         val resp = get("getAlbum", mapOf("id" to albumId))
         val album = resp.getJSONObject("album")
         val albumName = album.optString("name", "Unknown")

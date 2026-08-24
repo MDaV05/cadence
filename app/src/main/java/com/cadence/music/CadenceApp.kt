@@ -27,5 +27,7 @@ class AppContainer(app: Application) {
     val subsonic = SubsonicSource { prefs.server }
     val library = LibraryRepository(database, localSource, subsonic, prefs, app)
     val artResolver = ArtResolver(subsonic)
-    val player = PlayerConnection(app) { prefs.listenBrainzToken }
+    val player = PlayerConnection(app, { prefs.listenBrainzToken }) { track ->
+        subsonic.streamUrl(track)
+    }
 }
