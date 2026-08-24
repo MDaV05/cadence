@@ -36,8 +36,14 @@ object EqManager {
     fun attach(sessionId: Int) {
         detach()
         try {
-            eq = Equalizer(0, sessionId)
-            bass = BassBoost(0, sessionId)
+            val e = Equalizer(0, sessionId)
+            try {
+                bass = BassBoost(0, sessionId)
+            } catch (t: Throwable) {
+                e.release() // don't leak the equalizer when bass boost fails
+                throw t
+            }
+            eq = e
         } catch (_: Exception) {
             eq = null; bass = null
         }
