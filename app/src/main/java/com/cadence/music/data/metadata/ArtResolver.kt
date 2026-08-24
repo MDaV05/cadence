@@ -22,8 +22,10 @@ class ArtResolver(private val subsonic: SubsonicSource) {
         }
         val key = "${track.artistName}::${track.albumName}"
         return mutex.withLock { mbCache[key] } ?: run {
-            val mbid = MusicBrainz.searchReleaseGroup(track.artistName, track.albumName)
-            val url = mbid?.let { MusicBrainz.coverArtUrl(it) }
+            val url = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                MusicBrainz.searchReleaseGroup(track.artistName, track.albumName)
+                    ?.let { MusicBrainz.coverArtUrl(it) }
+            }
             mutex.withLock { mbCache[key] = url }
             url
         }

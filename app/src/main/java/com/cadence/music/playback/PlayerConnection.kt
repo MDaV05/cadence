@@ -8,7 +8,6 @@ import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.cadence.music.data.source.Track
-import com.cadence.music.data.source.resolvePlayable
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -21,11 +20,15 @@ data class NowPlaying(
     val title: String = "",
     val artist: String = "",
     val isPlaying: Boolean = false,
-    val positionMs: Long = 0,
-    val durationMs: Long = 0,
 )
 
-class PlayerConnection(context: Context, private val lbTokenProvider: () -> String? = { null }) {
+class PlayerConnection(
+    context: Context,
+    private val lbTokenProvider: () -> String? = { null },
+    // Builds fresh authenticated stream URLs for server tracks at play time;
+    // stream URLs are not persisted in the DB (they carry per-request tokens).
+    private val resolveStreamUrl: suspend (Track) -> String? = { null },
+) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val appContext = context.applicationContext
@@ -66,7 +69,9 @@ class PlayerConnection(context: Context, private val lbTokenProvider: () -> Stri
     fun playNow(tracks: List<Track>, startIndex: Int = 0) {
         val c = controller ?: return
         scope.launch {
-            c.setMediaItems(tracks.map { it.toMediaItem() }, startIndex, 0)
+            val items = tracks.mapNotNull { it.toMediaItem() }
+            if (items.isEmpty()) return@launch
+            c.setMediaItems(items, startIndex.coerceIn(0, items.size - 1), 0)
             c.prepare()
             c.play()
         }
@@ -107,19 +112,20 @@ class PlayerConnection(context: Context, private val lbTokenProvider: () -> Stri
         controller?.release()
         controller = null
     }
-}
 
-private suspend fun Track.toMediaItem(): MediaItem {
-    val uri = resolvePlayable(this)
-    return MediaItem.Builder()
-        .setUri(uri)
-        .setMediaId(key)
-        .setMediaMetadata(
-            MediaMetadata.Builder()
-                .setTitle(title)
-                .setArtist(artist)
-                .setAlbumTitle(album)
-                .build()
-        )
-        .build()
+    /** Null when the track has no playable URI (skipped from the queue instead of crashing). */
+    private suspend fun Track.toMediaItem(): MediaItem? {
+        val uri = localPath ?: resolveStreamUrl(this) ?: return null
+        return MediaItem.Builder()
+            .setUri(uri)
+            .setMediaId(key)
+            .setMediaMetadata(
+                MediaMetadata.Builder()
+                    .setTitle(title)
+                    .setArtist(artist)
+                    .setAlbumTitle(album)
+                    .build()
+            )
+            .build()
+    }
 }

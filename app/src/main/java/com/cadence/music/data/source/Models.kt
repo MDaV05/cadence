@@ -20,7 +20,3 @@ data class Album(
     val year: Int?,
     val remoteCreated: String? = null,
 )
-
-suspend fun resolvePlayable(track: Track): String =
-    track.localPath ?: track.streamUrl
-        ?: throw IllegalStateException("No playable URI for ${track.title}")
