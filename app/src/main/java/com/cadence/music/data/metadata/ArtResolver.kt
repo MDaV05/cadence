@@ -17,6 +17,14 @@ class ArtResolver(private val subsonic: SubsonicSource) {
 
     suspend fun urlFor(track: TrackEntity): String? {
         if (track.albumName.isBlank()) return null
+        // Local tracks: MediaStore's album art provider, instant and offline.
+        if (track.sourceId == "local") {
+            return track.albumMediaId?.let {
+                android.content.ContentUris.withAppendedId(
+                    android.net.Uri.parse("content://media/external/audio/albumart"), it,
+                ).toString()
+            }
+        }
         if (track.sourceId == "subsonic" && track.albumKey != null) {
             return subsonic.coverArtUrl(track.albumKey)
         }

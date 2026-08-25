@@ -25,8 +25,29 @@ data class TrackEntity(
     val durationMs: Long,
     val trackNumber: Int,
     val replayGainDb: Float? = null,
+    // MediaStore ALBUM_ID for local tracks; lets us serve album art offline
+    // via content://media/external/audio/albumart without any network call.
+    val albumMediaId: Long? = null,
     val playCount: Int = 0,
     val lastPlayed: Long? = null,
+)
+
+@Entity(tableName = "playlists")
+data class PlaylistEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val name: String,
+    val createdAt: Long = System.currentTimeMillis(),
+)
+
+@Entity(
+    tableName = "playlist_tracks",
+    indices = [Index("playlistId"), Index("trackId")],
+)
+data class PlaylistTrackEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val playlistId: Long,
+    val trackId: Long,
+    val position: Int,
 )
 
 @Entity(tableName = "albums", indices = [Index(value = ["sourceId", "serverId"], unique = true), Index("mbid")])

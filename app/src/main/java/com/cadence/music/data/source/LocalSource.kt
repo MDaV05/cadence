@@ -16,6 +16,7 @@ class LocalSource(private val context: Context) : MusicSource {
             MediaStore.Audio.Media.TITLE,
             MediaStore.Audio.Media.ARTIST,
             MediaStore.Audio.Media.ALBUM,
+            MediaStore.Audio.Media.ALBUM_ID,
             MediaStore.Audio.Media.DURATION,
             MediaStore.Audio.Media.DATA,
         )
@@ -25,6 +26,7 @@ class LocalSource(private val context: Context) : MusicSource {
             val titleC = c.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
             val artistC = c.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
             val albumC = c.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM)
+            val albumIdC = c.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID)
             val durC = c.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
             val dataC = c.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA)
             while (c.moveToNext()) {
@@ -37,6 +39,7 @@ class LocalSource(private val context: Context) : MusicSource {
                     album = c.getString(albumC) ?: "Unknown",
                     durationMs = c.getLong(durC),
                     localPath = uri.toString(),
+                    albumMediaId = c.getLong(albumIdC),
                 )
             }
         }

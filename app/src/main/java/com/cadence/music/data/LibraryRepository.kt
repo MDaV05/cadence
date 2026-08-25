@@ -60,6 +60,7 @@ class LibraryRepository(
                 durationMs = t.durationMs,
                 trackNumber = 0,
                 replayGainDb = replayGainDb,
+                albumMediaId = t.albumMediaId,
             )
         }
         db.trackDao().insertAll(entities)
@@ -114,6 +115,34 @@ class LibraryRepository(
         }
         return SyncResult(fetchedAlbums, fetchedTracks)
     }
+
+    // ---- Playlists ----
+
+    fun playlists(): Flow<List<com.cadence.music.data.db.PlaylistWithCount>> =
+        db.playlistDao().observeAll()
+
+    suspend fun playlist(id: Long) = db.playlistDao().byId(id)
+
+    suspend fun playlistTracks(id: Long): List<TrackEntity> = db.playlistDao().tracksFor(id)
+
+    suspend fun createPlaylist(name: String): Long =
+        db.playlistDao().insertPlaylist(com.cadence.music.data.db.PlaylistEntity(name = name))
+
+    suspend fun deletePlaylist(id: Long) {
+        db.playlistDao().deleteTracksFor(id)
+        db.playlistDao().deletePlaylist(id)
+    }
+
+    suspend fun addToPlaylist(playlistId: Long, trackId: Long) {
+        val next = db.playlistDao().maxPosition(playlistId) + 1
+        db.playlistDao().insertTrack(
+            com.cadence.music.data.db.PlaylistTrackEntity(
+                playlistId = playlistId, trackId = trackId, position = next,
+            )
+        )
+    }
+
+    suspend fun removeFromPlaylist(rowId: Long) = db.playlistDao().removeTrack(rowId)
 }
 
 data class SyncResult(val albumsFetched: Int, val tracksFetched: Int)

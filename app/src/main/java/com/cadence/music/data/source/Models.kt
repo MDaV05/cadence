@@ -10,6 +10,8 @@ data class Track(
     val durationMs: Long,
     val localPath: String?,
     val streamUrl: String? = null,
+    // MediaStore ALBUM_ID for local tracks (offline album art).
+    val albumMediaId: Long? = null,
 )
 
 data class Album(
