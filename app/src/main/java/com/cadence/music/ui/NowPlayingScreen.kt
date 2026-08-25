@@ -2,7 +2,7 @@ package com.cadence.music.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,14 +15,22 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.VerticalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
+import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Repeat
+import androidx.compose.material.icons.filled.RepeatOne
+import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -42,6 +50,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -52,6 +61,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.media3.common.Player
 import coil.compose.AsyncImage
 import com.cadence.music.AppContainer
 import com.cadence.music.data.metadata.SyncedLine
@@ -66,7 +76,8 @@ fun NowPlayingScreen(container: AppContainer) {
     val state by player.state.collectAsStateWithLifecycle()
     var position by remember { mutableLongStateOf(0L) }
     var duration by remember { mutableLongStateOf(0L) }
-    var artUrl by remember { mutableStateOf<String?>(null) }
+    val sleepLeft by player.sleepRemainingMs.collectAsStateWithLifecycle()
+    var showSleepDialog by remember { mutableStateOf(false) }
     var lyrics by remember { mutableStateOf<List<SyncedLine>>(emptyList()) }
     var currentLine by remember { mutableIntStateOf(-1) }
     var showQueue by remember { mutableStateOf(false) }
@@ -83,12 +94,8 @@ fun NowPlayingScreen(container: AppContainer) {
     }
 
     LaunchedEffect(state.title, state.artist) {
-        artUrl = null; lyrics = emptyList(); currentLine = -1
-        val mediaId = player.controller?.currentMediaItem?.mediaId ?: return@LaunchedEffect
-        val track = withContext(Dispatchers.IO) {
-            container.database.trackDao().byServerId(mediaId)
-        } ?: return@LaunchedEffect
-        artUrl = withContext(Dispatchers.IO) { container.artResolver.urlFor(track) }
+        lyrics = emptyList(); currentLine = -1
+        if (state.title.isBlank() && state.artist.isBlank()) return@LaunchedEffect
         lyrics = withContext(Dispatchers.IO) {
             com.cadence.music.data.metadata.LrcLib.fetchBlocking(
                 state.artist, state.title, duration / 1000,
@@ -102,23 +109,25 @@ fun NowPlayingScreen(container: AppContainer) {
         }
     }
 
-    // Track-change gesture: horizontal (default) or vertical per Settings.
+    // Swipe left/right (or up/down per Settings) to change track. A pager gives
+    // an animated cover transition and exactly one track per completed swipe —
+    // the old drag detector fired next()/previous() on every frame past its
+    // threshold, skipping several songs per flick.
     val gesture = container.prefs.trackGesture
-    val dragModifier = Modifier.pointerInput(gesture) {
-        detectDragGestures { change, amount ->
-            change.consume()
-            when (gesture) {
-                com.cadence.music.data.prefs.Prefs.TrackGesture.VERTICAL -> {
-                    if (amount.y < -60) { player.next() }
-                    else if (amount.y > 60) { player.previous() }
-                }
-                else -> {
-                    if (amount.x < -60) { player.next() }
-                    else if (amount.x > 60) { player.previous() }
-                }
+    val horizontal = gesture != com.cadence.music.data.prefs.Prefs.TrackGesture.VERTICAL
+    val pagerState = rememberPagerState(initialPage = 1) { 3 }
+    LaunchedEffect(pagerState) {
+        snapshotFlow { pagerState.settledPage }.collect { page ->
+            when (page) {
+                0 -> player.previous()
+                2 -> player.next()
             }
+            if (page != 1) pagerState.scrollToPage(1)
         }
     }
+
+    val queueSnapshot = player.queue
+    val queueIdx = player.queueIndex
 
     Scaffold { padding ->
         Column(
@@ -130,18 +139,19 @@ fun NowPlayingScreen(container: AppContainer) {
                         listOf(primary.copy(alpha = 0.10f), bg, bg),
                     )
                 )
-                .then(dragModifier)
                 .padding(24.dp),
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            AsyncImage(
-                model = artUrl,
-                contentDescription = null,
-                modifier = Modifier
-                    .size(260.dp)
-                    .clip(RoundedCornerShape(24.dp)),
-            )
+            if (horizontal) {
+                HorizontalPager(state = pagerState, modifier = Modifier.fillMaxWidth()) { page ->
+                    TrackArt(container, queueSnapshot.getOrNull(queueIdx + page - 1)?.mediaId, Modifier.size(260.dp))
+                }
+            } else {
+                VerticalPager(state = pagerState, modifier = Modifier.fillMaxWidth()) { page ->
+                    TrackArt(container, queueSnapshot.getOrNull(queueIdx + page - 1)?.mediaId, Modifier.size(260.dp))
+                }
+            }
             Text(
                 state.title.ifEmpty { "Nothing playing" },
                 style = MaterialTheme.typography.headlineSmall,
@@ -184,6 +194,43 @@ fun NowPlayingScreen(container: AppContainer) {
             ) {
                 Text(formatDuration(position), style = MaterialTheme.typography.bodySmall)
                 Text(formatDuration(duration), style = MaterialTheme.typography.bodySmall)
+            }
+
+            Row(
+                Modifier.fillMaxWidth().padding(top = 4.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(onClick = { player.toggleShuffle() }) {
+                    Icon(
+                        Icons.Filled.Shuffle, "Shuffle", Modifier.size(22.dp),
+                        tint = if (state.shuffle) primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Spacer(Modifier.size(28.dp))
+                IconButton(onClick = { player.cycleRepeat() }) {
+                    Icon(
+                        if (state.repeatMode == Player.REPEAT_MODE_ONE) Icons.Filled.RepeatOne else Icons.Filled.Repeat,
+                        "Repeat", Modifier.size(22.dp),
+                        tint = if (state.repeatMode != Player.REPEAT_MODE_OFF) primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Spacer(Modifier.size(28.dp))
+                IconButton(onClick = { showSleepDialog = true }) {
+                    Icon(
+                        Icons.Filled.Bedtime, "Sleep timer", Modifier.size(22.dp),
+                        tint = if (sleepLeft != null) primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                sleepLeft?.let {
+                    Spacer(Modifier.size(6.dp))
+                    Text(
+                        formatDuration(it),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = primary,
+                    )
+                }
             }
 
             Row(
@@ -263,20 +310,87 @@ fun NowPlayingScreen(container: AppContainer) {
                             .padding(horizontal = 20.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(
-                            item.mediaMetadata.title?.toString() ?: "",
-                            modifier = Modifier.weight(1f),
-                            maxLines = 1,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = if (i == player.queueIndex) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.onSurface,
+                        TrackArt(
+                            container,
+                            item.mediaId,
+                            Modifier.size(44.dp).clip(RoundedCornerShape(8.dp)),
                         )
+                        Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                            Text(
+                                item.mediaMetadata.title?.toString() ?: "",
+                                maxLines = 1,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = if (i == player.queueIndex) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurface,
+                            )
+                            val artist = item.mediaMetadata.artist?.toString().orEmpty()
+                            if (artist.isNotBlank()) {
+                                Text(
+                                    artist,
+                                    maxLines = 1,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
                         IconButton(onClick = { player.removeFromQueue(i) }) {
                             Icon(Icons.Filled.Close, "Remove", Modifier.size(16.dp))
                         }
                     }
                 }
             }
+        }
+    }
+
+    if (showSleepDialog) {
+        AlertDialog(
+            onDismissRequest = { showSleepDialog = false },
+            title = { Text("Sleep timer") },
+            text = {
+                Column {
+                    listOf(5, 10, 15, 30, 45, 60).forEach { minutes ->
+                        TextButton(onClick = {
+                            player.startSleepTimer(minutes)
+                            showSleepDialog = false
+                        }) { Text("$minutes minutes") }
+                    }
+                    if (sleepLeft != null) {
+                        TextButton(onClick = {
+                            player.cancelSleepTimer()
+                            showSleepDialog = false
+                        }) { Text("Cancel timer") }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = { TextButton({ showSleepDialog = false }) { Text("Close") } },
+        )
+    }
+}
+
+/** Album cover for a queue/media id; placeholder box while unresolved or missing. */
+@Composable
+private fun TrackArt(container: AppContainer, mediaId: String?, modifier: Modifier = Modifier) {
+    var model by remember(mediaId) { mutableStateOf<Any?>(null) }
+    LaunchedEffect(mediaId) {
+        model = null
+        if (mediaId == null) return@LaunchedEffect
+        model = withContext(Dispatchers.IO) {
+            container.database.trackDao().byServerId(mediaId)?.let { container.artResolver.urlFor(it) }
+        }
+    }
+    Box(
+        modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (model != null) {
+            AsyncImage(
+                model = model,
+                contentDescription = null,
+                modifier = Modifier.matchParentSize(),
+            )
         }
     }
 }
