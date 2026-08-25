@@ -30,7 +30,9 @@ fun SearchScreen(container: AppContainer) {
     val player = container.player
 
     val results = if (query.isBlank()) emptyList() else all.filter {
-        it.title.contains(query, true)
+        it.title.contains(query, true) ||
+            it.artistName.contains(query, true) ||
+            it.albumName.contains(query, true)
     }
 
     Scaffold { padding ->
