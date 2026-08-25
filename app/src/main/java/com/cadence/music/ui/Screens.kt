@@ -1,5 +1,6 @@
 package com.cadence.music.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -54,9 +55,17 @@ private fun SectionHeader(text: String) {
 }
 
 @Composable
-private fun SettingRow(title: String, subtitle: String? = null, trailing: @Composable () -> Unit = {}) {
+private fun SettingRow(
+    title: String,
+    subtitle: String? = null,
+    trailing: @Composable () -> Unit = {},
+    onClick: (() -> Unit)? = null,
+) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .let { if (onClick != null) it.clickable(onClick = onClick) else it }
+            .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
@@ -75,7 +84,7 @@ private fun SettingRow(title: String, subtitle: String? = null, trailing: @Compo
 }
 
 @Composable
-fun SettingsScreen(container: AppContainer) {
+fun SettingsScreen(container: AppContainer, onOpenEqualizer: () -> Unit = {}) {
     val scope = rememberCoroutineScope()
     val server = container.prefs.server
 
@@ -91,8 +100,6 @@ fun SettingsScreen(container: AppContainer) {
     var lbToken by remember { mutableStateOf(container.prefs.listenBrainzToken ?: "") }
     var gesture by remember { mutableStateOf(container.prefs.trackGesture) }
     var eqEnabled by remember { mutableStateOf(container.prefs.eqEnabled) }
-    var eqBands by remember { mutableStateOf(container.prefs.eqBands) }
-    var eqBass by remember { mutableIntStateOf(container.prefs.eqBassBoost) }
     var rgEnabled by remember { mutableStateOf(container.prefs.rgEnabled) }
 
     val cacheUsage by produceCacheUsage()
@@ -263,8 +270,8 @@ fun SettingsScreen(container: AppContainer) {
             item { SectionHeader("Equalizer") }
             item {
                 SettingRow(
-                    title = "Enable equalizer",
-                    subtitle = "Takes effect during playback",
+                    title = "Equalizer & bass boost",
+                    subtitle = if (eqEnabled) "On — ${EqManager.bandCount} bands" else "Off",
                     trailing = {
                         androidx.compose.material3.Switch(
                             checked = eqEnabled,
@@ -274,48 +281,8 @@ fun SettingsScreen(container: AppContainer) {
                             },
                         )
                     },
+                    onClick = onOpenEqualizer,
                 )
-            }
-            if (eqEnabled) {
-                items(EqManager.bandCount) { band ->
-                    val level = eqBands.getOrElse(band) { 0 }
-                    Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
-                        Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-                            Text(EqManager.centerFreqLabel(band) + " Hz", style = MaterialTheme.typography.bodySmall)
-                            Text(
-                                "%+d dB".format(level / 100),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        Slider(
-                            value = level.toFloat(),
-                            onValueChange = {
-                                val updated = eqBands.toMutableList().also { l ->
-                                    while (l.size <= band) l.add(0)
-                                    l[band] = it.toInt()
-                                }
-                                eqBands = updated
-                                container.prefs.eqBands = updated
-                            },
-                            valueRange = -1500f..1500f,
-                        )
-                    }
-                }
-                item {
-                    Column(Modifier.padding(horizontal = 16.dp)) {
-                        Text(
-                            "Bass boost: ${eqBass / 10}%",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                        Slider(
-                            value = eqBass.toFloat(),
-                            onValueChange = { eqBass = it.toInt() },
-                            onValueChangeFinished = { container.prefs.eqBassBoost = eqBass },
-                            valueRange = 0f..1000f,
-                        )
-                    }
-                }
             }
 
             item { HorizontalDivider() }
