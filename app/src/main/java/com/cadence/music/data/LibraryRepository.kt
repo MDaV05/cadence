@@ -43,14 +43,18 @@ class LibraryRepository(
         // Preserve previously-read values (tag parsing is file I/O; only parse once per track).
         val known = db.trackDao().observeAll().first().associateBy { it.serverId }
 
+        // Upsert with the existing row id so play stats and playlist
+        // references survive; REPLACE with a fresh id would orphan both.
         val entities = local.scan().map { t ->
             val mediaId = t.key.removePrefix("local:").toLong()
             val uri = ContentUris.withAppendedId(
                 MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, mediaId
             )
-            val replayGainDb = known[t.key]?.replayGainDb
+            val prev = known[t.key]
+            val replayGainDb = prev?.replayGainDb
                 ?: com.cadence.music.data.tags.ReplayGainReader.read(context, uri)
             TrackEntity(
+                id = prev?.id ?: 0,
                 sourceId = "local",
                 serverId = t.key,
                 title = t.title,
@@ -61,6 +65,8 @@ class LibraryRepository(
                 trackNumber = 0,
                 replayGainDb = replayGainDb,
                 albumMediaId = t.albumMediaId,
+                playCount = prev?.playCount ?: 0,
+                lastPlayed = prev?.lastPlayed,
             )
         }
         db.trackDao().insertAll(entities)
@@ -97,9 +103,13 @@ class LibraryRepository(
             fetchedAlbums++
             fetchedTracks += tracks.size
 
-            db.trackDao().deleteByAlbumKey(album.key)
+            // Upsert with the existing row id so play stats and playlist
+            // references survive re-syncs.
+            val existingTracks = db.trackDao().byAlbumKey(album.key).associateBy { it.serverId }
             val entities = tracks.map { t ->
+                val prev = existingTracks[t.key]
                 TrackEntity(
+                    id = prev?.id ?: 0,
                     sourceId = "subsonic",
                     serverId = t.key,
                     title = t.title,
@@ -109,9 +119,17 @@ class LibraryRepository(
                     path = null,
                     durationMs = t.durationMs,
                     trackNumber = 0,
+                    replayGainDb = prev?.replayGainDb,
+                    albumMediaId = prev?.albumMediaId,
+                    playCount = prev?.playCount ?: 0,
+                    lastPlayed = prev?.lastPlayed,
                 )
             }
             db.trackDao().insertAll(entities)
+            val remoteKeys = tracks.map { it.key }.toSet()
+            existingTracks.values.filter { it.serverId !in remoteKeys }.forEach {
+                db.trackDao().delete(it)
+            }
         }
         return SyncResult(fetchedAlbums, fetchedTracks)
     }

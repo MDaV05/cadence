@@ -1,6 +1,7 @@
 package com.cadence.music.data.db
 
 import androidx.room.Dao
+import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
@@ -17,20 +18,23 @@ interface TrackDao {
     @Query("SELECT * FROM tracks WHERE serverId = :serverId LIMIT 1")
     suspend fun byServerId(serverId: String): TrackEntity?
 
+    @Query("SELECT * FROM tracks WHERE albumKey = :albumKey")
+    suspend fun byAlbumKey(albumKey: String): List<TrackEntity>
+
     @Query("SELECT COUNT(*) FROM tracks")
     suspend fun count(): Int
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(tracks: List<TrackEntity>)
 
+    @Delete
+    suspend fun delete(track: TrackEntity)
+
     @Query("UPDATE tracks SET playCount = playCount + 1, lastPlayed = :now WHERE id = :id")
     suspend fun recordPlay(id: Long, now: Long = System.currentTimeMillis())
 
     @Query("UPDATE tracks SET path = :path WHERE id = :id")
     suspend fun setPath(id: Long, path: String)
-
-    @Query("DELETE FROM tracks WHERE albumKey = :albumKey")
-    suspend fun deleteByAlbumKey(albumKey: String)
 
     @Query("SELECT DISTINCT artistName FROM tracks WHERE artistName != '' ORDER BY artistName")
     fun observeArtistNames(): Flow<List<String>>
@@ -73,18 +77,6 @@ interface AlbumDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(album: AlbumEntity)
-}
-
-@Dao
-interface ArtistDao {
-    @Query("SELECT * FROM artists ORDER BY name")
-    fun observeAll(): Flow<List<ArtistEntity>>
-
-    @Query("SELECT * FROM artists WHERE id = :id")
-    suspend fun byId(id: Long): ArtistEntity?
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertAll(artists: List<ArtistEntity>)
 }
 
 data class PlaylistWithCount(

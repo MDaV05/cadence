@@ -65,18 +65,6 @@ data class AlbumEntity(
     val remoteCreated: String? = null,
 )
 
-@Entity(tableName = "artists", indices = [Index("mbid")])
-data class ArtistEntity(
-    @PrimaryKey(autoGenerate = true) val id: Long = 0,
-    val sourceId: String,
-    val serverId: String,
-    val name: String,
-    val mbid: String? = null,
-    val imageUrl: String? = null,
-    val bio: String? = null,
-    val fetchedAt: Long? = null,
-)
-
 @Entity(tableName = "downloads")
 data class DownloadEntity(
     @PrimaryKey val trackServerId: String,
@@ -85,12 +73,4 @@ data class DownloadEntity(
     val bytesDone: Long = 0,
     val transcode: String? = null,
     val updatedAt: Long = System.currentTimeMillis(),
-)
-
-@Entity(tableName = "cache_entries")
-data class CacheEntryEntity(
-    @PrimaryKey val path: String,
-    val trackKey: String,
-    val size: Long,
-    val lastAccess: Long,
 )

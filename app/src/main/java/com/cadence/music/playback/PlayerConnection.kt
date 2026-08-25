@@ -32,6 +32,8 @@ class PlayerConnection(
     // Builds fresh authenticated stream URLs for server tracks at play time;
     // stream URLs are not persisted in the DB (they carry per-request tokens).
     private val resolveStreamUrl: suspend (Track) -> String? = { null },
+    // Called with the mediaId of each track as playback transitions to it.
+    private val onTrackPlayed: suspend (String) -> Unit = {},
 ) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -75,6 +77,9 @@ class PlayerConnection(
                         val artist = mediaItem?.mediaMetadata?.artist?.toString() ?: ""
                         val album = mediaItem?.mediaMetadata?.albumTitle?.toString()
                         _state.value = _state.value.copy(title = title, artist = artist)
+                        mediaItem?.mediaId?.let { key ->
+                            scope.launch { runCatching { onTrackPlayed(key) } }
+                        }
                         val token = lbTokenProvider()
                         if (token != null && title.isNotBlank() && artist.isNotBlank()) {
                             Thread {
