@@ -138,7 +138,12 @@ fun AppNav() {
                 PlaylistDetailScreen(container, id, onBack = { navController.popBackStack() })
             }
             composable("search") { SearchScreen(container) }
-            composable("settings") { SettingsScreen(container) }
+            composable("settings") { SettingsScreen(container, onOpenEqualizer = {
+                navController.navigate("equalizer")
+            }) }
+            composable("equalizer") {
+                EqualizerScreen(container, onBack = { navController.popBackStack() })
+            }
             composable("nowplaying") { NowPlayingScreen(container) }
             composable("artist/{name}") { entry ->
                 val name = entry.arguments?.getString("name") ?: return@composable
