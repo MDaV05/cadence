@@ -11,19 +11,16 @@ import androidx.sqlite.db.SupportSQLiteDatabase
     entities = [
         TrackEntity::class,
         AlbumEntity::class,
-        ArtistEntity::class,
         DownloadEntity::class,
-        CacheEntryEntity::class,
         PlaylistEntity::class,
         PlaylistTrackEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun trackDao(): TrackDao
     abstract fun albumDao(): AlbumDao
-    abstract fun artistDao(): ArtistDao
     abstract fun downloadDao(): DownloadDao
     abstract fun playlistDao(): PlaylistDao
 
@@ -50,9 +47,17 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Tables written but never read anywhere in the app.
+                db.execSQL("DROP TABLE IF EXISTS artists")
+                db.execSQL("DROP TABLE IF EXISTS cache_entries")
+            }
+        }
+
         fun build(context: Context): AppDatabase =
             Room.databaseBuilder(context, AppDatabase::class.java, "cadence.db")
-                .addMigrations(MIGRATION_3_4)
+                .addMigrations(MIGRATION_3_4, MIGRATION_4_5)
                 .fallbackToDestructiveMigration()
                 .build()
     }

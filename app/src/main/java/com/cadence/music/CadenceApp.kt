@@ -27,7 +27,12 @@ class AppContainer(app: Application) {
     val subsonic = SubsonicSource { prefs.server }
     val library = LibraryRepository(database, localSource, subsonic, prefs, app)
     val artResolver = ArtResolver(subsonic)
-    val player = PlayerConnection(app, { prefs.listenBrainzToken }) { track ->
-        subsonic.streamUrl(track)
-    }
+    val player = PlayerConnection(
+        app,
+        { prefs.listenBrainzToken },
+        { track -> subsonic.streamUrl(track) },
+        { mediaId ->
+            database.trackDao().byServerId(mediaId)?.let { database.trackDao().recordPlay(it.id) }
+        },
+    )
 }
