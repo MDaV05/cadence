@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Pause
@@ -84,13 +85,19 @@ fun AppNav() {
                         }
                     }
                 }
-                if (current in listOf("library", "search", "settings")) {
+                if (current in listOf("library", "playlists", "search", "settings")) {
                     NavigationBar {
                     NavigationBarItem(
                         selected = current == "library",
                         onClick = { navController.navigate("library") { launchSingleTop = true } },
                         icon = { Icon(Icons.Filled.LibraryMusic, null) },
                         label = { Text("Library") },
+                    )
+                    NavigationBarItem(
+                        selected = current == "playlists",
+                        onClick = { navController.navigate("playlists") { launchSingleTop = true } },
+                        icon = { Icon(Icons.AutoMirrored.Filled.QueueMusic, null) },
+                        label = { Text("Playlists") },
                     )
                     NavigationBarItem(
                         selected = current == "search",
@@ -121,6 +128,15 @@ fun AppNav() {
             }, onAlbumClick = { name ->
                 navController.navigate("album/${Uri.encode(name)}")
             }) }
+            composable("playlists") {
+                PlaylistsScreen(container, onOpen = { id ->
+                    navController.navigate("playlist/$id")
+                })
+            }
+            composable("playlist/{id}") { entry ->
+                val id = entry.arguments?.getString("id")?.toLongOrNull() ?: return@composable
+                PlaylistDetailScreen(container, id, onBack = { navController.popBackStack() })
+            }
             composable("search") { SearchScreen(container) }
             composable("settings") { SettingsScreen(container) }
             composable("nowplaying") { NowPlayingScreen(container) }

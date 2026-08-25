@@ -1,15 +1,20 @@
 package com.cadence.music.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Shuffle
@@ -22,95 +27,130 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.cadence.music.AppContainer
 import com.cadence.music.data.db.TrackEntity
-import com.cadence.music.data.metadata.ArtistInfo
-import com.cadence.music.data.metadata.Wikipedia
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 
 @Composable
 fun ArtistScreen(container: AppContainer, artistName: String, onAlbumClick: (String) -> Unit = {}) {
     val player = container.player
     var tracks by remember { mutableStateOf<List<TrackEntity>>(emptyList()) }
-    var info by remember { mutableStateOf<ArtistInfo?>(null) }
-    val context = LocalContext.current
+    var info by remember { mutableStateOf<com.cadence.music.data.metadata.ArtistInfo?>(null) }
 
     LaunchedEffect(artistName) {
         tracks = container.library.tracksByArtist(artistName)
-        info = withContext(Dispatchers.IO) { Wikipedia.artistInfoBlocking(artistName) }
+        info = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            com.cadence.music.data.metadata.Wikipedia.artistInfoBlocking(artistName)
+        }
+    }
+
+    val albums = remember(tracks) {
+        // byArtist is ordered by albumName; groupBy preserves first-seen order.
+        tracks.groupBy { it.albumKey ?: it.albumName }
     }
 
     Scaffold { padding ->
-        LazyColumn(
+        LazyVerticalGrid(
+            columns = GridCells.Adaptive(110.dp),
             modifier = Modifier.fillMaxSize().padding(padding),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            item {
+            item(span = { GridItemSpan(maxLineSpan) }) {
                 Row(
-                    Modifier.fillMaxWidth().padding(16.dp),
+                    Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     AsyncImage(
                         model = info?.imageUrl,
                         contentDescription = artistName,
-                        modifier = Modifier.size(96.dp).clip(RoundedCornerShape(12.dp)),
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.size(96.dp).clip(RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant),
                     )
-                    Column {
+                    Column(Modifier.weight(1f)) {
                         Text(artistName, style = MaterialTheme.typography.headlineSmall)
                         Text(
-                            "${tracks.map { it.albumKey ?: it.albumName }.distinct().size} albums • ${tracks.size} tracks",
+                            "${albums.size} albums • ${tracks.size} songs",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        IconButton(onClick = { player.shuffleAll(tracks.map { it.toTrack() }) }) {
-                            Icon(Icons.Filled.Shuffle, "Shuffle artist")
-                        }
+                    }
+                    IconButton(onClick = { player.shuffleAll(tracks.map { it.toTrack() }) }) {
+                        Icon(Icons.Filled.Shuffle, "Shuffle artist", tint = MaterialTheme.colorScheme.primary)
                     }
                 }
             }
+
             info?.bio?.let { bio ->
-                item {
+                item(span = { GridItemSpan(maxLineSpan) }) {
                     Text(
                         bio,
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 6,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
-            items(tracks, key = { it.id }) { track ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { player.playNow(listOf(track.toTrack())) }
-                        .padding(horizontal = 16.dp, vertical = 10.dp),
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        Text(track.title, style = MaterialTheme.typography.bodyLarge, maxLines = 1)
-                        Text(
-                            track.albumName.ifBlank { track.sourceId },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            modifier = Modifier.clickable {
-                                if (track.albumName.isNotBlank()) onAlbumClick(track.albumName)
-                            },
-                        )
-                    }
-                    Text(
-                        formatDuration(track.durationMs),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+
+            if (albums.isNotEmpty()) {
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    Text("Albums", style = MaterialTheme.typography.titleMedium)
                 }
+                items(albums.entries.toList(), key = { "album:${it.key}" }) { (_, albumTracks) ->
+                    AlbumCell(container, albumName = albumTracks.first().albumName, tracks = albumTracks) {
+                        if (it.isNotBlank()) onAlbumClick(it)
+                    }
+                }
+            }
+
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                Text("All songs", style = MaterialTheme.typography.titleMedium)
+            }
+            items(tracks, key = { "song:${it.id}" }, span = { GridItemSpan(maxLineSpan) }) { track ->
+                TrackRow(container, track) { player.playNow(listOf(track.toTrack())) }
             }
         }
+    }
+}
+
+@Composable
+private fun AlbumCell(
+    container: AppContainer,
+    albumName: String,
+    tracks: List<TrackEntity>,
+    onClick: (String) -> Unit,
+) {
+    val art by produceState<String?>(null, albumName) {
+        value = tracks.firstOrNull()?.let { container.artResolver.urlFor(it) }
+    }
+    Column(Modifier.clickable { onClick(albumName) }) {
+        AsyncImage(
+            model = art,
+            contentDescription = albumName,
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(1f)
+                .clip(RoundedCornerShape(10.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+        )
+        Text(
+            albumName,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(top = 6.dp),
+        )
     }
 }

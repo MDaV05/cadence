@@ -6,6 +6,8 @@ import androidx.room.PrimaryKey
 
 data class AlbumGroup(val name: String, val artistName: String, val trackCount: Int)
 
+data class PlaylistTrackRow(val row: com.cadence.music.data.db.PlaylistTrackEntity, val track: TrackEntity)
+
 @Entity(
     tableName = "tracks",
     indices = [

@@ -124,6 +124,9 @@ interface PlaylistDao {
     @Query("DELETE FROM playlist_tracks WHERE id = :rowId")
     suspend fun removeTrack(rowId: Long)
 
+    @Query("SELECT * FROM playlist_tracks WHERE playlistId = :id ORDER BY position, id")
+    suspend fun rowsFor(id: Long): List<PlaylistTrackEntity>
+
     @Query("SELECT t.* FROM tracks t JOIN playlist_tracks pt ON pt.trackId = t.id WHERE pt.playlistId = :id ORDER BY pt.position, pt.id")
     suspend fun tracksFor(id: Long): List<TrackEntity>
 }

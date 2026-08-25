@@ -6,6 +6,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -21,11 +22,14 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
@@ -108,6 +112,10 @@ fun LibraryScreen(
     }
 }
 
+@OptIn(
+    androidx.compose.foundation.ExperimentalFoundationApi::class,
+    androidx.compose.material3.ExperimentalMaterial3Api::class,
+)
 @Composable
 fun TrackRow(
     container: AppContainer,
@@ -118,10 +126,11 @@ fun TrackRow(
     val art by produceState<String?>(null, track.id) {
         value = container.artResolver.urlFor(track)
     }
+    var showAddToPlaylist by remember { mutableStateOf(false) }
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .combinedClickable(onClick = onClick, onLongClick = { showAddToPlaylist = true })
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -155,6 +164,55 @@ fun TrackRow(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+    }
+
+    if (showAddToPlaylist) {
+        val playlists by container.library.playlists()
+            .collectAsStateWithLifecycle(initialValue = emptyList())
+        val scope = rememberCoroutineScope()
+        var showNew by remember { mutableStateOf(false) }
+        ModalBottomSheet(onDismissRequest = { showAddToPlaylist = false }) {
+            Text(
+                "Add to playlist",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+            )
+            if (showNew) {
+                NewPlaylistDialog(
+                    onCreate = { name ->
+                        showNew = false
+                        scope.launch {
+                            val id = container.library.createPlaylist(name)
+                            if (id > 0) container.library.addToPlaylist(id, track.id)
+                            showAddToPlaylist = false
+                        }
+                    },
+                    onDismiss = { showNew = false },
+                )
+            } else {
+                ListItem(
+                    headlineContent = { Text("New playlist…") },
+                    leadingContent = { Icon(Icons.Filled.Add, null) },
+                    modifier = Modifier.clickable { showNew = true },
+                )
+                LazyColumn(Modifier.padding(bottom = 32.dp)) {
+                    items(playlists, key = { it.id }) { p ->
+                        ListItem(
+                            headlineContent = { Text(p.name) },
+                            supportingContent = {
+                                Text(if (p.trackCount == 1) "1 song" else "${p.trackCount} songs")
+                            },
+                            modifier = Modifier.clickable {
+                                scope.launch {
+                                    container.library.addToPlaylist(p.id, track.id)
+                                    showAddToPlaylist = false
+                                }
+                            },
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 
