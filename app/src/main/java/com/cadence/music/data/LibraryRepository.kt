@@ -125,6 +125,12 @@ class LibraryRepository(
 
     suspend fun playlistTracks(id: Long): List<TrackEntity> = db.playlistDao().tracksFor(id)
 
+    suspend fun playlistTracksWithRows(id: Long): List<com.cadence.music.data.db.PlaylistTrackRow> {
+        val rows = db.playlistDao().rowsFor(id)
+        val tracks = db.playlistDao().tracksFor(id).associateBy { it.id }
+        return rows.mapNotNull { r -> tracks[r.trackId]?.let { com.cadence.music.data.db.PlaylistTrackRow(r, it) } }
+    }
+
     suspend fun createPlaylist(name: String): Long =
         db.playlistDao().insertPlaylist(com.cadence.music.data.db.PlaylistEntity(name = name))
 
