@@ -84,4 +84,6 @@ dependencies {
     implementation(libs.coil.compose)
     implementation(libs.coroutines.guava)
     implementation(libs.work.runtime.ktx)
+
+    testImplementation(libs.junit)
 }
