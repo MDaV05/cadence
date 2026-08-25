@@ -86,3 +86,44 @@ interface ArtistDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(artists: List<ArtistEntity>)
 }
+
+data class PlaylistWithCount(
+    val id: Long,
+    val name: String,
+    val createdAt: Long,
+    val trackCount: Int,
+)
+
+@Dao
+interface PlaylistDao {
+    @Query(
+        "SELECT p.id AS id, p.name AS name, p.createdAt AS createdAt, COUNT(pt.id) AS trackCount " +
+        "FROM playlists p LEFT JOIN playlist_tracks pt ON pt.playlistId = p.id " +
+        "GROUP BY p.id ORDER BY p.createdAt DESC"
+    )
+    fun observeAll(): Flow<List<PlaylistWithCount>>
+
+    @Query("SELECT * FROM playlists WHERE id = :id")
+    suspend fun byId(id: Long): PlaylistEntity?
+
+    @Insert
+    suspend fun insertPlaylist(playlist: PlaylistEntity): Long
+
+    @Query("DELETE FROM playlists WHERE id = :id")
+    suspend fun deletePlaylist(id: Long)
+
+    @Query("DELETE FROM playlist_tracks WHERE playlistId = :id")
+    suspend fun deleteTracksFor(id: Long)
+
+    @Query("SELECT COALESCE(MAX(position), -1) FROM playlist_tracks WHERE playlistId = :id")
+    suspend fun maxPosition(id: Long): Int
+
+    @Insert
+    suspend fun insertTrack(track: PlaylistTrackEntity)
+
+    @Query("DELETE FROM playlist_tracks WHERE id = :rowId")
+    suspend fun removeTrack(rowId: Long)
+
+    @Query("SELECT t.* FROM tracks t JOIN playlist_tracks pt ON pt.trackId = t.id WHERE pt.playlistId = :id ORDER BY pt.position, pt.id")
+    suspend fun tracksFor(id: Long): List<TrackEntity>
+}
