@@ -15,16 +15,19 @@ import java.io.InputStream
 object ReplayGainReader {
 
     fun read(context: Context, uri: Uri): Float? = try {
-        context.contentResolver.openInputStream(uri)?.use { s ->
-            val magic = ByteArray(4)
-            if (!readFully(s, magic)) null
-            else when {
-                magic.contentEquals("fLaC".toByteArray()) -> flac(s)
-                String(magic, 0, 3, Charsets.US_ASCII) == "ID3" -> id3(magic[3].toInt() and 0xFF, s)
-                else -> null
-            }
-        }
+        context.contentResolver.openInputStream(uri)?.use { read(it) }
     } catch (_: Exception) { null }
+
+    /** Parses gain from a stream positioned at the 4-byte file magic. */
+    internal fun read(s: InputStream): Float? {
+        val magic = ByteArray(4)
+        if (!readFully(s, magic)) return null
+        return when {
+            magic.contentEquals("fLaC".toByteArray()) -> flac(s)
+            String(magic, 0, 3, Charsets.US_ASCII) == "ID3" -> id3(magic[3].toInt() and 0xFF, s)
+            else -> null
+        }
+    }
 
     // ---- FLAC ----
 
@@ -56,8 +59,8 @@ object ReplayGainReader {
             return v
         }
         try {
-            p += le32() // vendor length
-            p += le32() // skip vendor string
+            val vendorLen = le32()
+            p += vendorLen // skip vendor string
             val count = le32()
             repeat(count) {
                 val l = le32()
