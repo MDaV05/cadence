@@ -71,7 +71,19 @@ class PlaybackService : MediaLibraryService() {
         })
         attachEq(player.audioSessionId)
 
-        session = MediaLibrarySession.Builder(this, player, object : MediaLibrarySession.Callback {})
+        session = MediaLibrarySession.Builder(this, player, object : MediaLibrarySession.Callback {
+            override fun onConnect(
+                session: MediaSession,
+                controller: MediaSession.ControllerInfo,
+            ): MediaSession.ConnectionResult {
+                val pkg = controller.packageName
+                // The session is exported; only let our own UI and platform media
+                // surfaces (lock screen, Bluetooth, Android Auto) attach.
+                val trusted = pkg == packageName || pkg in TRUSTED_CONTROLLER_PACKAGES
+                return if (trusted) super.onConnect(session, controller)
+                else MediaSession.ConnectionResult.reject()
+            }
+        })
             .build()
     }
 
@@ -127,5 +139,16 @@ class PlaybackService : MediaLibraryService() {
         }
         session = null
         super.onDestroy()
+    }
+
+    private companion object {
+        // Platform components that legitimately bind a media session's controller.
+        val TRUSTED_CONTROLLER_PACKAGES = setOf(
+            "com.android.systemui",                     // lock screen / media resumption
+            "com.android.bluetooth",                    // AVRCP (car + headsets)
+            "com.google.android.projection.gearhead",   // Android Auto
+            "com.google.android.wearable.app",          // Wear OS companion
+            "com.samsung.android.app.watchmanager",     // Samsung Galaxy Watch
+        )
     }
 }
