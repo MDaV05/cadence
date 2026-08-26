@@ -4,6 +4,7 @@ import android.content.ContentUris
 import android.provider.MediaStore
 import com.cadence.music.data.db.AlbumEntity
 import com.cadence.music.data.db.AppDatabase
+import com.cadence.music.data.db.DownloadEntity
 import com.cadence.music.data.db.TrackEntity
 import com.cadence.music.data.prefs.LibraryMode
 import com.cadence.music.data.prefs.Prefs
@@ -175,6 +176,51 @@ class LibraryRepository(
     }
 
     suspend fun removeFromPlaylist(rowId: Long) = db.playlistDao().removeTrack(rowId)
+
+    // ---- Downloads ----
+
+    /** Download rows joined with their track for display; live-updates as states change. */
+    fun observeDownloads(): Flow<List<DownloadStatusRow>> =
+        kotlinx.coroutines.flow.combine(db.downloadDao().observeAll(), db.trackDao().observeAll()) { dls, tracks ->
+            val byKey = tracks.associateBy { "${it.sourceId}:${it.serverId}" }
+            dls.map { DownloadStatusRow(it, byKey["${it.sourceId}:${it.trackServerId}"]) }
+        }
+
+    /** Queues a track for download; only server tracks are downloadable. */
+    fun enqueueDownload(track: TrackEntity) {
+        if (track.sourceId != "subsonic") return
+        com.cadence.music.data.downloads.DownloadWorker.enqueue(context, track.id)
+    }
+
+    fun enqueueDownloads(tracks: List<TrackEntity>) {
+        tracks.filter { it.sourceId == "subsonic" }.forEach { enqueueDownload(it) }
+    }
+
+    suspend fun retryDownload(download: DownloadEntity, track: TrackEntity?) {
+        if (track != null) {
+            enqueueDownload(track)
+        } else {
+            db.downloadDao().updateProgress(
+                download.trackServerId, download.sourceId, "failed", 0,
+            )
+        }
+    }
+
+    /** Removes the downloaded file and its status row; the track stays streamable. */
+    suspend fun deleteDownload(download: DownloadEntity, track: TrackEntity?) {
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val fileUri = track?.path
+            if (track != null && track.sourceId == "subsonic" && fileUri != null && fileUri.startsWith("file:")) {
+                runCatching {
+                    java.io.File(java.net.URI(fileUri)).delete()
+                    db.trackDao().setPath(track.id, null)
+                }
+            }
+            db.downloadDao().delete(download.trackServerId, download.sourceId)
+        }
+    }
 }
+
+data class DownloadStatusRow(val download: DownloadEntity, val track: TrackEntity?)
 
 data class SyncResult(val albumsFetched: Int, val tracksFetched: Int)

@@ -38,6 +38,7 @@ import com.cadence.music.data.prefs.LibraryMode
 import com.cadence.music.data.prefs.Prefs
 import com.cadence.music.playback.EqManager
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -86,7 +87,11 @@ private fun SettingRow(
 }
 
 @Composable
-fun SettingsScreen(container: AppContainer, onOpenEqualizer: () -> Unit = {}) {
+fun SettingsScreen(
+    container: AppContainer,
+    onOpenEqualizer: () -> Unit = {},
+    onOpenDownloads: () -> Unit = {},
+) {
     val scope = rememberCoroutineScope()
     val server = container.prefs.server
 
@@ -288,6 +293,24 @@ fun SettingsScreen(container: AppContainer, onOpenEqualizer: () -> Unit = {}) {
                         )
                     },
                     onClick = onOpenEqualizer,
+                )
+            }
+
+            item { HorizontalDivider() }
+            item { SectionHeader("Offline") }
+            item {
+                val downloadCount by produceState(0) {
+                    value = withContext(Dispatchers.IO) {
+                        runCatching { container.library.observeDownloads().first().size }.getOrDefault(0)
+                    }
+                }
+                SettingRow(
+                    title = "Downloads",
+                    subtitle = when (downloadCount) {
+                        0 -> "Nothing offline yet"
+                        else -> "$downloadCount track${if (downloadCount == 1) "" else "s"} downloaded"
+                    },
+                    onClick = onOpenDownloads,
                 )
             }
 
