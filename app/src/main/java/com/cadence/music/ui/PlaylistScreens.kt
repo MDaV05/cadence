@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
@@ -173,8 +174,7 @@ fun PlaylistDetailScreen(container: AppContainer, playlistId: Long, onBack: () -
             }
         } else {
             LazyColumn(Modifier.fillMaxSize().padding(padding)) {
-                items(tracks, key = { it.row.id }) { entry ->
-                    val index = tracks.indexOf(entry)
+                itemsIndexed(tracks, key = { _, entry -> entry.row.id }) { index, entry ->
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
