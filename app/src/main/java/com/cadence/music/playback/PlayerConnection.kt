@@ -208,6 +208,28 @@ class PlayerConnection(
         playNow(tracks.shuffled(), 0)
     }
 
+    /** Inserts a track right after the current one without disturbing the rest. */
+    fun playNext(track: Track) {
+        val c = controller ?: return
+        scope.launch {
+            val item = track.toMediaItem() ?: return@launch
+            c.addMediaItem(c.currentMediaItemIndex + 1, item)
+        }
+    }
+
+    /** Appends a track to the end of the queue. */
+    fun addToQueue(track: Track) {
+        val c = controller ?: return
+        scope.launch {
+            val item = track.toMediaItem() ?: return@launch
+            c.addMediaItem(item)
+        }
+    }
+
+    fun moveQueueItem(from: Int, to: Int) {
+        controller?.moveMediaItem(from, to.coerceIn(0, (controller?.mediaItemCount ?: 1) - 1))
+    }
+
     fun togglePlayPause() {
         controller?.takeIf { it.isPlaying }?.pause() ?: controller?.play()
     }
