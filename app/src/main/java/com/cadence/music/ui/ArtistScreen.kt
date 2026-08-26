@@ -49,7 +49,24 @@ fun ArtistScreen(container: AppContainer, artistName: String, onAlbumClick: (Str
     LaunchedEffect(artistName) {
         tracks = container.library.tracksByArtist(artistName)
         info = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            com.cadence.music.data.metadata.Wikipedia.artistInfoBlocking(artistName)
+            // Cache-first: the background worker pre-fills this table; a miss
+            // fetches once and is stored so later visits are instant.
+            val dao = container.database.artistInfoDao()
+            val cached = dao.byName(artistName)
+            when {
+                cached != null ->
+                    com.cadence.music.data.metadata.ArtistInfo(cached.bio, cached.imageUrl)
+                else -> {
+                    val fetched =
+                        com.cadence.music.data.metadata.Wikipedia.artistInfoBlocking(artistName)
+                    dao.upsert(
+                        com.cadence.music.data.db.ArtistInfoEntity(
+                            name = artistName, bio = fetched?.bio, imageUrl = fetched?.imageUrl,
+                        )
+                    )
+                    fetched
+                }
+            }
         }
     }
 

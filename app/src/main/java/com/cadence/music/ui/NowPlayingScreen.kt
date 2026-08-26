@@ -105,9 +105,29 @@ fun NowPlayingScreen(container: AppContainer) {
         val durSec = player.controller?.duration
             ?.takeIf { it != C.TIME_UNSET && it > 0 }?.div(1000) ?: 0L
         lyrics = withContext(Dispatchers.IO) {
-            com.cadence.music.data.metadata.LrcLib.fetchBlocking(
-                state.artist, state.title, durSec,
-            )
+            // Cached lyrics first; only hit LRCLIB on an unchecked track.
+            val mid = player.controller?.currentMediaItem?.mediaId
+            val entity = mid?.let { container.database.trackDao().byServerId(mid) }
+            val cached = entity?.let { container.database.lyricsDao().byTrackId(it.id) }
+            when {
+                cached != null && cached.syncedLrc.isNotEmpty() ->
+                    com.cadence.music.data.metadata.LrcLib.parse(cached.syncedLrc)
+                cached != null -> emptyList() // checked previously: none available
+                else -> {
+                    val fetched = com.cadence.music.data.metadata.LrcLib.fetchBlocking(
+                        state.artist, state.title, durSec,
+                    )
+                    if (entity != null) {
+                        container.database.lyricsDao().upsert(
+                            com.cadence.music.data.db.LyricsEntity(
+                                trackId = entity.id,
+                                syncedLrc = com.cadence.music.data.metadata.LrcLib.toLrcText(fetched),
+                            )
+                        )
+                    }
+                    fetched
+                }
+            }
         }
     }
 
