@@ -14,8 +14,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         DownloadEntity::class,
         PlaylistEntity::class,
         PlaylistTrackEntity::class,
+        LyricsEntity::class,
+        ArtistInfoEntity::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -23,6 +25,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun albumDao(): AlbumDao
     abstract fun downloadDao(): DownloadDao
     abstract fun playlistDao(): PlaylistDao
+    abstract fun lyricsDao(): LyricsDao
+    abstract fun artistInfoDao(): ArtistInfoDao
 
     companion object {
         private val MIGRATION_3_4 = object : Migration(3, 4) {
@@ -55,9 +59,28 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Offline caches for the metadata auto-downloader.
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS lyrics (" +
+                        "`trackId` INTEGER NOT NULL PRIMARY KEY, " +
+                        "`syncedLrc` TEXT NOT NULL, " +
+                        "`fetchedAt` INTEGER NOT NULL)"
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS artist_info (" +
+                        "`name` TEXT NOT NULL PRIMARY KEY, " +
+                        "`bio` TEXT, " +
+                        "`imageUrl` TEXT, " +
+                        "`fetchedAt` INTEGER NOT NULL)"
+                )
+            }
+        }
+
         fun build(context: Context): AppDatabase =
             Room.databaseBuilder(context, AppDatabase::class.java, "cadence.db")
-                .addMigrations(MIGRATION_3_4, MIGRATION_4_5)
+                .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                 // No paths exist from schema 1/2 (they predate exported schemas);
                 // those dev-only installs rebuild destructively instead of crashing.
                 .fallbackToDestructiveMigration()

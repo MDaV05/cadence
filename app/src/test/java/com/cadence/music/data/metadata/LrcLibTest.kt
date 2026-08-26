@@ -71,4 +71,14 @@ class LrcLibTest {
     fun `empty input yields empty list`() {
         assertTrue(LrcLib.parse("").isEmpty())
     }
+
+    @Test
+    fun `lrc text round-trips through parse`() {
+        val lines = listOf(
+            SyncedLine(0L, "first"),
+            SyncedLine(62_500L, "second"),
+            SyncedLine(3_725_123L, "third"),
+        )
+        assertEquals(lines, LrcLib.parse(LrcLib.toLrcText(lines)))
+    }
 }
