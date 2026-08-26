@@ -70,8 +70,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.core.graphics.drawable.toBitmap
 import androidx.media3.common.C
 import androidx.media3.common.Player
+import androidx.palette.graphics.Palette
+import coil.imageLoader
 import coil.compose.AsyncImage
 import com.cadence.music.AppContainer
 import com.cadence.music.data.metadata.SyncedLine
@@ -95,9 +98,37 @@ fun NowPlayingScreen(container: AppContainer) {
     var lyrics by remember { mutableStateOf<List<SyncedLine>>(emptyList()) }
     var currentLine by remember { mutableIntStateOf(-1) }
     var showQueue by remember { mutableStateOf(false) }
+    var showFullLyrics by remember { mutableStateOf(false) }
 
     val bg = MaterialTheme.colorScheme.background
     val primary = MaterialTheme.colorScheme.primary
+
+    // Accent color extracted from the current album art; falls back to theme
+    // primary when there's no art or extraction fails.
+    val context = LocalContext.current
+    var accent by remember { mutableStateOf<Color?>(null) }
+    LaunchedEffect(state.title) {
+        accent = null
+        val mid = player.controller?.currentMediaItem?.mediaId ?: return@LaunchedEffect
+        val url: String? = withContext(Dispatchers.IO) {
+            runCatching {
+                container.database.trackDao().byServerId(mid)?.let { container.artResolver.urlFor(it) }
+            }.getOrNull()
+        } ?: return@LaunchedEffect
+        val result: coil.request.ImageResult? = runCatching {
+            context.imageLoader.execute(
+                coil.request.ImageRequest.Builder(context)
+                    .data(url)
+                    .allowHardware(false)
+                    .build()
+            )
+        }.getOrNull()
+        val drawable = (result as? coil.request.SuccessResult)?.drawable ?: return@LaunchedEffect
+        val bitmap = runCatching { drawable.toBitmap() }.getOrNull() ?: return@LaunchedEffect
+        val palette = Palette.from(bitmap).generate()
+        accent = Color(palette.getVibrantColor(palette.getDominantColor(primary.hashCode())))
+    }
+    val theme = accent ?: primary
 
     LaunchedEffect(state.isPlaying) {
         while (true) {
@@ -172,7 +203,7 @@ fun NowPlayingScreen(container: AppContainer) {
                 .padding(padding)
                 .background(
                     Brush.verticalGradient(
-                        listOf(primary.copy(alpha = 0.10f), bg, bg),
+                        listOf(theme.copy(alpha = 0.10f), bg, bg),
                     )
                 )
                 .padding(24.dp),
@@ -220,8 +251,8 @@ fun NowPlayingScreen(container: AppContainer) {
                 },
                 modifier = Modifier.fillMaxWidth().padding(top = 20.dp),
                 colors = SliderDefaults.colors(
-                    thumbColor = MaterialTheme.colorScheme.primary,
-                    activeTrackColor = MaterialTheme.colorScheme.primary,
+                    thumbColor = theme,
+                    activeTrackColor = theme,
                 ),
             )
             Row(
@@ -316,7 +347,7 @@ fun NowPlayingScreen(container: AppContainer) {
                         if (state.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                         "Play/pause",
                         Modifier.size(48.dp),
-                        tint = MaterialTheme.colorScheme.primary,
+                        tint = theme,
                     )
                 }
                 Spacer(Modifier.size(16.dp))
@@ -341,13 +372,22 @@ fun NowPlayingScreen(container: AppContainer) {
 
             // Current lyric line preview under transport
             if (!showQueue && lyrics.isNotEmpty() && currentLine >= 0) {
-                Text(
-                    lyrics[currentLine].text,
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = primary,
-                    textAlign = TextAlign.Center,
+                Row(
                     modifier = Modifier.fillMaxWidth(),
-                )
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        lyrics[currentLine].text,
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = theme,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    TextButton(onClick = { showFullLyrics = true }) {
+                        Text("Full screen", style = MaterialTheme.typography.labelMedium)
+                    }
+                }
             } else if (!showQueue && lyrics.isNotEmpty()) {
                 Text(
                     "Lyrics available",
@@ -445,6 +485,57 @@ fun NowPlayingScreen(container: AppContainer) {
                             Icon(Icons.Filled.Close, "Remove", Modifier.size(16.dp))
                         }
                     }
+                }
+            }
+        }
+    }
+
+    if (showFullLyrics && lyrics.isNotEmpty()) {
+        val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+        LaunchedEffect(currentLine) {
+            if (currentLine >= 0) listState.animateScrollToItem(currentLine)
+        }
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(bg),
+        ) {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    state.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    maxLines = 1,
+                    modifier = Modifier.weight(1f).padding(start = 12.dp),
+                )
+                IconButton(onClick = { showFullLyrics = false }) {
+                    Icon(Icons.Filled.Close, "Close lyrics")
+                }
+            }
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                    horizontal = 24.dp, vertical = 64.dp,
+                ),
+                verticalArrangement = Arrangement.spacedBy(18.dp),
+            ) {
+                itemsIndexed(lyrics) { i, line ->
+                    Text(
+                        line.text,
+                        style = if (i == currentLine) MaterialTheme.typography.headlineSmall
+                        else MaterialTheme.typography.bodyLarge,
+                        color = when {
+                            i == currentLine -> theme
+                            else -> MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { player.seekTo(line.timeMs) },
+                    )
                 }
             }
         }
