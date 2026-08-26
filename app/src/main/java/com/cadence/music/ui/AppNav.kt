@@ -23,7 +23,6 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -33,6 +32,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.cadence.music.AppContainer
 import com.cadence.music.CadenceApp
 
@@ -47,7 +47,7 @@ fun AppNav() {
     Scaffold(
         bottomBar = {
             Column {
-                val np by container.player.state.collectAsState()
+                val np by container.player.state.collectAsStateWithLifecycle()
                 if (np.title.isNotEmpty()) {
                     androidx.compose.material3.Surface(
                         color = MaterialTheme.colorScheme.surfaceVariant,

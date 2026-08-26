@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Download
@@ -84,11 +85,11 @@ fun AlbumScreen(container: AppContainer, albumName: String) {
                     }
                 }
             }
-            items(tracks, key = { it.id }) { track ->
+            itemsIndexed(tracks, key = { _, track -> track.id }) { index, track ->
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { player.playNow(tracks.map { it.toTrack() }, tracks.indexOf(track)) }
+                        .clickable { player.playNow(tracks.map { it.toTrack() }, index) }
                         .padding(horizontal = 16.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {

@@ -97,8 +97,10 @@ fun EqualizerScreen(container: AppContainer, onBack: () -> Unit = {}) {
                     }
                     Slider(
                         value = bands[band].toFloat(),
-                        onValueChange = {
-                            bands[band] = it.toInt()
+                        // Drag updates local state only; persisting and applying
+                        // per tick flooded SharedPreferences + the audio effect.
+                        onValueChange = { bands[band] = it.toInt() },
+                        onValueChangeFinished = {
                             container.prefs.eqBands = bands.toList()
                             EqManager.apply()
                         },
@@ -112,8 +114,8 @@ fun EqualizerScreen(container: AppContainer, onBack: () -> Unit = {}) {
                     Text("Bass boost: ${bass / 10}%", style = MaterialTheme.typography.bodySmall)
                     Slider(
                         value = bass.toFloat(),
-                        onValueChange = {
-                            bass = it.toInt()
+                        onValueChange = { bass = it.toInt() },
+                        onValueChangeFinished = {
                             container.prefs.eqBassBoost = bass
                             EqManager.apply()
                         },

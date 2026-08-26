@@ -61,6 +61,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.media3.common.C
 import androidx.media3.common.Player
 import coil.compose.AsyncImage
 import com.cadence.music.AppContainer
@@ -77,6 +78,8 @@ fun NowPlayingScreen(container: AppContainer) {
     var position by remember { mutableLongStateOf(0L) }
     var duration by remember { mutableLongStateOf(0L) }
     val sleepLeft by player.sleepRemainingMs.collectAsStateWithLifecycle()
+    val queueSnapshot by player.queueItems.collectAsStateWithLifecycle()
+    val queueIdx by player.queueIndexFlow.collectAsStateWithLifecycle()
     var showSleepDialog by remember { mutableStateOf(false) }
     var lyrics by remember { mutableStateOf<List<SyncedLine>>(emptyList()) }
     var currentLine by remember { mutableIntStateOf(-1) }
@@ -88,7 +91,8 @@ fun NowPlayingScreen(container: AppContainer) {
     LaunchedEffect(state.isPlaying) {
         while (true) {
             position = player.controller?.currentPosition ?: 0
-            duration = player.controller?.duration ?: 0
+            // TIME_UNSET before prepare would render as garbage time text.
+            duration = player.controller?.duration?.takeIf { it != C.TIME_UNSET && it > 0 } ?: 0
             delay(400)
         }
     }
@@ -96,9 +100,13 @@ fun NowPlayingScreen(container: AppContainer) {
     LaunchedEffect(state.title, state.artist) {
         lyrics = emptyList(); currentLine = -1
         if (state.title.isBlank() && state.artist.isBlank()) return@LaunchedEffect
+        // Read duration at fetch time — the polling loop above still holds the
+        // previous track's value on transition frames.
+        val durSec = player.controller?.duration
+            ?.takeIf { it != C.TIME_UNSET && it > 0 }?.div(1000) ?: 0L
         lyrics = withContext(Dispatchers.IO) {
             com.cadence.music.data.metadata.LrcLib.fetchBlocking(
-                state.artist, state.title, duration / 1000,
+                state.artist, state.title, durSec,
             )
         }
     }
@@ -125,9 +133,6 @@ fun NowPlayingScreen(container: AppContainer) {
             if (page != 1) pagerState.scrollToPage(1)
         }
     }
-
-    val queueSnapshot = player.queue
-    val queueIdx = player.queueIndex
 
     Scaffold { padding ->
         Column(
@@ -299,7 +304,7 @@ fun NowPlayingScreen(container: AppContainer) {
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
             )
-            val q = player.queue
+            val q = queueSnapshot
             LazyColumn(Modifier.padding(bottom = 32.dp)) {
                 items(q.size) { i ->
                     val item = q[i]
@@ -320,7 +325,7 @@ fun NowPlayingScreen(container: AppContainer) {
                                 item.mediaMetadata.title?.toString() ?: "",
                                 maxLines = 1,
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = if (i == player.queueIndex) MaterialTheme.colorScheme.primary
+                                color = if (i == queueIdx) MaterialTheme.colorScheme.primary
                                 else MaterialTheme.colorScheme.onSurface,
                             )
                             val artist = item.mediaMetadata.artist?.toString().orEmpty()
