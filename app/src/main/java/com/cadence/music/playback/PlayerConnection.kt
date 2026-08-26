@@ -81,7 +81,12 @@ class PlayerConnection(
                 return@launch // service unavailable; stay inert rather than crash at startup
             }
             controller = c
+            // Reconnects (e.g. process restart while the service plays on) get
+            // no transition event — seed the state from the current item.
+            val current = c.currentMediaItem
             _state.value = _state.value.copy(
+                title = current?.mediaMetadata?.title?.toString() ?: "",
+                artist = current?.mediaMetadata?.artist?.toString() ?: "",
                 shuffle = c.shuffleModeEnabled,
                 repeatMode = c.repeatMode,
             )

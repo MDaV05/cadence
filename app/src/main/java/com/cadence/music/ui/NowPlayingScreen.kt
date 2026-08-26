@@ -107,13 +107,13 @@ fun NowPlayingScreen(container: AppContainer) {
     LaunchedEffect(state.title, state.artist) {
         lyrics = emptyList(); currentLine = -1
         if (state.title.isBlank() && state.artist.isBlank()) return@LaunchedEffect
-        // Read duration at fetch time — the polling loop above still holds the
-        // previous track's value on transition frames.
+        // Read controller state here on the main thread — MediaController is
+        // main-thread-only and the DB work below hops to IO.
+        val mid = player.controller?.currentMediaItem?.mediaId
         val durSec = player.controller?.duration
             ?.takeIf { it != C.TIME_UNSET && it > 0 }?.div(1000) ?: 0L
         lyrics = withContext(Dispatchers.IO) {
             // Cached lyrics first; only hit LRCLIB on an unchecked track.
-            val mid = player.controller?.currentMediaItem?.mediaId
             val entity = mid?.let { container.database.trackDao().byServerId(mid) }
             val cached = entity?.let { container.database.lyricsDao().byTrackId(it.id) }
             when {
