@@ -2,20 +2,27 @@ package com.cadence.music.playback
 
 import android.content.ComponentName
 import android.content.Context
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
+import androidx.media3.common.Timeline
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
+import com.cadence.music.data.metadata.ListenBrainz
 import com.cadence.music.data.source.Track
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.guava.await
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 data class NowPlaying(
     val title: String = "",
@@ -32,11 +39,14 @@ class PlayerConnection(
     // Builds fresh authenticated stream URLs for server tracks at play time;
     // stream URLs are not persisted in the DB (they carry per-request tokens).
     private val resolveStreamUrl: suspend (Track) -> String? = { null },
-    // Called with the mediaId of each track as playback transitions to it.
+    // Called with the mediaId of each track once it counts as "listened".
     private val onTrackPlayed: suspend (String) -> Unit = {},
 ) {
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private val scope = CoroutineScope(
+        SupervisorJob() + Dispatchers.Main +
+            CoroutineExceptionHandler { _, _ -> /* playback glue must never crash the app */ }
+    )
     private val appContext = context.applicationContext
 
     private val _state = MutableStateFlow(NowPlaying())
@@ -45,69 +55,141 @@ class PlayerConnection(
     private val _sleepRemainingMs = MutableStateFlow<Long?>(null)
     /** Milliseconds left on the sleep timer, or null when inactive. */
     val sleepRemainingMs: StateFlow<Long?> = _sleepRemainingMs
-    private var sleepJob: kotlinx.coroutines.Job? = null
+    private var sleepJob: Job? = null
+
+    // Live queue snapshot driven by controller timeline events, so UI observes
+    // changes instead of re-reading the controller on every recomposition.
+    private val _queue = MutableStateFlow<List<MediaItem>>(emptyList())
+    val queueItems: StateFlow<List<MediaItem>> = _queue
+    private val _queueIndex = MutableStateFlow(0)
+    val queueIndexFlow: StateFlow<Int> = _queueIndex
+
+    // Pending "completed listen" for the current item. Cancelled when the user
+    // skips before the threshold so skipped tracks never scrobble or count.
+    private var listenJob: Job? = null
+    private var pendingListenKey: String? = null
 
     var controller: MediaController? = null
         private set
 
     init {
         scope.launch {
-            val token = SessionToken(appContext, ComponentName(appContext, PlaybackService::class.java))
-            controller = MediaController.Builder(appContext, token).buildAsync().await()
-            controller?.let { c ->
-                _state.value = _state.value.copy(
-                    shuffle = c.shuffleModeEnabled,
-                    repeatMode = c.repeatMode,
-                )
-                c.addListener(object : Player.Listener {
-                    override fun onIsPlayingChanged(isPlaying: Boolean) {
-                        _state.value = _state.value.copy(isPlaying = isPlaying)
-                    }
+            val c = try {
+                val token = SessionToken(appContext, ComponentName(appContext, PlaybackService::class.java))
+                MediaController.Builder(appContext, token).buildAsync().await()
+            } catch (_: Exception) {
+                return@launch // service unavailable; stay inert rather than crash at startup
+            }
+            controller = c
+            _state.value = _state.value.copy(
+                shuffle = c.shuffleModeEnabled,
+                repeatMode = c.repeatMode,
+            )
+            refreshQueue(c)
+            c.addListener(object : Player.Listener {
+                override fun onIsPlayingChanged(isPlaying: Boolean) {
+                    _state.value = _state.value.copy(isPlaying = isPlaying)
+                }
 
-                    override fun onShuffleModeEnabledChanged(enabled: Boolean) {
-                        _state.value = _state.value.copy(shuffle = enabled)
-                    }
+                override fun onShuffleModeEnabledChanged(enabled: Boolean) {
+                    _state.value = _state.value.copy(shuffle = enabled)
+                }
 
-                    override fun onRepeatModeChanged(repeatMode: Int) {
-                        _state.value = _state.value.copy(repeatMode = repeatMode)
-                    }
+                override fun onRepeatModeChanged(repeatMode: Int) {
+                    _state.value = _state.value.copy(repeatMode = repeatMode)
+                }
 
-                    override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                        val title = mediaItem?.mediaMetadata?.title?.toString() ?: ""
-                        val artist = mediaItem?.mediaMetadata?.artist?.toString() ?: ""
-                        val album = mediaItem?.mediaMetadata?.albumTitle?.toString()
-                        _state.value = _state.value.copy(title = title, artist = artist)
-                        mediaItem?.mediaId?.let { key ->
-                            scope.launch { runCatching { onTrackPlayed(key) } }
-                        }
-                        val token = lbTokenProvider()
-                        if (token != null && title.isNotBlank() && artist.isNotBlank()) {
-                            Thread {
-                                com.cadence.music.data.metadata.ListenBrainz.submitBlocking(
-                                    token, artist, title, album,
-                                )
-                            }.start()
-                        }
+                override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                    val title = mediaItem?.mediaMetadata?.title?.toString() ?: ""
+                    val artist = mediaItem?.mediaMetadata?.artist?.toString() ?: ""
+                    _state.value = _state.value.copy(title = title, artist = artist)
+                    scheduleListen(mediaItem)
+                    refreshQueue(c)
+                }
+
+                override fun onPositionDiscontinuity(
+                    newPosition: Player.PositionInfo,
+                    oldPosition: Player.PositionInfo,
+                    reason: Int,
+                ) {
+                    // Repeat-one replays the same item with no transition event:
+                    // an auto transition inside one item is a completed loop.
+                    if (reason == Player.DISCONTINUITY_REASON_AUTO_TRANSITION &&
+                        oldPosition.mediaItemIndex == newPosition.mediaItemIndex &&
+                        newPosition.mediaItem?.mediaId != null &&
+                        newPosition.mediaItem?.mediaId == pendingListenKey
+                    ) {
+                        finishListenNow()
+                        scheduleListen(c.currentMediaItem)
                     }
-                })
+                }
+
+                override fun onTimelineChanged(timeline: Timeline, reason: Int) {
+                    refreshQueue(c)
+                }
+            })
+        }
+    }
+
+    /** Arms the listen timer; a track only scrobbles/counts after [threshold]. */
+    private fun scheduleListen(item: MediaItem?) {
+        listenJob?.cancel()
+        listenJob = null
+        pendingListenKey = item?.mediaId
+        if (item == null) return
+        val durMs = controller?.duration?.takeIf { it != C.TIME_UNSET && it > 0 } ?: 0L
+        // Scrobble rule: half the track or 4 minutes, whichever comes first.
+        val thresholdMs = minOf(durMs / 2, SCROBBLE_MAX_MS).coerceAtLeast(MIN_LISTEN_MS)
+        listenJob = scope.launch {
+            delay(thresholdMs)
+            listenJob = null
+            completeListen(item)
+        }
+    }
+
+    /** Counts an already-completed play immediately (repeat-one loop). */
+    private fun finishListenNow() {
+        listenJob?.cancel()
+        listenJob = null
+        val item = controller?.currentMediaItem ?: return
+        scope.launch { completeListen(item) }
+    }
+
+    private suspend fun completeListen(item: MediaItem) {
+        runCatching { onTrackPlayed(item.mediaId) }
+        val title = item.mediaMetadata.title?.toString().orEmpty()
+        val artist = item.mediaMetadata.artist?.toString().orEmpty()
+        val album = item.mediaMetadata.albumTitle?.toString()
+        val token = lbTokenProvider()
+        if (token != null && title.isNotBlank() && artist.isNotBlank()) {
+            withContext(Dispatchers.IO) {
+                runCatching { ListenBrainz.submitBlocking(token, artist, title, album) }
             }
         }
+    }
+
+    private fun refreshQueue(c: MediaController) {
+        _queue.value = List(c.mediaItemCount) { c.getMediaItemAt(it) }
+        _queueIndex.value = c.currentMediaItemIndex
     }
 
     fun playNow(tracks: List<Track>, startIndex: Int = 0) {
         val c = controller ?: return
         scope.launch {
-            val items = tracks.mapNotNull { it.toMediaItem() }
-            if (items.isEmpty()) return@launch
-            c.setMediaItems(items, startIndex.coerceIn(0, items.size - 1), 0)
+            if (tracks.isEmpty()) return@launch
+            val idx = startIndex.coerceIn(0, tracks.size - 1)
+            // Resolve the chosen track first so the tapped song always leads,
+            // even when resolution of other items fails.
+            val startItem = tracks[idx].toMediaItem() ?: return@launch
+            val rest = tracks.mapIndexedNotNull { i, t -> if (i == idx) null else t.toMediaItem() }
+            c.setMediaItems(listOf(startItem) + rest, 0, 0)
             c.prepare()
             c.play()
         }
     }
 
     fun shuffleAll(tracks: List<Track>) {
-        val shuffled = tracks.shuffled()
-        playNow(shuffled, 0)
+        playNow(tracks.shuffled(), 0)
     }
 
     fun togglePlayPause() {
@@ -159,12 +241,6 @@ class PlayerConnection(
         _sleepRemainingMs.value = null
     }
 
-    val queue: List<MediaItem> get() = controller?.mediaItemCount?.let { n ->
-        (0 until n).map { controller!!.getMediaItemAt(it) }
-    } ?: emptyList()
-
-    val queueIndex: Int get() = controller?.currentMediaItemIndex ?: 0
-
     fun jumpTo(index: Int) {
         controller?.seekToDefaultPosition(index)
         controller?.play()
@@ -175,13 +251,16 @@ class PlayerConnection(
     }
 
     fun release() {
+        listenJob?.cancel()
+        cancelSleepTimer()
         controller?.release()
         controller = null
+        scope.cancel()
     }
 
     /** Null when the track has no playable URI (skipped from the queue instead of crashing). */
     private suspend fun Track.toMediaItem(): MediaItem? {
-        val uri = localPath ?: resolveStreamUrl(this) ?: return null
+        val uri = localPath ?: runCatching { resolveStreamUrl(this) }.getOrNull() ?: return null
         return MediaItem.Builder()
             .setUri(uri)
             .setMediaId(key)
@@ -193,5 +272,10 @@ class PlayerConnection(
                     .build()
             )
             .build()
+    }
+
+    private companion object {
+        const val SCROBBLE_MAX_MS = 240_000L
+        const val MIN_LISTEN_MS = 1_000L
     }
 }

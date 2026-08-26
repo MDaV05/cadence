@@ -6,7 +6,6 @@ import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
-import kotlin.random.Random
 
 class SubsonicSource(private val configProvider: () -> ServerConfig?) : MusicSource {
 
@@ -20,7 +19,9 @@ class SubsonicSource(private val configProvider: () -> ServerConfig?) : MusicSou
 
     private fun url(endpoint: String, params: Map<String, String> = emptyMap()): String {
         val cfg = config
-        val salt = Random.nextBytes(6).joinToString("") { "%02x".format(it) }
+        // Deterministic per-server salt: stream URLs must be byte-identical
+        // across plays, or Media3's URI-keyed cache never gets a hit.
+        val salt = md5("${cfg.user}:${cfg.password}").substring(0, 12)
         val token = md5(cfg.password + salt)
         val all = buildMap {
             putAll(params)

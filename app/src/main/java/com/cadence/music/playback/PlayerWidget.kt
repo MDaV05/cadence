@@ -60,6 +60,15 @@ class PlayerWidget : AppWidgetProvider() {
         @Volatile private var cached: MediaController? = null
         @Volatile private var connecting: Deferred<MediaController?>? = null
 
+        // If the session dies while the process lives, taps would silently
+        // no-op — clear the cache so the next tap reconnects.
+        private val disconnectWatcher = object : MediaController.Listener {
+            override fun onDisconnected(controller: MediaController) {
+                cached = null
+                synchronized(this@Companion) { connecting = null }
+            }
+        }
+
         private suspend fun controller(context: Context): MediaController? {
             cached?.let { return it }
             val appContext = context.applicationContext
@@ -67,7 +76,9 @@ class PlayerWidget : AppWidgetProvider() {
                 connecting ?: widgetScope.async {
                     try {
                         val token = SessionToken(appContext, ComponentName(appContext, PlaybackService::class.java))
-                        MediaController.Builder(appContext, token).buildAsync().await()
+                        MediaController.Builder(appContext, token)
+                            .setListener(disconnectWatcher)
+                            .buildAsync().await()
                     } catch (_: Exception) {
                         null
                     }
