@@ -3,6 +3,8 @@ package com.cadence.music.playback
 import android.content.Intent
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DataSource
@@ -12,12 +14,16 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaSession
 import com.cadence.music.CadenceApp
+import com.cadence.music.data.db.TrackEntity
+import com.google.common.util.concurrent.ListenableFuture
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.guava.future
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 
 class PlaybackService : MediaLibraryService() {
 
@@ -63,10 +69,14 @@ class PlaybackService : MediaLibraryService() {
             override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
                 pushWidget(mediaItem, player.isPlaying)
                 applyReplayGain(mediaItem?.mediaId)
+                saveResumeState(player)
             }
 
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 pushWidget(player.currentMediaItem, isPlaying)
+                // Persist the position when playback stops so resumption
+                // (media button after swipe-away/reboot) restores it.
+                if (!isPlaying) saveResumeState(player)
             }
         })
         attachEq(player.audioSessionId)
@@ -83,6 +93,13 @@ class PlaybackService : MediaLibraryService() {
                 return if (trusted) super.onConnect(session, controller)
                 else MediaSession.ConnectionResult.reject()
             }
+
+            /** Lets media buttons / Assistant resume playback after swipe-away or reboot. */
+            override fun onPlaybackResumption(
+                mediaSession: MediaSession,
+                controller: MediaSession.ControllerInfo,
+            ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> =
+                serviceScope.future { buildResumeQueue() }
         })
             .build()
     }
@@ -94,6 +111,65 @@ class PlaybackService : MediaLibraryService() {
             mediaItem?.mediaMetadata?.artist?.toString() ?: "",
             playing,
         )
+    }
+
+    private fun saveResumeState(player: Player) {
+        val sp = getSharedPreferences("cadence", MODE_PRIVATE)
+        if (player.mediaItemCount == 0 || player.currentMediaItem == null) {
+            sp.edit().remove("resume_ids").apply()
+            return
+        }
+        val ids = JSONArray()
+        for (i in 0 until player.mediaItemCount) ids.put(player.getMediaItemAt(i).mediaId)
+        sp.edit()
+            .putString("resume_ids", ids.toString())
+            .putInt("resume_index", player.currentMediaItemIndex)
+            .putLong("resume_position_ms", player.currentPosition.coerceAtLeast(0))
+            .apply()
+    }
+
+    /** Rebuilds the last queue with fresh stream URLs so the system can resume playback. */
+    private suspend fun buildResumeQueue(): MediaSession.MediaItemsWithStartPosition {
+        val container = (application as? CadenceApp)?.container
+            ?: return MediaSession.MediaItemsWithStartPosition(emptyList(), 0, 0)
+        val sp = getSharedPreferences("cadence", MODE_PRIVATE)
+        val idsJson = sp.getString("resume_ids", null) ?: return MediaSession.MediaItemsWithStartPosition(emptyList(), 0, 0)
+        val savedIndex = sp.getInt("resume_index", 0)
+        val savedPosition = sp.getLong("resume_position_ms", 0L)
+
+        val ids = JSONArray(idsJson)
+        val items = mutableListOf<MediaItem>()
+        var startIndex = 0
+        for (i in 0 until ids.length()) {
+            val entity = withContext(Dispatchers.IO) {
+                runCatching { container.database.trackDao().byServerId(ids.optString(i)) }.getOrNull()
+            } ?: continue
+            if (i == savedIndex) startIndex = items.size
+            entity.toMediaItem(container)?.let { items.add(it) }
+        }
+        if (items.isEmpty()) return MediaSession.MediaItemsWithStartPosition(emptyList(), 0, 0)
+        return MediaSession.MediaItemsWithStartPosition(items, startIndex.coerceIn(0, items.size - 1), savedPosition)
+    }
+
+    private suspend fun TrackEntity.toMediaItem(container: com.cadence.music.AppContainer): MediaItem? {
+        val uri = path ?: runCatching {
+            val track = com.cadence.music.data.source.Track(
+                key = serverId, sourceId = sourceId, title = title, artist = artistName,
+                album = albumName, albumKey = albumKey, durationMs = durationMs, localPath = null,
+            )
+            container.subsonic.streamUrl(track)
+        }.getOrNull() ?: return null
+        return MediaItem.Builder()
+            .setUri(uri)
+            .setMediaId(serverId)
+            .setMediaMetadata(
+                MediaMetadata.Builder()
+                    .setTitle(title)
+                    .setArtist(artistName)
+                    .setAlbumTitle(albumName)
+                    .build()
+            )
+            .build()
     }
 
     private fun applyReplayGain(mediaId: String?) {
@@ -149,6 +225,8 @@ class PlaybackService : MediaLibraryService() {
             "com.google.android.projection.gearhead",   // Android Auto
             "com.google.android.wearable.app",          // Wear OS companion
             "com.samsung.android.app.watchmanager",     // Samsung Galaxy Watch
+            "com.google.android.googlequicksearchbox",  // Google app / Assistant
+            "com.google.android.as",                    // Pixel ambient services (Assistant)
         )
     }
 }

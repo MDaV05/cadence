@@ -158,6 +158,9 @@ class LibraryRepository(
     suspend fun createPlaylist(name: String): Long =
         db.playlistDao().insertPlaylist(com.cadence.music.data.db.PlaylistEntity(name = name))
 
+    suspend fun renamePlaylist(id: Long, name: String) =
+        db.playlistDao().renamePlaylist(id, name)
+
     suspend fun deletePlaylist(id: Long) {
         db.playlistDao().deletePlaylistCascade(id)
     }

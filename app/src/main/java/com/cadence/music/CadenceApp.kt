@@ -1,22 +1,60 @@
 package com.cadence.music
 
+import android.Manifest
 import android.app.Application
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.work.Constraints
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
 import com.cadence.music.data.LibraryRepository
+import com.cadence.music.data.SyncWorker
 import com.cadence.music.data.db.AppDatabase
 import com.cadence.music.data.metadata.ArtResolver
 import com.cadence.music.data.prefs.Prefs
 import com.cadence.music.data.source.LocalSource
 import com.cadence.music.data.source.SubsonicSource
 import com.cadence.music.playback.PlayerConnection
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import java.util.concurrent.TimeUnit
 
 class CadenceApp : Application() {
 
     lateinit var container: AppContainer
         private set
 
+    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
     override fun onCreate() {
         super.onCreate()
         container = AppContainer(this)
+        schedulePeriodicSync()
+        // Catch up on library changes since the app was last open.
+        if (hasAudioPermission() || container.prefs.server != null) {
+            appScope.launch { runCatching { container.library.syncAll() } }
+        }
+    }
+
+    private fun hasAudioPermission(): Boolean {
+        val permission = if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_AUDIO
+        else Manifest.permission.READ_EXTERNAL_STORAGE
+        return checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
+    }
+
+    private fun schedulePeriodicSync() {
+        val request = PeriodicWorkRequestBuilder<SyncWorker>(6, TimeUnit.HOURS)
+            .setConstraints(
+                Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
+            )
+            .build()
+        WorkManager.getInstance(this).enqueueUniquePeriodicWork(
+            "library-sync", ExistingPeriodicWorkPolicy.KEEP, request,
+        )
     }
 }
 

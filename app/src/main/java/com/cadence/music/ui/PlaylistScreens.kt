@@ -15,6 +15,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -41,6 +42,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.cadence.music.AppContainer
 import com.cadence.music.data.db.PlaylistTrackRow
+import com.cadence.music.data.db.PlaylistWithCount
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -50,6 +52,8 @@ fun PlaylistsScreen(container: AppContainer, onOpen: (Long) -> Unit = {}) {
     val playlists by container.library.playlists()
         .collectAsStateWithLifecycle(initialValue = emptyList())
     var showNew by remember { mutableStateOf(false) }
+    var renameTarget by remember { mutableStateOf<PlaylistWithCount?>(null) }
+    var deleteTarget by remember { mutableStateOf<PlaylistWithCount?>(null) }
 
     Scaffold(
         floatingActionButton = {
@@ -87,10 +91,13 @@ fun PlaylistsScreen(container: AppContainer, onOpen: (Long) -> Unit = {}) {
                                 Text(if (p.trackCount == 1) "1 song" else "${p.trackCount} songs")
                             },
                             trailingContent = {
-                                IconButton(onClick = {
-                                    scope.launch { container.library.deletePlaylist(p.id) }
-                                }) {
-                                    Icon(Icons.Filled.Delete, "Delete ${p.name}")
+                                Row {
+                                    IconButton(onClick = { renameTarget = p }) {
+                                        Icon(Icons.Filled.Edit, "Rename ${p.name}")
+                                    }
+                                    IconButton(onClick = { deleteTarget = p }) {
+                                        Icon(Icons.Filled.Delete, "Delete ${p.name}")
+                                    }
                                 }
                             },
                             modifier = Modifier.clickable { onOpen(p.id) },
@@ -110,18 +117,54 @@ fun PlaylistsScreen(container: AppContainer, onOpen: (Long) -> Unit = {}) {
             onDismiss = { showNew = false },
         )
     }
+
+    renameTarget?.let { p ->
+        NewPlaylistDialog(
+            title = "Rename playlist",
+            initialName = p.name,
+            confirmLabel = "Rename",
+            onCreate = { name ->
+                renameTarget = null
+                if (name.isNotBlank()) scope.launch { container.library.renamePlaylist(p.id, name) }
+            },
+            onDismiss = { renameTarget = null },
+        )
+    }
+
+    deleteTarget?.let { p ->
+        AlertDialog(
+            onDismissRequest = { deleteTarget = null },
+            title = { Text("Delete \"${p.name}\"?") },
+            text = { Text("This removes the playlist and its ${p.trackCount} songs from it. The songs themselves stay in your library.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    deleteTarget = null
+                    scope.launch { container.library.deletePlaylist(p.id) }
+                }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteTarget = null }) { Text("Cancel") }
+            },
+        )
+    }
 }
 
 @Composable
-fun NewPlaylistDialog(onCreate: (String) -> Unit, onDismiss: () -> Unit) {
-    var name by remember { mutableStateOf("") }
+fun NewPlaylistDialog(
+    onCreate: (String) -> Unit,
+    onDismiss: () -> Unit,
+    title: String = "New playlist",
+    initialName: String = "",
+    confirmLabel: String = "Create",
+) {
+    var name by remember { mutableStateOf(initialName) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("New playlist") },
+        title = { Text(title) },
         text = {
             OutlinedTextField(name, { name = it }, label = { Text("Name") }, singleLine = true)
         },
-        confirmButton = { TextButton({ onCreate(name) }) { Text("Create") } },
+        confirmButton = { TextButton({ onCreate(name) }) { Text(confirmLabel) } },
         dismissButton = { TextButton(onDismiss) { Text("Cancel") } },
     )
 }
