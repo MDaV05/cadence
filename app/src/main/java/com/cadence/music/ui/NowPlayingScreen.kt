@@ -3,6 +3,7 @@ package com.cadence.music.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -36,6 +38,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
@@ -56,10 +59,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.C
 import androidx.media3.common.Player
@@ -69,6 +75,7 @@ import com.cadence.music.data.metadata.SyncedLine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -324,14 +331,53 @@ fun NowPlayingScreen(container: AppContainer) {
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
             )
+            var queueQuery by remember { mutableStateOf("") }
+            OutlinedTextField(
+                queueQuery,
+                { queueQuery = it },
+                label = { Text("Search queue") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp),
+            )
             val q = queueSnapshot
+            // Visible entries keep their original queue index for jump/remove/move.
+            val visible: List<Int> = if (queueQuery.isBlank()) q.indices.toList() else q.indices.filter { i ->
+                q[i].mediaMetadata.title?.toString()?.contains(queueQuery, true) == true ||
+                    q[i].mediaMetadata.artist?.toString()?.contains(queueQuery, true) == true
+            }
+            val rowHeightPx = with(LocalDensity.current) { 72.dp.toPx() }
+            var dragIndex by remember { mutableStateOf<Int?>(null) }
+            var dragOffset by remember { mutableFloatStateOf(0f) }
+
             LazyColumn(Modifier.padding(bottom = 32.dp)) {
-                items(q.size) { i ->
-                    val item = q[i]
+                itemsIndexed(visible, key = { _, original -> original }) { _, originalIndex ->
+                    val item = q[originalIndex]
+                    val dragging = dragIndex == originalIndex
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { player.jumpTo(i); showQueue = false }
+                            .zIndex(if (dragging) 1f else 0f)
+                            .graphicsLayer { translationY = if (dragging) dragOffset else 0f }
+                            .pointerInput(visible) {
+                                detectDragGesturesAfterLongPress(
+                                    onDragStart = { dragIndex = originalIndex },
+                                    onDrag = { change, amount ->
+                                        change.consume()
+                                        dragOffset += amount.y
+                                        val current = dragIndex ?: return@detectDragGesturesAfterLongPress
+                                        val moved = (dragOffset / rowHeightPx).roundToInt()
+                                        val target = (current + moved).coerceIn(0, q.lastIndex)
+                                        if (target != current) {
+                                            player.moveQueueItem(current, target)
+                                            dragOffset -= (target - current) * rowHeightPx
+                                            dragIndex = target
+                                        }
+                                    },
+                                    onDragEnd = { dragIndex = null; dragOffset = 0f },
+                                    onDragCancel = { dragIndex = null; dragOffset = 0f },
+                                )
+                            }
+                            .clickable { player.jumpTo(originalIndex); showQueue = false }
                             .padding(horizontal = 20.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
@@ -345,7 +391,7 @@ fun NowPlayingScreen(container: AppContainer) {
                                 item.mediaMetadata.title?.toString() ?: "",
                                 maxLines = 1,
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = if (i == queueIdx) MaterialTheme.colorScheme.primary
+                                color = if (originalIndex == queueIdx) MaterialTheme.colorScheme.primary
                                 else MaterialTheme.colorScheme.onSurface,
                             )
                             val artist = item.mediaMetadata.artist?.toString().orEmpty()
@@ -358,7 +404,7 @@ fun NowPlayingScreen(container: AppContainer) {
                                 )
                             }
                         }
-                        IconButton(onClick = { player.removeFromQueue(i) }) {
+                        IconButton(onClick = { player.removeFromQueue(originalIndex) }) {
                             Icon(Icons.Filled.Close, "Remove", Modifier.size(16.dp))
                         }
                     }

@@ -24,7 +24,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.Shuffle
+import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
@@ -201,6 +203,22 @@ fun TrackRow(
                         },
                     )
                 }
+                ListItem(
+                    headlineContent = { Text("Play next") },
+                    leadingContent = { Icon(Icons.Filled.SkipNext, null) },
+                    modifier = Modifier.clickable {
+                        container.player.playNext(track.toTrack())
+                        showAddToPlaylist = false
+                    },
+                )
+                ListItem(
+                    headlineContent = { Text("Add to queue") },
+                    leadingContent = { Icon(Icons.Filled.PlaylistAdd, null) },
+                    modifier = Modifier.clickable {
+                        container.player.addToQueue(track.toTrack())
+                        showAddToPlaylist = false
+                    },
+                )
                 ListItem(
                     headlineContent = { Text("New playlist…") },
                     leadingContent = { Icon(Icons.Filled.Add, null) },
