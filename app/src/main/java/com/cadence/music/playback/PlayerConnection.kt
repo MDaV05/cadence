@@ -9,7 +9,6 @@ import androidx.media3.common.Player
 import androidx.media3.common.Timeline
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
-import com.cadence.music.data.metadata.ListenBrainz
 import com.cadence.music.data.source.Track
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
@@ -35,7 +34,9 @@ data class NowPlaying(
 
 class PlayerConnection(
     context: Context,
-    private val lbTokenProvider: () -> String? = { null },
+    // Submits one listen; implementers queue it when offline. Called after the
+    // listen threshold so skips never reach it.
+    private val submitScrobble: suspend (artist: String, title: String, album: String?) -> Unit = { _, _, _ -> },
     // Builds fresh authenticated stream URLs for server tracks at play time;
     // stream URLs are not persisted in the DB (they carry per-request tokens).
     private val resolveStreamUrl: suspend (Track) -> String? = { null },
@@ -181,10 +182,9 @@ class PlayerConnection(
         val title = item.mediaMetadata.title?.toString().orEmpty()
         val artist = item.mediaMetadata.artist?.toString().orEmpty()
         val album = item.mediaMetadata.albumTitle?.toString()
-        val token = lbTokenProvider()
-        if (token != null && title.isNotBlank() && artist.isNotBlank()) {
+        if (title.isNotBlank() && artist.isNotBlank()) {
             withContext(Dispatchers.IO) {
-                runCatching { ListenBrainz.submitBlocking(token, artist, title, album) }
+                runCatching { submitScrobble(artist, title, album) }
             }
         }
     }

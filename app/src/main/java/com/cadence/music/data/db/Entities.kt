@@ -32,6 +32,8 @@ data class TrackEntity(
     val albumMediaId: Long? = null,
     val playCount: Int = 0,
     val lastPlayed: Long? = null,
+    // Server-side starred/favorite (Subsonic); local tracks never star.
+    val starred: Boolean = false,
 )
 
 @Entity(tableName = "playlists")
@@ -65,8 +67,7 @@ data class AlbumEntity(
     val remoteCreated: String? = null,
 )
 
-@Entity(tableName = "lyrics")
-data class LyricsEntity(
+@Entity(tableName = "lyrics")data class LyricsEntity(
     @PrimaryKey val trackId: Long,
     // Raw .lrc text; empty string = checked and none available (negative cache).
     val syncedLrc: String,
@@ -79,6 +80,15 @@ data class ArtistInfoEntity(
     val bio: String?,
     val imageUrl: String?,
     val fetchedAt: Long = System.currentTimeMillis(),
+)
+
+@Entity(tableName = "pending_scrobbles")
+data class PendingScrobbleEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val artist: String,
+    val title: String,
+    val album: String? = null,
+    val createdAt: Long = System.currentTimeMillis(),
 )
 
 @Entity(tableName = "downloads")

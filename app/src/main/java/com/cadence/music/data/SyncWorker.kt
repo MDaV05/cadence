@@ -25,6 +25,7 @@ class SyncWorker(appContext: Context, params: WorkerParameters) :
         if (!hasAudioPermission && container.prefs.server == null) return Result.success()
         return try {
             container.library.syncAll()
+            container.flushPendingScrobbles()
             Result.success()
         } catch (_: Exception) {
             // Transient network/server failures are worth another attempt later.

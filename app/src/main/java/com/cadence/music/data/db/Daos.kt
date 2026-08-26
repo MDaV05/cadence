@@ -34,6 +34,9 @@ interface TrackDao {
     @Query("UPDATE tracks SET playCount = playCount + 1, lastPlayed = :now WHERE id = :id")
     suspend fun recordPlay(id: Long, now: Long = System.currentTimeMillis())
 
+    @Query("UPDATE tracks SET starred = :starred WHERE id = :id")
+    suspend fun setStarred(id: Long, starred: Boolean)
+
     @Query("UPDATE tracks SET path = :path WHERE id = :id")
     suspend fun setPath(id: Long, path: String?)
 
@@ -144,6 +147,21 @@ interface AlbumDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(album: AlbumEntity)
+}
+
+@Dao
+interface PendingScrobbleDao {
+    @Insert
+    suspend fun insert(scrobble: PendingScrobbleEntity)
+
+    @Query("SELECT * FROM pending_scrobbles ORDER BY createdAt")
+    suspend fun all(): List<PendingScrobbleEntity>
+
+    @Query("DELETE FROM pending_scrobbles WHERE id = :id")
+    suspend fun delete(id: Long)
+
+    @Query("SELECT COUNT(*) FROM pending_scrobbles")
+    suspend fun count(): Int
 }
 
 data class PlaylistWithCount(

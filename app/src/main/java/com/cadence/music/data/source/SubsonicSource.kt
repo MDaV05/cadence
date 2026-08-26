@@ -121,8 +121,14 @@ class SubsonicSource(private val configProvider: () -> ServerConfig?) : MusicSou
                 durationMs = s.optLong("duration", 0) * 1000,
                 localPath = null,
                 streamUrl = streamUrlFor(s.getString("id")),
+                starred = s.has("starred"),
             )
         }
+    }
+
+    /** Stars/unstars a song on the server. */
+    suspend fun setStarred(songId: String, starred: Boolean) {
+        get(if (starred) "star" else "unstar", mapOf("id" to songId))
     }
 
     fun coverArtUrl(albumKey: String): String =
