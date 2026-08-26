@@ -51,6 +51,12 @@ interface TrackDao {
         "FROM tracks WHERE albumName != '' GROUP BY albumName ORDER BY name COLLATE NOCASE"
     )
     fun observeAlbumGroups(): Flow<List<AlbumGroup>>
+
+    @Query("SELECT * FROM tracks WHERE playCount > 0 ORDER BY playCount DESC, lastPlayed DESC LIMIT 10")
+    suspend fun mostPlayed(): List<TrackEntity>
+
+    @Query("SELECT * FROM tracks WHERE lastPlayed IS NOT NULL ORDER BY lastPlayed DESC LIMIT 10")
+    suspend fun recentlyPlayed(): List<TrackEntity>
 }
 
 @Dao
