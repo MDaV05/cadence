@@ -44,7 +44,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 @Composable
-private fun SectionHeader(text: String) {
+internal fun SectionHeader(text: String) {
     Column {
         Spacer(Modifier.height(24.dp))
         Text(

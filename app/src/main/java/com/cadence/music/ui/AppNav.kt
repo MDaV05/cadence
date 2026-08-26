@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Pause
@@ -85,8 +86,14 @@ fun AppNav() {
                         }
                     }
                 }
-                if (current in listOf("library", "playlists", "search", "settings")) {
+                if (current in listOf("home", "library", "playlists", "search", "settings")) {
                     NavigationBar {
+                    NavigationBarItem(
+                        selected = current == "home",
+                        onClick = { navController.navigate("home") { launchSingleTop = true } },
+                        icon = { Icon(Icons.Filled.Home, null) },
+                        label = { Text("Home") },
+                    )
                     NavigationBarItem(
                         selected = current == "library",
                         onClick = { navController.navigate("library") { launchSingleTop = true } },
@@ -118,11 +125,16 @@ fun AppNav() {
     ) { padding ->
         NavHost(
             navController = navController,
-            startDestination = "library",
+            startDestination = "home",
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding),
         ) {
+            composable("home") { HomeScreen(container, onArtistClick = { name ->
+                navController.navigate("artist/${Uri.encode(name)}")
+            }, onAlbumClick = { name ->
+                navController.navigate("album/${Uri.encode(name)}")
+            }) }
             composable("library") { LibraryScreen(container, onArtistClick = { name ->
                 navController.navigate("artist/${Uri.encode(name)}")
             }, onAlbumClick = { name ->
