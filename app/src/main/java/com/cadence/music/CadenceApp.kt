@@ -38,7 +38,10 @@ class CadenceApp : Application(), coil.ImageLoaderFactory {
         MetadataSync.schedule(this)
         // Catch up on library changes since the app was last open.
         if (hasAudioPermission() || container.prefs.server != null) {
-            appScope.launch { runCatching { container.library.syncAll() } }
+            appScope.launch {
+                runCatching { container.library.syncAll() }
+                runCatching { container.flushPendingScrobbles() }
+            }
         }
     }
 
@@ -81,10 +84,31 @@ class AppContainer(app: Application) {
     val artResolver = ArtResolver(subsonic)
     val player = PlayerConnection(
         app,
-        { prefs.listenBrainzToken },
-        { track -> subsonic.streamUrl(track) },
-        { mediaId ->
+        submitScrobble = { artist, title, album -> submitScrobble(artist, title, album) },
+        resolveStreamUrl = { track -> subsonic.streamUrl(track) },
+        onTrackPlayed = { mediaId ->
             database.trackDao().byServerId(mediaId)?.let { database.trackDao().recordPlay(it.id) }
         },
     )
+
+    /** Submits a listen; failed submissions are queued for a later flush. */
+    suspend fun submitScrobble(artist: String, title: String, album: String?) {
+        val token = prefs.listenBrainzToken ?: return
+        val ok = com.cadence.music.data.metadata.ListenBrainz.submitBlocking(token, artist, title, album)
+        if (!ok) {
+            database.pendingScrobbleDao().insert(
+                com.cadence.music.data.db.PendingScrobbleEntity(artist = artist, title = title, album = album)
+            )
+        }
+    }
+
+    /** Retries every queued scrobble; drops the ones that finally go through. */
+    suspend fun flushPendingScrobbles() {
+        val token = prefs.listenBrainzToken ?: return
+        for (p in database.pendingScrobbleDao().all()) {
+            if (com.cadence.music.data.metadata.ListenBrainz.submitBlocking(token, p.artist, p.title, p.album)) {
+                database.pendingScrobbleDao().delete(p.id)
+            }
+        }
+    }
 }

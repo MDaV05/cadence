@@ -25,6 +25,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Repeat
@@ -52,6 +54,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -74,6 +77,7 @@ import com.cadence.music.AppContainer
 import com.cadence.music.data.metadata.SyncedLine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
@@ -233,6 +237,39 @@ fun NowPlayingScreen(container: AppContainer) {
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                // Star toggle — server tracks only; reflects and updates the
+                // Subsonic favorite state.
+                val scope = rememberCoroutineScope()
+                var currentTrack by remember(state.title) {
+                    mutableStateOf<com.cadence.music.data.db.TrackEntity?>(null)
+                }
+                LaunchedEffect(state.title) {
+                    val mid = player.controller?.currentMediaItem?.mediaId
+                    currentTrack = mid?.let { mid2 ->
+                        withContext(Dispatchers.IO) { container.database.trackDao().byServerId(mid2) }
+                    }
+                }
+                if (currentTrack?.sourceId == "subsonic") {
+                    val starred = currentTrack?.starred == true
+                    IconButton(onClick = {
+                        val t = currentTrack ?: return@IconButton
+                        scope.launch {
+                            container.library.toggleStar(t)
+                            currentTrack = withContext(Dispatchers.IO) {
+                                container.database.trackDao().byId(t.id)
+                            }
+                        }
+                    }) {
+                        Icon(
+                            if (starred) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
+                            "Star",
+                            Modifier.size(22.dp),
+                            tint = if (starred) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Spacer(Modifier.size(28.dp))
+                }
                 IconButton(onClick = { player.toggleShuffle() }) {
                     Icon(
                         Icons.Filled.Shuffle, "Shuffle", Modifier.size(22.dp),

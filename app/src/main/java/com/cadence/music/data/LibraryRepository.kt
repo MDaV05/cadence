@@ -68,6 +68,7 @@ class LibraryRepository(
                 albumMediaId = t.albumMediaId,
                 playCount = prev?.playCount ?: 0,
                 lastPlayed = prev?.lastPlayed,
+                starred = prev?.starred ?: false,
             )
         }
         db.trackDao().insertAll(entities)
@@ -130,6 +131,9 @@ class LibraryRepository(
                     albumMediaId = prev?.albumMediaId,
                     playCount = prev?.playCount ?: 0,
                     lastPlayed = prev?.lastPlayed,
+                    // OR-preserve: a star made offline survives until the server
+                    // confirms the unstar on a later sync.
+                    starred = t.starred || (prev?.starred ?: false),
                 )
             }
             db.trackDao().insertAll(entities)
@@ -217,6 +221,17 @@ class LibraryRepository(
                 }
             }
             db.downloadDao().delete(download.trackServerId, download.sourceId)
+        }
+    }
+
+    /** Flips star locally, then syncs the server (fire-and-forget on failure). */
+    suspend fun toggleStar(track: TrackEntity) {
+        val starred = !track.starred
+        db.trackDao().setStarred(track.id, starred)
+        if (track.sourceId == "subsonic") {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                runCatching { subsonic.setStarred(track.serverId.removePrefix("sub:"), starred) }
+            }
         }
     }
 }
