@@ -135,13 +135,29 @@ class PlayerConnection(
     private fun scheduleListen(item: MediaItem?) {
         listenJob?.cancel()
         listenJob = null
-        pendingListenKey = item?.mediaId
-        if (item == null) return
-        val durMs = controller?.duration?.takeIf { it != C.TIME_UNSET && it > 0 } ?: 0L
-        // Scrobble rule: half the track or 4 minutes, whichever comes first.
-        val thresholdMs = minOf(durMs / 2, SCROBBLE_MAX_MS).coerceAtLeast(MIN_LISTEN_MS)
+        val key = item?.mediaId
+        pendingListenKey = key
+        val c = controller ?: return
+        if (item == null || key == null) return
         listenJob = scope.launch {
+            // Transition fires before prepare finishes, so duration isn't known
+            // yet — wait for it (or fall back to the 4-minute cap) rather than
+            // collapsing the threshold to its minimum.
+            var durMs = c.duration.takeIf { it != C.TIME_UNSET && it > 0 } ?: 0L
+            var waitedMs = 0L
+            while (durMs == 0L && waitedMs < DURATION_WAIT_MS) {
+                delay(250)
+                waitedMs += 250
+                durMs = c.duration.takeIf { it != C.TIME_UNSET && it > 0 } ?: 0L
+            }
+            if (c.currentMediaItem?.mediaId != key) return@launch
+            // Scrobble rule: half the track or 4 minutes, whichever comes first.
+            val thresholdMs = minOf(
+                if (durMs > 0) durMs / 2 else SCROBBLE_MAX_MS,
+                SCROBBLE_MAX_MS,
+            ).coerceAtLeast(MIN_LISTEN_MS)
             delay(thresholdMs)
+            if (c.currentMediaItem?.mediaId != key) return@launch
             listenJob = null
             completeListen(item)
         }
@@ -277,5 +293,6 @@ class PlayerConnection(
     private companion object {
         const val SCROBBLE_MAX_MS = 240_000L
         const val MIN_LISTEN_MS = 1_000L
+        const val DURATION_WAIT_MS = 5_000L
     }
 }
