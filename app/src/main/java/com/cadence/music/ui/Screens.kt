@@ -25,11 +25,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.cadence.music.AppContainer
 import com.cadence.music.data.prefs.LibraryMode
@@ -230,6 +232,10 @@ fun SettingsScreen(container: AppContainer, onOpenEqualizer: () -> Unit = {}) {
             }
 
             item { HorizontalDivider() }
+            item { SectionHeader("Metadata & lyrics") }
+            item { MetadataSection(container) }
+
+            item { HorizontalDivider() }
             item { SectionHeader("Playback") }
             item {
                 Text(
@@ -320,5 +326,95 @@ private fun produceCacheUsage(): androidx.compose.runtime.State<Long?> {
             File(context.filesDir, "stream_cache").walkBottomUp()
                 .filter { it.isFile }.sumOf { it.length() }
         }
+    }
+}
+
+@Composable
+private fun MetadataSection(container: AppContainer) {
+    val context = LocalContext.current
+    var metaHours by remember { mutableIntStateOf(container.prefs.metaIntervalHours) }
+    var metaWifiOnly by remember { mutableStateOf(container.prefs.metaWifiOnly) }
+    var metaArtPrewarm by remember { mutableStateOf(container.prefs.metaArtPrewarm) }
+    var metaCacheMb by remember { mutableIntStateOf(container.prefs.metaCacheMb) }
+
+    // Live coverage: lyrics cached / total tracks / artist bios
+    val coverage by produceState<Triple<Int, Int, Int>?>(null) {
+        value = withContext(Dispatchers.IO) {
+            runCatching {
+                Triple(
+                    container.database.lyricsDao().count(),
+                    container.database.trackDao().count(),
+                    container.database.artistInfoDao().count(),
+                )
+            }.getOrNull()
+        }
+    }
+
+    Column(Modifier.padding(horizontal = 16.dp)) {
+        Text(
+            "Pre-fetches lyrics, artist info and covers so everything works offline.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(0 to "Off", 6 to "6h", 12 to "12h", 24 to "24h", 48 to "48h").forEach { (h, label) ->
+                FilterChip(
+                    selected = metaHours == h,
+                    onClick = {
+                        metaHours = h
+                        container.prefs.metaIntervalHours = h
+                        com.cadence.music.data.metadata.MetadataSync.schedule(context)
+                    },
+                    label = { Text(label) },
+                )
+            }
+        }
+        SettingRow(
+            title = "Wi-Fi only",
+            subtitle = "Auto-download only on unmetered networks",
+            trailing = {
+                androidx.compose.material3.Switch(
+                    checked = metaWifiOnly,
+                    onCheckedChange = {
+                        metaWifiOnly = it
+                        container.prefs.metaWifiOnly = it
+                        com.cadence.music.data.metadata.MetadataSync.schedule(context)
+                    },
+                )
+            },
+        )
+        SettingRow(
+            title = "Pre-warm album art",
+            subtitle = "Download server covers into the image cache",
+            trailing = {
+                androidx.compose.material3.Switch(
+                    checked = metaArtPrewarm,
+                    onCheckedChange = { metaArtPrewarm = it; container.prefs.metaArtPrewarm = it },
+                )
+            },
+        )
+        Text(
+            "Image cache: $metaCacheMb MB — applies after restart",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 8.dp),
+        )
+        Slider(
+            value = metaCacheMb.toFloat(),
+            onValueChange = { metaCacheMb = (it / 50).toInt() * 50 },
+            onValueChangeFinished = { container.prefs.metaCacheMb = metaCacheMb },
+            valueRange = 50f..1000f,
+        )
+        coverage?.let { (lyricsDone, trackTotal, bios) ->
+            Text(
+                "Lyrics $lyricsDone of $trackTotal tracks · $bios artists",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Button(
+            onClick = { com.cadence.music.data.metadata.MetadataSync.runNow(context) },
+            modifier = Modifier.padding(top = 8.dp),
+        ) { Text("Run now") }
     }
 }
