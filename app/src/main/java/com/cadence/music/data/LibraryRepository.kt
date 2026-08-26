@@ -70,6 +70,12 @@ class LibraryRepository(
             )
         }
         db.trackDao().insertAll(entities)
+        // Remove rows for files that vanished from MediaStore (and any playlist
+        // entries that pointed at them).
+        val scannedKeys = entities.map { it.serverId }.toSet()
+        val removed = known.values.filter { it.sourceId == "local" && it.serverId !in scannedKeys }
+        removed.forEach { db.trackDao().delete(it) }
+        if (removed.isNotEmpty()) db.playlistDao().deleteOrphanRows()
     }
 
     /**
@@ -127,9 +133,9 @@ class LibraryRepository(
             }
             db.trackDao().insertAll(entities)
             val remoteKeys = tracks.map { it.key }.toSet()
-            existingTracks.values.filter { it.serverId !in remoteKeys }.forEach {
-                db.trackDao().delete(it)
-            }
+            val removed = existingTracks.values.filter { it.serverId !in remoteKeys }
+            removed.forEach { db.trackDao().delete(it) }
+            if (removed.isNotEmpty()) db.playlistDao().deleteOrphanRows()
         }
         return SyncResult(fetchedAlbums, fetchedTracks)
     }
@@ -153,8 +159,7 @@ class LibraryRepository(
         db.playlistDao().insertPlaylist(com.cadence.music.data.db.PlaylistEntity(name = name))
 
     suspend fun deletePlaylist(id: Long) {
-        db.playlistDao().deleteTracksFor(id)
-        db.playlistDao().deletePlaylist(id)
+        db.playlistDao().deletePlaylistCascade(id)
     }
 
     suspend fun addToPlaylist(playlistId: Long, trackId: Long) {
