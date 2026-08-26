@@ -75,4 +75,24 @@ class Prefs(context: Context) {
     var rgEnabled: Boolean
         get() = sp.getBoolean("rg_enabled", false)
         set(value) = sp.edit().putBoolean("rg_enabled", value).apply()
+
+    // ---- Metadata & lyrics auto-downloader ----
+
+    /** Hours between background metadata fetches; 0 disables the periodic job. */
+    var metaIntervalHours: Int
+        get() = sp.getInt("meta_interval_h", 12)
+        set(value) = sp.edit().putInt("meta_interval_h", value).apply()
+
+    var metaWifiOnly: Boolean
+        get() = sp.getBoolean("meta_wifi_only", true)
+        set(value) = sp.edit().putBoolean("meta_wifi_only", value).apply()
+
+    /** Budget for pre-fetched album art (Coil disk cache), in MB. */
+    var metaCacheMb: Int
+        get() = sp.getInt("meta_cache_mb", 200)
+        set(value) = sp.edit().putInt("meta_cache_mb", value).apply()
+
+    var metaArtPrewarm: Boolean
+        get() = sp.getBoolean("meta_art_prewarm", true)
+        set(value) = sp.edit().putBoolean("meta_art_prewarm", value).apply()
 }

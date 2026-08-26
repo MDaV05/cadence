@@ -65,6 +65,22 @@ data class AlbumEntity(
     val remoteCreated: String? = null,
 )
 
+@Entity(tableName = "lyrics")
+data class LyricsEntity(
+    @PrimaryKey val trackId: Long,
+    // Raw .lrc text; empty string = checked and none available (negative cache).
+    val syncedLrc: String,
+    val fetchedAt: Long = System.currentTimeMillis(),
+)
+
+@Entity(tableName = "artist_info")
+data class ArtistInfoEntity(
+    @PrimaryKey val name: String,
+    val bio: String?,
+    val imageUrl: String?,
+    val fetchedAt: Long = System.currentTimeMillis(),
+)
+
 @Entity(tableName = "downloads")
 data class DownloadEntity(
     @PrimaryKey val trackServerId: String,

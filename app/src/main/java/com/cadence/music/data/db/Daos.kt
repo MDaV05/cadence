@@ -54,6 +54,48 @@ interface TrackDao {
 }
 
 @Dao
+interface LyricsDao {
+    @Query("SELECT * FROM lyrics WHERE trackId = :trackId")
+    suspend fun byTrackId(trackId: Long): LyricsEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(lyrics: LyricsEntity)
+
+    @Query("SELECT COUNT(*) FROM lyrics")
+    suspend fun count(): Int
+
+    /** Track row ids that have never been checked for lyrics. */
+    @Query(
+        "SELECT t.id FROM tracks t LEFT JOIN lyrics l ON l.trackId = t.id " +
+            "WHERE l.trackId IS NULL"
+    )
+    suspend fun trackIdsMissingLyrics(): List<Long>
+}
+
+@Dao
+interface ArtistInfoDao {
+    @Query("SELECT * FROM artist_info WHERE name = :name")
+    suspend fun byName(name: String): ArtistInfoEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(info: ArtistInfoEntity)
+
+    @Query("SELECT COUNT(*) FROM artist_info")
+    suspend fun count(): Int
+
+    /** Artists appearing in the library with no cached info row yet. */
+    @Query(
+        "SELECT DISTINCT artistName FROM tracks WHERE artistName != '' " +
+            "AND artistName NOT IN (SELECT name FROM artist_info)"
+    )
+    suspend fun missingArtistNames(): List<String>
+
+    /** Cached rows old enough to be worth refreshing. */
+    @Query("SELECT name FROM artist_info WHERE fetchedAt < :staleBefore")
+    suspend fun staleArtistNames(staleBefore: Long): List<String>
+}
+
+@Dao
 interface DownloadDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(download: DownloadEntity)

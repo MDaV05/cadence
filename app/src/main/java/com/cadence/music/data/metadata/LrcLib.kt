@@ -10,6 +10,13 @@ data class SyncedLine(val timeMs: Long, val text: String)
 
 object LrcLib {
 
+    /** Serializes lines back to .lrc text so they can be cached and re-parsed. */
+    fun toLrcText(lines: List<SyncedLine>): String = lines.joinToString("\n") { l ->
+        val m = l.timeMs / 60_000
+        val rem = l.timeMs % 60_000
+        "[%02d:%02d.%03d]".format(m, rem / 1000, rem % 1000) + l.text
+    }
+
     fun parse(lrc: String): List<SyncedLine> {
         val out = mutableListOf<SyncedLine>()
         for (line in lrc.lines()) {
