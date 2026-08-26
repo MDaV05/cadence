@@ -13,6 +13,7 @@ import com.cadence.music.data.LibraryRepository
 import com.cadence.music.data.SyncWorker
 import com.cadence.music.data.db.AppDatabase
 import com.cadence.music.data.metadata.ArtResolver
+import com.cadence.music.data.metadata.MetadataSync
 import com.cadence.music.data.prefs.Prefs
 import com.cadence.music.data.source.LocalSource
 import com.cadence.music.data.source.SubsonicSource
@@ -23,7 +24,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
 
-class CadenceApp : Application() {
+class CadenceApp : Application(), coil.ImageLoaderFactory {
 
     lateinit var container: AppContainer
         private set
@@ -34,11 +35,24 @@ class CadenceApp : Application() {
         super.onCreate()
         container = AppContainer(this)
         schedulePeriodicSync()
+        MetadataSync.schedule(this)
         // Catch up on library changes since the app was last open.
         if (hasAudioPermission() || container.prefs.server != null) {
             appScope.launch { runCatching { container.library.syncAll() } }
         }
     }
+
+    /** Coil loader sized by the metadata-cache setting; AsyncImage picks this up globally. */
+    override fun newImageLoader(): coil.ImageLoader =
+        coil.ImageLoader.Builder(this)
+            .diskCache {
+                coil.disk.DiskCache.Builder()
+                    .directory(cacheDir.resolve("metadata_images"))
+                    .maxSizeBytes(container.prefs.metaCacheMb.coerceIn(50, 1000) * 1024L * 1024L)
+                    .build()
+            }
+            .crossfade(true)
+            .build()
 
     private fun hasAudioPermission(): Boolean {
         val permission = if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_AUDIO
