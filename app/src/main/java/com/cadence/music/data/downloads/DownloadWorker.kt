@@ -43,6 +43,15 @@ class DownloadWorker(context: Context, params: WorkerParameters) :
 
         try {
             var done = if (out.exists()) out.length() else 0L
+            // Progress rows are throttled: Room writes at most every ~500 KB.
+            var lastReported = -1L
+            suspend fun reportProgress() {
+                if (done - lastReported >= 500_000) {
+                    lastReported = done
+                    db.downloadDao().updateProgress(track.serverId, track.sourceId, "running", done)
+                }
+            }
+            reportProgress()
             while (true) {
                 val conn = URL(url).openConnection() as HttpURLConnection
                 conn.connectTimeout = 15_000
@@ -63,6 +72,7 @@ class DownloadWorker(context: Context, params: WorkerParameters) :
                                 if (n == -1) break
                                 output.write(buf, 0, n)
                                 done += n
+                                reportProgress()
                             }
                         }
                     }

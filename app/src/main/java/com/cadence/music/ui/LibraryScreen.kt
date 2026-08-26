@@ -23,6 +23,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExtendedFloatingActionButton
@@ -190,6 +191,16 @@ fun TrackRow(
                     onDismiss = { showNew = false },
                 )
             } else {
+                if (track.sourceId == "subsonic" && track.path == null) {
+                    ListItem(
+                        headlineContent = { Text("Download for offline") },
+                        leadingContent = { Icon(Icons.Filled.Download, null) },
+                        modifier = Modifier.clickable {
+                            container.library.enqueueDownload(track)
+                            showAddToPlaylist = false
+                        },
+                    )
+                }
                 ListItem(
                     headlineContent = { Text("New playlist…") },
                     leadingContent = { Icon(Icons.Filled.Add, null) },

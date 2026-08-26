@@ -35,7 +35,7 @@ interface TrackDao {
     suspend fun recordPlay(id: Long, now: Long = System.currentTimeMillis())
 
     @Query("UPDATE tracks SET path = :path WHERE id = :id")
-    suspend fun setPath(id: Long, path: String)
+    suspend fun setPath(id: Long, path: String?)
 
     @Query("SELECT DISTINCT artistName FROM tracks WHERE artistName != '' ORDER BY artistName")
     fun observeArtistNames(): Flow<List<String>>
@@ -102,6 +102,24 @@ interface DownloadDao {
 
     @Query("SELECT * FROM downloads WHERE trackServerId = :serverId AND sourceId = :sourceId")
     suspend fun byTrack(sourceId: String, serverId: String): DownloadEntity?
+
+    @Query("SELECT * FROM downloads ORDER BY updatedAt DESC")
+    fun observeAll(): Flow<List<DownloadEntity>>
+
+    @Query(
+        "UPDATE downloads SET status = :status, bytesDone = :bytesDone, " +
+            "updatedAt = :now WHERE trackServerId = :serverId AND sourceId = :sourceId"
+    )
+    suspend fun updateProgress(
+        serverId: String,
+        sourceId: String,
+        status: String,
+        bytesDone: Long,
+        now: Long = System.currentTimeMillis(),
+    )
+
+    @Query("DELETE FROM downloads WHERE trackServerId = :serverId AND sourceId = :sourceId")
+    suspend fun delete(serverId: String, sourceId: String)
 }
 
 @Dao

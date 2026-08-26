@@ -15,6 +15,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
@@ -192,6 +193,9 @@ fun PlaylistDetailScreen(container: AppContainer, playlistId: Long, onBack: () -
                     }
                 },
                 actions = {
+                    IconButton(onClick = { container.library.enqueueDownloads(tracks.map { it.track }) }) {
+                        Icon(Icons.Filled.Download, "Download playlist")
+                    }
                     IconButton(onClick = {
                         if (tracks.isNotEmpty()) player.playNow(tracks.map { it.track.toTrack() })
                     }) {

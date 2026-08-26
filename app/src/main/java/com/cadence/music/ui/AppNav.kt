@@ -140,9 +140,14 @@ fun AppNav() {
             composable("search") { SearchScreen(container) }
             composable("settings") { SettingsScreen(container, onOpenEqualizer = {
                 navController.navigate("equalizer")
+            }, onOpenDownloads = {
+                navController.navigate("downloads")
             }) }
             composable("equalizer") {
                 EqualizerScreen(container, onBack = { navController.popBackStack() })
+            }
+            composable("downloads") {
+                DownloadsScreen(container, onBack = { navController.popBackStack() })
             }
             composable("nowplaying") { NowPlayingScreen(container) }
             composable("artist/{name}") { entry ->
