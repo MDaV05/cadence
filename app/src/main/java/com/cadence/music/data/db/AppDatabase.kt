@@ -16,7 +16,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         PlaylistTrackEntity::class,
     ],
     version = 5,
-    exportSchema = false,
+    exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun trackDao(): TrackDao
@@ -58,6 +58,8 @@ abstract class AppDatabase : RoomDatabase() {
         fun build(context: Context): AppDatabase =
             Room.databaseBuilder(context, AppDatabase::class.java, "cadence.db")
                 .addMigrations(MIGRATION_3_4, MIGRATION_4_5)
+                // No paths exist from schema 1/2 (they predate exported schemas);
+                // those dev-only installs rebuild destructively instead of crashing.
                 .fallbackToDestructiveMigration()
                 .build()
     }

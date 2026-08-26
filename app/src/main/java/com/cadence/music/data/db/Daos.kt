@@ -5,6 +5,7 @@ import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -106,6 +107,17 @@ interface PlaylistDao {
 
     @Query("DELETE FROM playlist_tracks WHERE playlistId = :id")
     suspend fun deleteTracksFor(id: Long)
+
+    /** Both deletes must succeed or neither — keeps counts consistent. */
+    @Transaction
+    suspend fun deletePlaylistCascade(id: Long) {
+        deleteTracksFor(id)
+        deletePlaylist(id)
+    }
+
+    /** Drops playlist rows pointing at tracks that no longer exist. */
+    @Query("DELETE FROM playlist_tracks WHERE trackId NOT IN (SELECT id FROM tracks)")
+    suspend fun deleteOrphanRows()
 
     @Query("SELECT COALESCE(MAX(position), -1) FROM playlist_tracks WHERE playlistId = :id")
     suspend fun maxPosition(id: Long): Int
