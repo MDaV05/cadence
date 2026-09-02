@@ -14,7 +14,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         setContent {
-            CadenceTheme {
+            CadenceTheme((applicationContext as CadenceApp).container) {
                 AppNav()
             }
         }

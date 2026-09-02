@@ -95,4 +95,44 @@ class Prefs(context: Context) {
     var metaArtPrewarm: Boolean
         get() = sp.getBoolean("meta_art_prewarm", true)
         set(value) = sp.edit().putBoolean("meta_art_prewarm", value).apply()
+
+    // ---- Appearance ----
+
+    /** Selected theme id: "iris" (built-in default) or "custom:<name>". */
+    var themeId: String
+        get() = sp.getString("theme_id", null) ?: "iris"
+        set(value) = sp.edit().putString("theme_id", value).apply()
+
+    /** Whether the app follows the system dark mode instead of a fixed mode. */
+    var themeFollowSystem: Boolean
+        get() = sp.getBoolean("theme_follow_system", true)
+        set(value) = sp.edit().putBoolean("theme_follow_system", value).apply()
+
+    var themeDarkOverride: Boolean
+        get() = sp.getBoolean("theme_dark_override", false)
+        set(value) = sp.edit().putBoolean("theme_dark_override", value).apply()
+
+    // ---- Search history (JSON array of queries, newest first) ----
+
+    var searchHistory: List<String>
+        get() = runCatching {
+            val arr = org.json.JSONArray(sp.getString("search_history", "[]") ?: "[]")
+            (0 until arr.length()).map { arr.getString(it) }
+        }.getOrDefault(emptyList())
+        set(value) = sp.edit()
+            .putString("search_history", org.json.JSONArray(value).toString())
+            .apply()
+
+    // ---- Library sorting (songs tab) ----
+
+    enum class SongSort { TITLE, ARTIST, ALBUM, DURATION, RECENTLY_ADDED, RECENTLY_PLAYED, MOST_PLAYED }
+
+    var songSort: SongSort
+        get() = runCatching { SongSort.valueOf(sp.getString("song_sort", null) ?: "") }
+            .getOrDefault(SongSort.TITLE)
+        set(value) = sp.edit().putString("song_sort", value.name).apply()
+
+    var songSortAscending: Boolean
+        get() = sp.getBoolean("song_sort_asc", true)
+        set(value) = sp.edit().putBoolean("song_sort_asc", value).apply()
 }

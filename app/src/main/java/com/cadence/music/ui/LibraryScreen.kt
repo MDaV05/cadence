@@ -10,6 +10,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -27,7 +28,9 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material3.Button
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
@@ -113,6 +116,31 @@ fun LibraryScreen(
             }
         }
     }
+}
+
+/** In-memory song sorting; order persists via Prefs. */
+private fun sortSongs(
+    tracks: List<TrackEntity>,
+    sort: com.cadence.music.data.prefs.Prefs.SongSort,
+    ascending: Boolean,
+): List<TrackEntity> {
+    val cmp = when (sort) {
+        com.cadence.music.data.prefs.Prefs.SongSort.TITLE ->
+            compareBy<TrackEntity> { it.title.lowercase() }
+        com.cadence.music.data.prefs.Prefs.SongSort.ARTIST ->
+            compareBy { it.artistName.lowercase() }
+        com.cadence.music.data.prefs.Prefs.SongSort.ALBUM ->
+            compareBy { it.albumName.lowercase() }
+        com.cadence.music.data.prefs.Prefs.SongSort.DURATION ->
+            compareBy { it.durationMs }
+        com.cadence.music.data.prefs.Prefs.SongSort.RECENTLY_ADDED ->
+            compareBy { it.id }
+        com.cadence.music.data.prefs.Prefs.SongSort.RECENTLY_PLAYED ->
+            compareBy { it.lastPlayed ?: 0L }
+        com.cadence.music.data.prefs.Prefs.SongSort.MOST_PLAYED ->
+            compareBy<TrackEntity> { it.playCount }.thenBy { it.lastPlayed ?: 0L }
+    }
+    return if (ascending) tracks.sortedWith(cmp) else tracks.sortedWith(cmp.reversed())
 }
 
 @OptIn(
@@ -336,9 +364,65 @@ private fun songsTab(
         }
         return
     }
-    LazyColumn(Modifier.fillMaxSize()) {
-        items(tracks, key = { it.id }) { track ->
-            TrackRow(container, track, onArtistClick) { player.playNow(listOf(track.toTrack())) }
+
+    var sort by remember { mutableStateOf(container.prefs.songSort) }
+    var ascending by remember { mutableStateOf(container.prefs.songSortAscending) }
+    var sortMenu by remember { mutableStateOf(false) }
+    val sorted = remember(tracks, sort, ascending) { sortSongs(tracks, sort, ascending) }
+
+    Column(Modifier.fillMaxSize()) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp),
+            horizontalArrangement = Arrangement.End,
+        ) {
+            androidx.compose.material3.TextButton(onClick = { sortMenu = true }) {
+                Icon(Icons.Filled.Sort, null, Modifier.size(18.dp))
+                Spacer(Modifier.size(6.dp))
+                Text(
+                    when (sort) {
+                        com.cadence.music.data.prefs.Prefs.SongSort.TITLE -> "Title"
+                        com.cadence.music.data.prefs.Prefs.SongSort.ARTIST -> "Artist"
+                        com.cadence.music.data.prefs.Prefs.SongSort.ALBUM -> "Album"
+                        com.cadence.music.data.prefs.Prefs.SongSort.DURATION -> "Duration"
+                        com.cadence.music.data.prefs.Prefs.SongSort.RECENTLY_ADDED -> "Recently added"
+                        com.cadence.music.data.prefs.Prefs.SongSort.RECENTLY_PLAYED -> "Recently played"
+                        com.cadence.music.data.prefs.Prefs.SongSort.MOST_PLAYED -> "Most played"
+                    } + if (ascending) " ↑" else " ↓",
+                    style = MaterialTheme.typography.labelLarge,
+                )
+            }
+            androidx.compose.material3.DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
+                listOf(
+                    com.cadence.music.data.prefs.Prefs.SongSort.TITLE to "Title",
+                    com.cadence.music.data.prefs.Prefs.SongSort.ARTIST to "Artist",
+                    com.cadence.music.data.prefs.Prefs.SongSort.ALBUM to "Album",
+                    com.cadence.music.data.prefs.Prefs.SongSort.DURATION to "Duration",
+                    com.cadence.music.data.prefs.Prefs.SongSort.RECENTLY_ADDED to "Recently added",
+                    com.cadence.music.data.prefs.Prefs.SongSort.RECENTLY_PLAYED to "Recently played",
+                    com.cadence.music.data.prefs.Prefs.SongSort.MOST_PLAYED to "Most played",
+                ).forEach { (s, label) ->
+                    androidx.compose.material3.DropdownMenuItem(
+                        text = { Text(if (s == sort) "✓ $label" else label) },
+                        onClick = {
+                            sort = s
+                            container.prefs.songSort = s
+                        },
+                    )
+                }
+                HorizontalDivider()
+                androidx.compose.material3.DropdownMenuItem(
+                    text = { Text(if (ascending) "Ascending ✓" else "Descending ✓") },
+                    onClick = {
+                        ascending = !ascending
+                        container.prefs.songSortAscending = ascending
+                    },
+                )
+            }
+        }
+        LazyColumn(Modifier.fillMaxSize()) {
+            items(sorted, key = { it.id }) { track ->
+                TrackRow(container, track, onArtistClick) { player.playNow(listOf(track.toTrack())) }
+            }
         }
     }
 }
