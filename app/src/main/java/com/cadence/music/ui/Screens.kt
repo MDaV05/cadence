@@ -137,8 +137,10 @@ fun SettingsScreen(
                                 busy = true; status = ""
                                 scope.launch {
                                     try {
+                                        // Scheme-less URLs ("192.168.1.106:4533") would fail silently on Android 9+.
+                                        val normalized = url.trim().let { if (it.contains("://")) it else "http://$it" }
                                         container.prefs.server =
-                                            com.cadence.music.data.prefs.ServerConfig(url, user, pass)
+                                            com.cadence.music.data.prefs.ServerConfig(normalized, user, pass)
                                         status = if (container.library.subsonic.ping()) {
                                             val n = container.library.syncServer()
                                             "Connected — synced ${n.tracksFetched} tracks (${n.albumsFetched} albums)"
