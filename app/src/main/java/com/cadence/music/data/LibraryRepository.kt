@@ -166,6 +166,12 @@ class LibraryRepository(
     suspend fun renamePlaylist(id: Long, name: String) =
         db.playlistDao().renamePlaylist(id, name)
 
+    suspend fun setPlaylistCover(id: Long, path: String?) =
+        db.playlistDao().setCoverPath(id, path)
+
+    /** First track of the playlist — its album art is the default cover. */
+    suspend fun playlistFirstTrack(id: Long) = db.playlistDao().firstTrackFor(id)
+
     suspend fun deletePlaylist(id: Long) {
         db.playlistDao().deletePlaylistCascade(id)
     }

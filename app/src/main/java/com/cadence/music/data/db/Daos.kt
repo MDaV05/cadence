@@ -6,6 +6,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
+import androidx.room.Upsert
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -60,6 +61,9 @@ interface TrackDao {
 
     @Query("SELECT * FROM tracks WHERE lastPlayed IS NOT NULL ORDER BY lastPlayed DESC LIMIT 10")
     suspend fun recentlyPlayed(): List<TrackEntity>
+
+    @Query("SELECT * FROM tracks ORDER BY id DESC LIMIT 10")
+    suspend fun recentlyAdded(): List<TrackEntity>
 }
 
 @Dao
@@ -167,6 +171,7 @@ interface PendingScrobbleDao {
 data class PlaylistWithCount(
     val id: Long,
     val name: String,
+    val coverPath: String?,
     val createdAt: Long,
     val trackCount: Int,
 )
@@ -174,7 +179,7 @@ data class PlaylistWithCount(
 @Dao
 interface PlaylistDao {
     @Query(
-        "SELECT p.id AS id, p.name AS name, p.createdAt AS createdAt, COUNT(pt.id) AS trackCount " +
+        "SELECT p.id AS id, p.name AS name, p.coverPath AS coverPath, p.createdAt AS createdAt, COUNT(pt.id) AS trackCount " +
         "FROM playlists p LEFT JOIN playlist_tracks pt ON pt.playlistId = p.id " +
         "GROUP BY p.id ORDER BY p.createdAt DESC"
     )
@@ -191,6 +196,9 @@ interface PlaylistDao {
 
     @Query("UPDATE playlists SET name = :name WHERE id = :id")
     suspend fun renamePlaylist(id: Long, name: String)
+
+    @Query("UPDATE playlists SET coverPath = :path WHERE id = :id")
+    suspend fun setCoverPath(id: Long, path: String?)
 
     @Query("DELETE FROM playlist_tracks WHERE playlistId = :id")
     suspend fun deleteTracksFor(id: Long)
@@ -220,4 +228,22 @@ interface PlaylistDao {
 
     @Query("SELECT t.* FROM tracks t JOIN playlist_tracks pt ON pt.trackId = t.id WHERE pt.playlistId = :id ORDER BY pt.position, pt.id")
     suspend fun tracksFor(id: Long): List<TrackEntity>
+
+    @Query(
+        "SELECT t.* FROM tracks t JOIN playlist_tracks pt ON pt.trackId = t.id " +
+        "WHERE pt.playlistId = :id ORDER BY pt.position, pt.id LIMIT 1"
+    )
+    suspend fun firstTrackFor(id: Long): TrackEntity?
+}
+
+@Dao
+interface ThemeDao {
+    @Query("SELECT * FROM custom_themes ORDER BY name")
+    fun observeAll(): Flow<List<CustomThemeEntity>>
+
+    @Upsert
+    suspend fun upsert(theme: CustomThemeEntity)
+
+    @Query("DELETE FROM custom_themes WHERE name = :name")
+    suspend fun delete(name: String)
 }

@@ -17,8 +17,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         LyricsEntity::class,
         ArtistInfoEntity::class,
         PendingScrobbleEntity::class,
+        CustomThemeEntity::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -29,6 +30,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun lyricsDao(): LyricsDao
     abstract fun artistInfoDao(): ArtistInfoDao
     abstract fun pendingScrobbleDao(): PendingScrobbleDao
+    abstract fun themeDao(): ThemeDao
 
     companion object {
         private val MIGRATION_3_4 = object : Migration(3, 4) {
@@ -95,9 +97,24 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Playlist cover images + user-defined themes.
+                db.execSQL("ALTER TABLE playlists ADD COLUMN coverPath TEXT")
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS custom_themes (" +
+                        "`name` TEXT NOT NULL PRIMARY KEY, " +
+                        "`accentLight` INTEGER NOT NULL, " +
+                        "`accentDark` INTEGER NOT NULL, " +
+                        "`bgLight` INTEGER NOT NULL, " +
+                        "`bgDark` INTEGER NOT NULL)"
+                )
+            }
+        }
+
         fun build(context: Context): AppDatabase =
             Room.databaseBuilder(context, AppDatabase::class.java, "cadence.db")
-                .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+                .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
                 // No paths exist from schema 1/2 (they predate exported schemas);
                 // those dev-only installs rebuild destructively instead of crashing.
                 .fallbackToDestructiveMigration()

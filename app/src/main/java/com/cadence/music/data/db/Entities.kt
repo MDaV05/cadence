@@ -41,6 +41,19 @@ data class PlaylistEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val name: String,
     val createdAt: Long = System.currentTimeMillis(),
+    // User-chosen cover image (file path in filesDir); null = fall back to
+    // the first track's album art.
+    val coverPath: String? = null,
+)
+
+/** User-created theme: accent + background colors for light and dark. */
+@Entity(tableName = "custom_themes")
+data class CustomThemeEntity(
+    @PrimaryKey val name: String,
+    val accentLight: Int,
+    val accentDark: Int,
+    val bgLight: Int,
+    val bgDark: Int,
 )
 
 @Entity(
