@@ -4,6 +4,9 @@ import android.Manifest
 import android.app.Application
 import android.content.pm.PackageManager
 import android.os.Build
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.work.Constraints
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.NetworkType
@@ -21,6 +24,7 @@ import com.cadence.music.playback.PlayerConnection
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
 
@@ -43,6 +47,7 @@ class CadenceApp : Application(), coil.ImageLoaderFactory {
                 runCatching { container.flushPendingScrobbles() }
             }
         }
+        appScope.launch { container.loadCustomThemes() }
     }
 
     /** Coil loader sized by the metadata-cache setting; AsyncImage picks this up globally. */
@@ -110,5 +115,25 @@ class AppContainer(app: Application) {
                 database.pendingScrobbleDao().delete(p.id)
             }
         }
+    }
+
+    // ---- Theme state (read by CadenceTheme; mutate + refreshTheme()) ----
+
+    /** Bumped on every theme selection or custom-theme list change. */
+    val themeTick = androidx.compose.runtime.mutableIntStateOf(0)
+
+    var customThemes: List<com.cadence.music.data.db.CustomThemeEntity> by mutableStateOf(
+        emptyList<com.cadence.music.data.db.CustomThemeEntity>()
+    )
+        private set
+
+    suspend fun loadCustomThemes() {
+        customThemes = runCatching {
+            database.themeDao().observeAll().first()
+        }.getOrDefault(emptyList())
+    }
+
+    fun refreshTheme() {
+        themeTick.intValue++
     }
 }
