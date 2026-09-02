@@ -42,8 +42,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -63,7 +61,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
@@ -103,8 +103,8 @@ fun NowPlayingScreen(container: AppContainer) {
     val bg = MaterialTheme.colorScheme.background
     val primary = MaterialTheme.colorScheme.primary
 
-    // Accent color extracted from the current album art; falls back to theme
-    // primary when there's no art or extraction fails.
+    // Ambient tint from the current album art — background gradient only.
+    // Controls stay on MaterialTheme colors so they're always visible.
     val context = LocalContext.current
     var accent by remember { mutableStateOf<Color?>(null) }
     LaunchedEffect(state.title) {
@@ -126,10 +126,8 @@ fun NowPlayingScreen(container: AppContainer) {
         val drawable = (result as? coil.request.SuccessResult)?.drawable ?: return@LaunchedEffect
         val bitmap = runCatching { drawable.toBitmap() }.getOrNull() ?: return@LaunchedEffect
         val palette = Palette.from(bitmap).generate()
-        accent = Color(palette.getVibrantColor(palette.getDominantColor(primary.hashCode())))
+        accent = Color(palette.getVibrantColor(palette.getDominantColor(primary.toArgb())))
     }
-    val theme = accent ?: primary
-
     LaunchedEffect(state.isPlaying) {
         while (true) {
             position = player.controller?.currentPosition ?: 0
@@ -203,22 +201,28 @@ fun NowPlayingScreen(container: AppContainer) {
                 .padding(padding)
                 .background(
                     Brush.verticalGradient(
-                        listOf(theme.copy(alpha = 0.10f), bg, bg),
+                        listOf((accent ?: primary).copy(alpha = 0.10f), bg, bg),
                     )
                 )
                 .padding(24.dp),
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            if (horizontal) {
-                HorizontalPager(state = pagerState, modifier = Modifier.fillMaxWidth()) { page ->
-                    TrackArt(container, queueSnapshot.getOrNull(queueIdx + page - 1)?.mediaId, Modifier.size(260.dp))
-                }
-            } else {
-                VerticalPager(state = pagerState, modifier = Modifier.fillMaxWidth()) { page ->
-                    TrackArt(container, queueSnapshot.getOrNull(queueIdx + page - 1)?.mediaId, Modifier.size(260.dp))
+        // Cover is a fixed-size box in a full-width pager page: without a
+        // centering wrapper it hugs the page's start edge.
+        if (horizontal) {
+            HorizontalPager(state = pagerState, modifier = Modifier.fillMaxWidth()) { page ->
+                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    TrackArt(container, queueSnapshot.getOrNull(queueIdx + page - 1)?.mediaId, Modifier.size(280.dp))
                 }
             }
+        } else {
+            VerticalPager(state = pagerState, modifier = Modifier.fillMaxWidth()) { page ->
+                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    TrackArt(container, queueSnapshot.getOrNull(queueIdx + page - 1)?.mediaId, Modifier.size(280.dp))
+                }
+            }
+        }
             Text(
                 state.title.ifEmpty { "Nothing playing" },
                 style = MaterialTheme.typography.headlineSmall,
@@ -233,27 +237,10 @@ fun NowPlayingScreen(container: AppContainer) {
 
             // Drag updates a local value; the seek fires once on release instead
             // of on every tick (which stuttered playback).
-            var dragging by remember { mutableStateOf(false) }
-            var dragValue by remember { mutableFloatStateOf(0f) }
-            Slider(
-                value = when {
-                    dragging -> dragValue
-                    duration > 0 -> position.toFloat() / duration
-                    else -> 0f
-                },
-                onValueChange = {
-                    dragging = true
-                    dragValue = it
-                },
-                onValueChangeFinished = {
-                    player.seekTo((dragValue * duration).toLong())
-                    dragging = false
-                },
+            SeekBar(
+                value = if (duration > 0) position.toFloat() / duration else 0f,
+                onSeekFinished = { fraction -> player.seekTo((fraction * duration).toLong()) },
                 modifier = Modifier.fillMaxWidth().padding(top = 20.dp),
-                colors = SliderDefaults.colors(
-                    thumbColor = theme,
-                    activeTrackColor = theme,
-                ),
             )
             Row(
                 Modifier.fillMaxWidth(),
@@ -347,7 +334,7 @@ fun NowPlayingScreen(container: AppContainer) {
                         if (state.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                         "Play/pause",
                         Modifier.size(48.dp),
-                        tint = theme,
+                        tint = MaterialTheme.colorScheme.primary,
                     )
                 }
                 Spacer(Modifier.size(16.dp))
@@ -380,7 +367,7 @@ fun NowPlayingScreen(container: AppContainer) {
                     Text(
                         lyrics[currentLine].text,
                         style = MaterialTheme.typography.bodyLarge,
-                        color = theme,
+                        color = MaterialTheme.colorScheme.primary,
                         textAlign = TextAlign.Center,
                         modifier = Modifier.weight(1f, fill = false),
                     )
@@ -529,7 +516,7 @@ fun NowPlayingScreen(container: AppContainer) {
                         style = if (i == currentLine) MaterialTheme.typography.headlineSmall
                         else MaterialTheme.typography.bodyLarge,
                         color = when {
-                            i == currentLine -> theme
+                            i == currentLine -> MaterialTheme.colorScheme.primary
                             else -> MaterialTheme.colorScheme.onSurfaceVariant
                         },
                         modifier = Modifier
@@ -569,7 +556,7 @@ fun NowPlayingScreen(container: AppContainer) {
 
 /** Album cover for a queue/media id; placeholder box while unresolved or missing. */
 @Composable
-private fun TrackArt(container: AppContainer, mediaId: String?, modifier: Modifier = Modifier) {
+internal fun TrackArt(container: AppContainer, mediaId: String?, modifier: Modifier = Modifier) {
     var model by remember(mediaId) { mutableStateOf<Any?>(null) }
     LaunchedEffect(mediaId) {
         model = null
@@ -588,6 +575,7 @@ private fun TrackArt(container: AppContainer, mediaId: String?, modifier: Modifi
             AsyncImage(
                 model = model,
                 contentDescription = null,
+                contentScale = ContentScale.Crop,
                 modifier = Modifier.matchParentSize(),
             )
         }

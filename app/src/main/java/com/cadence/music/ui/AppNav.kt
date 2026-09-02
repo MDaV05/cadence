@@ -1,21 +1,27 @@
 package com.cadence.music.ui
 
 import android.net.Uri
+import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
+import androidx.compose.material.icons.automirrored.outlined.QueueMusic
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LibraryMusic
-import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.LibraryMusic
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -49,7 +55,10 @@ fun AppNav() {
         bottomBar = {
             Column {
                 val np by container.player.state.collectAsStateWithLifecycle()
-                if (np.title.isNotEmpty()) {
+                // Hidden on now-playing — the full screen already shows the track.
+                if (np.title.isNotEmpty() && current != "nowplaying") {
+                    val queue by container.player.queueItems.collectAsStateWithLifecycle()
+                    val queueIdx by container.player.queueIndexFlow.collectAsStateWithLifecycle()
                     androidx.compose.material3.Surface(
                         color = MaterialTheme.colorScheme.surfaceVariant,
                         shape = MaterialTheme.shapes.large,
@@ -62,10 +71,12 @@ fun AppNav() {
                             modifier = Modifier.padding(start = 12.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Icon(
-                                Icons.Filled.MusicNote,
-                                null,
-                                tint = MaterialTheme.colorScheme.primary,
+                            TrackArt(
+                                container,
+                                queue.getOrNull(queueIdx)?.mediaId,
+                                Modifier
+                                    .padding(vertical = 8.dp)
+                                    .size(40.dp),
                             )
                             Column(Modifier.weight(1f).padding(start = 10.dp)) {
                                 Text(np.title, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
@@ -76,12 +87,14 @@ fun AppNav() {
                                     maxLines = 1,
                                 )
                             }
-                            IconButton(onClick = { container.player.togglePlayPause() }) {
-                                Icon(
-                                    if (np.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                                    "Play/pause",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                )
+                            Crossfade(targetState = np.isPlaying, label = "miniPlay") { playing ->
+                                IconButton(onClick = { container.player.togglePlayPause() }) {
+                                    Icon(
+                                        if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                                        "Play/pause",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                    )
+                                }
                             }
                         }
                     }
@@ -91,31 +104,31 @@ fun AppNav() {
                     NavigationBarItem(
                         selected = current == "home",
                         onClick = { navController.navigate("home") { launchSingleTop = true } },
-                        icon = { Icon(Icons.Filled.Home, null) },
+                        icon = { Icon(if (current == "home") Icons.Filled.Home else Icons.Outlined.Home, null) },
                         label = { Text("Home") },
                     )
                     NavigationBarItem(
                         selected = current == "library",
                         onClick = { navController.navigate("library") { launchSingleTop = true } },
-                        icon = { Icon(Icons.Filled.LibraryMusic, null) },
+                        icon = { Icon(if (current == "library") Icons.Filled.LibraryMusic else Icons.Outlined.LibraryMusic, null) },
                         label = { Text("Library") },
                     )
                     NavigationBarItem(
                         selected = current == "playlists",
                         onClick = { navController.navigate("playlists") { launchSingleTop = true } },
-                        icon = { Icon(Icons.AutoMirrored.Filled.QueueMusic, null) },
+                        icon = { Icon(if (current == "playlists") Icons.AutoMirrored.Filled.QueueMusic else Icons.AutoMirrored.Outlined.QueueMusic, null) },
                         label = { Text("Playlists") },
                     )
                     NavigationBarItem(
                         selected = current == "search",
                         onClick = { navController.navigate("search") { launchSingleTop = true } },
-                        icon = { Icon(Icons.Filled.Search, null) },
+                        icon = { Icon(if (current == "search") Icons.Filled.Search else Icons.Outlined.Search, null) },
                         label = { Text("Search") },
                     )
                     NavigationBarItem(
                         selected = current == "settings",
                         onClick = { navController.navigate("settings") { launchSingleTop = true } },
-                        icon = { Icon(Icons.Filled.Settings, null) },
+                        icon = { Icon(if (current == "settings") Icons.Filled.Settings else Icons.Outlined.Settings, null) },
                         label = { Text("Settings") },
                     )
                 }
@@ -149,7 +162,9 @@ fun AppNav() {
                 val id = entry.arguments?.getString("id")?.toLongOrNull() ?: return@composable
                 PlaylistDetailScreen(container, id, onBack = { navController.popBackStack() })
             }
-            composable("search") { SearchScreen(container) }
+            composable("search") { SearchScreen(container, onArtistClick = { name ->
+                navController.navigate("artist/${Uri.encode(name)}")
+            }) }
             composable("settings") { SettingsScreen(container, onOpenEqualizer = {
                 navController.navigate("equalizer")
             }, onOpenDownloads = {
