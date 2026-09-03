@@ -120,8 +120,8 @@ fun HomeScreen(
             }
             if (most.isNotEmpty()) {
                 item { SectionHeader("Most played") }
-                item {
-                    TrackShelf(container, most) { track ->
+                items(most, key = { "most:${it.id}" }) { track ->
+                    TrackRow(container, track, onArtistClick) {
                         player.playNow(listOf(track.toTrack()))
                     }
                 }
