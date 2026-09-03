@@ -147,6 +147,14 @@ fun AppNav() {
                 navController.navigate("artist/${Uri.encode(name)}")
             }, onAlbumClick = { name ->
                 navController.navigate("album/${Uri.encode(name)}")
+            }, onOpenLibrary = {
+                navController.navigate("library") { launchSingleTop = true }
+            }, onOpenPlaylists = {
+                navController.navigate("playlists") { launchSingleTop = true }
+            }, onOpenSearch = {
+                navController.navigate("search") { launchSingleTop = true }
+            }, onOpenDownloads = {
+                navController.navigate("downloads") { launchSingleTop = true }
             }) }
             composable("library") { LibraryScreen(container, onArtistClick = { name ->
                 navController.navigate("artist/${Uri.encode(name)}")
