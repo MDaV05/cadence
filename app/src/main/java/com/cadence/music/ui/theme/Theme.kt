@@ -36,6 +36,8 @@ fun customToSpec(e: CustomThemeEntity) = ThemeSpec(
 // Built-in presets. Iris is the Cadence brand (sharp, blue-leaning violet).
 val BUILTIN_THEMES = listOf(
     ThemeSpec("iris", "Iris", 0xFF6B4EE8.toInt(), 0xFF9D8BFF.toInt(), 0xFFFAFAFC.toInt(), 0xFF0E0E13.toInt()),
+    ThemeSpec("applemusic", "Apple Music", 0xFFFA2D48.toInt(), 0xFFFC5163.toInt(), 0xFFFFFFFF.toInt(), 0xFF000000.toInt()),
+    ThemeSpec("spotify", "Spotify", 0xFF1DB954.toInt(), 0xFF1ED760.toInt(), 0xFFFFFFFF.toInt(), 0xFF121212.toInt()),
     ThemeSpec("ocean", "Ocean", 0xFF1B74D3.toInt(), 0xFF7FB2F0.toInt(), 0xFFFAFBFC.toInt(), 0xFF0C1116.toInt()),
     ThemeSpec("rose", "Rose", 0xFFC6406E.toInt(), 0xFFEF9BB6.toInt(), 0xFFFCFAFB.toInt(), 0xFF140D10.toInt()),
     ThemeSpec("forest", "Forest", 0xFF2E7D4F.toInt(), 0xFF93CBA9.toInt(), 0xFFFAFBF9.toInt(), 0xFF0C120E.toInt()),
