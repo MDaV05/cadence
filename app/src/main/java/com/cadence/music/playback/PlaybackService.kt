@@ -101,6 +101,15 @@ class PlaybackService : MediaLibraryService() {
             ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> =
                 serviceScope.future { buildResumeQueue() }
         })
+            // Tapping the media notification / lock-screen chip must open the app.
+            .setSessionActivity(
+                android.app.PendingIntent.getActivity(
+                    this,
+                    0,
+                    Intent(this, com.cadence.music.MainActivity::class.java),
+                    android.app.PendingIntent.FLAG_IMMUTABLE,
+                )
+            )
             .build()
     }
 
