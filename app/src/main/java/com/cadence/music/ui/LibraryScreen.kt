@@ -8,6 +8,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -30,6 +31,7 @@ import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
@@ -59,6 +61,10 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.paging.LoadState
+import androidx.paging.cachedIn
+import androidx.paging.compose.collectAsLazyPagingItems
+import androidx.paging.compose.itemKey
 import coil.compose.AsyncImage
 import com.cadence.music.AppContainer
 import com.cadence.music.data.db.TrackEntity
@@ -113,37 +119,12 @@ fun LibraryScreen(
             }
 
             when (tab) {
-                0 -> songsTab(tracks, container, onArtistClick, player)
+                0 -> songsTab(container, onArtistClick, player)
                 1 -> albumsTab(albumGroups, container, onAlbumClick)
                 2 -> artistsTab(artists, onArtistClick)
             }
         }
     }
-}
-
-/** In-memory song sorting; order persists via Prefs. */
-private fun sortSongs(
-    tracks: List<TrackEntity>,
-    sort: com.cadence.music.data.prefs.Prefs.SongSort,
-    ascending: Boolean,
-): List<TrackEntity> {
-    val cmp = when (sort) {
-        com.cadence.music.data.prefs.Prefs.SongSort.TITLE ->
-            compareBy<TrackEntity> { it.title.lowercase() }
-        com.cadence.music.data.prefs.Prefs.SongSort.ARTIST ->
-            compareBy { it.artistName.lowercase() }
-        com.cadence.music.data.prefs.Prefs.SongSort.ALBUM ->
-            compareBy { it.albumName.lowercase() }
-        com.cadence.music.data.prefs.Prefs.SongSort.DURATION ->
-            compareBy { it.durationMs }
-        com.cadence.music.data.prefs.Prefs.SongSort.RECENTLY_ADDED ->
-            compareBy { it.id }
-        com.cadence.music.data.prefs.Prefs.SongSort.RECENTLY_PLAYED ->
-            compareBy { it.lastPlayed ?: 0L }
-        com.cadence.music.data.prefs.Prefs.SongSort.MOST_PLAYED ->
-            compareBy<TrackEntity> { it.playCount }.thenBy { it.lastPlayed ?: 0L }
-    }
-    return if (ascending) tracks.sortedWith(cmp) else tracks.sortedWith(cmp.reversed())
 }
 
 @OptIn(
@@ -310,7 +291,6 @@ private fun EmptyLibrary(granted: Boolean, deniedForever: Boolean, onGrant: () -
 
 @Composable
 private fun songsTab(
-    tracks: List<TrackEntity>,
     container: AppContainer,
     onArtistClick: (String) -> Unit,
     player: com.cadence.music.playback.PlayerConnection,
@@ -368,6 +348,9 @@ private fun songsTab(
         onPauseOrDispose { }
     }
 
+    // Full-list read for the empty-library gate only; FAB keeps its own
+    // collection in LibraryScreen, scrolling list below uses paging.
+    val tracks by container.library.tracks().collectAsStateWithLifecycle(initialValue = emptyList())
     if (tracks.isEmpty()) {
         EmptyLibrary(audioGranted, deniedForever) {
             if (!audioGranted) {
@@ -380,7 +363,9 @@ private fun songsTab(
     var sort by remember { mutableStateOf(container.prefs.songSort) }
     var ascending by remember { mutableStateOf(container.prefs.songSortAscending) }
     var sortMenu by remember { mutableStateOf(false) }
-    val sorted = remember(tracks, sort, ascending) { sortSongs(tracks, sort, ascending) }
+    val pagingItems = remember(sort, ascending) {
+        container.library.tracksPaged(sort, ascending)
+    }.cachedIn(scope).collectAsLazyPagingItems()
     val songCount by container.library.observeTrackCount()
         .collectAsStateWithLifecycle(initialValue = 0)
 
@@ -445,8 +430,35 @@ private fun songsTab(
             }
         }
         LazyColumn(Modifier.fillMaxSize()) {
-            items(sorted, key = { it.id }) { track ->
-                TrackRow(container, track, onArtistClick) { player.playNow(listOf(track.toTrack())) }
+            items(
+                count = pagingItems.itemCount,
+                key = pagingItems.itemKey { it.id },
+            ) { i ->
+                pagingItems[i]?.let { track ->
+                    TrackRow(container, track, onArtistClick) { player.playNow(listOf(track.toTrack())) }
+                }
+            }
+            when (val s = pagingItems.loadState.refresh) {
+                is LoadState.Loading -> if (pagingItems.itemCount == 0) {
+                    item { Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator()
+                    } }
+                }
+                is LoadState.Error -> if (pagingItems.itemCount == 0) {
+                    item { Text(
+                        "Couldn't load songs.",
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(32.dp),
+                    ) }
+                }
+                else -> Unit
+            }
+            if (pagingItems.loadState.refresh is LoadState.NotLoading && pagingItems.itemCount == 0) {
+                item { Text(
+                    "No songs yet — sync your library first.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(32.dp),
+                ) }
             }
         }
     }
