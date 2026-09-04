@@ -26,6 +26,12 @@ interface TrackDao {
     @Query("SELECT COUNT(*) FROM tracks")
     suspend fun count(): Int
 
+    @Query("SELECT COUNT(*) FROM tracks")
+    fun observeCountAll(): Flow<Int>
+
+    @Query("SELECT COUNT(*) FROM tracks WHERE sourceId IN (:sources)")
+    fun observeCountFor(sources: Set<String>): Flow<Int>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(tracks: List<TrackEntity>)
 

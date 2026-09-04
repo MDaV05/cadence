@@ -14,6 +14,7 @@ import com.cadence.music.data.source.SubsonicSource
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
 
 fun sourcesFor(mode: LibraryMode): Set<String>? = when (mode) {
     LibraryMode.LOCAL_ONLY -> setOf("local")
@@ -39,6 +40,12 @@ class LibraryRepository(
             if (s == null) list else list.filter { it.sourceId in s }
         }
     fun artistNames(): Flow<List<String>> = db.trackDao().observeArtistNames()
+    /** Mode-aware total used for the Library counter; paging-safe (separate COUNT, not itemCount). */
+    fun observeTrackCount(): Flow<Int> =
+        prefs.observeMode().flatMapLatest { mode ->
+            val s = sourcesFor(mode)
+            if (s == null) db.trackDao().observeCountAll() else db.trackDao().observeCountFor(s)
+        }
     fun albumGroups(): Flow<List<com.cadence.music.data.db.AlbumGroup>> =
         db.trackDao().observeAlbumGroups()
 
