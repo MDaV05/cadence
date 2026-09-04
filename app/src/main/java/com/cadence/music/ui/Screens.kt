@@ -738,7 +738,7 @@ private fun AboutTab(container: AppContainer) {
         item { SectionHeader("Diagnostics") }
         item {
             SettingRow(
-                title = "Library",
+                title = "Database",
                 subtitle = diag,
             )
         }
@@ -750,7 +750,7 @@ private fun AboutTab(container: AppContainer) {
                     scope.launch {
                         val info = withContext(Dispatchers.IO) {
                             "Cadence v${container.installedVersion()}\n" +
-                                "Library: $diag\n" +
+                                "Database: $diag\n" +
                                 "Mode: ${container.prefs.mode}\n" +
                                 "Server: ${if (container.prefs.server == null) "none" else "set"}"
                         }
