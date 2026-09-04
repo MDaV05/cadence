@@ -20,8 +20,23 @@ import kotlinx.coroutines.launch
 class PlayerWidget : AppWidgetProvider() {
 
     override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
-        // State push comes from PlaybackService; render placeholder until then.
-        push(context, "Cadence", "", false)
+        // Don't blind-push the placeholder: add/resize/reboot would clobber live state.
+        // Read the session first; placeholder only when unreachable.
+        val pending = goAsync()
+        widgetScope.launch {
+            try {
+                val c = controller(context)
+                val item = c?.currentMediaItem
+                push(
+                    context,
+                    item?.mediaMetadata?.title?.toString() ?: "Cadence",
+                    item?.mediaMetadata?.artist?.toString() ?: "",
+                    c?.isPlaying == true,
+                )
+            } finally {
+                pending.finish()
+            }
+        }
     }
 
     override fun onReceive(context: Context, intent: Intent) {
