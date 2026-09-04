@@ -14,6 +14,36 @@ data class ServerConfig(
     val password: String,
 )
 
+enum class ServerType { SUBSONIC, JELLYFIN, EMBY, PLEX }
+
+data class ServerEntry(
+    val id: String,
+    val type: ServerType,
+    val url: String,
+    val user: String,
+    val password: String? = null, // subsonic only; jelly/emby/plex use token
+    val token: String? = null,
+    val userId: String? = null, // jelly/emby remote user id
+    val active: Boolean = true,
+) {
+    fun toJson(): org.json.JSONObject = org.json.JSONObject()
+        .put("id", id).put("type", type.name).put("url", url).put("user", user)
+        .put("password", password).put("token", token).put("userId", userId).put("active", active)
+
+    companion object {
+        fun fromJson(o: org.json.JSONObject): ServerEntry = ServerEntry(
+            id = o.getString("id"),
+            type = ServerType.valueOf(o.getString("type")),
+            url = o.getString("url"),
+            user = o.optString("user", ""),
+            password = o.optString("password", null),
+            token = o.optString("token", null),
+            userId = o.optString("userId", null),
+            active = o.optBoolean("active", true),
+        )
+    }
+}
+
 class Prefs(context: Context) {
 
     private val sp = context.getSharedPreferences("cadence", Context.MODE_PRIVATE)
@@ -30,6 +60,35 @@ class Prefs(context: Context) {
                 .putString("server_pass", value?.password)
                 .apply()
         }
+
+    var servers: List<ServerEntry>
+        get() {
+            migrateLegacyServer()
+            return runCatching {
+                val arr = org.json.JSONArray(sp.getString("servers_json", "[]") ?: "[]")
+                (0 until arr.length()).map { ServerEntry.fromJson(arr.getJSONObject(it)) }
+            }.getOrDefault(emptyList())
+        }
+        set(value) = sp.edit().putString(
+            "servers_json",
+            org.json.JSONArray(value.map { it.toJson() }.toList()).toString(),
+        ).apply()
+
+    fun entry(id: String): ServerEntry? = servers.firstOrNull { it.id == id }
+
+    // One-shot: legacy single server becomes entry "primary", then legacy keys are dropped.
+    private fun migrateLegacyServer() {
+        if (sp.contains("servers_json")) return
+        val url = sp.getString("server_url", null) ?: return
+        servers = listOf(
+            ServerEntry(
+                id = "primary", type = ServerType.SUBSONIC, url = url,
+                user = sp.getString("server_user", "") ?: "",
+                password = sp.getString("server_pass", null),
+            )
+        )
+        sp.edit().remove("server_url").remove("server_user").remove("server_pass").apply()
+    }
 
     var mode: LibraryMode
         get() = runCatching { LibraryMode.valueOf(sp.getString("mode", null) ?: "") }
