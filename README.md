@@ -50,3 +50,10 @@ Issues and pull requests are welcome — [issue tracker](https://github.com/MDaV
 ## Support
 
 Questions or bug reports: [open an issue](https://github.com/MDaV05/cadence/issues/new). The About tab → "Copy debug info" produces a paste-ready, secret-free summary to attach.
+
+## Donate
+
+If Cadence is useful to you, crypto donations are welcome:
+
+- **BNB Smart Chain:** `0x57Ff65FB4b773F15BdfB507086facd28d8D7d049`
+- **Bitcoin:** `bc1qeepyu36y79jw0nn4fyrkhppuppsdgvc6svxu36`
