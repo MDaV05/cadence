@@ -79,7 +79,9 @@ import coil.compose.AsyncImage
 import com.cadence.music.AppContainer
 import com.cadence.music.data.metadata.SyncedLine
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
@@ -129,7 +131,8 @@ fun NowPlayingScreen(container: AppContainer) {
         accent = Color(palette.getVibrantColor(palette.getDominantColor(primary.toArgb())))
     }
     LaunchedEffect(state.isPlaying) {
-        while (true) {
+        // Stop polling when paused — the previous while(true) recomposed 2.5x/sec forever.
+        while (currentCoroutineContext().isActive && state.isPlaying) {
             position = player.controller?.currentPosition ?: 0
             // TIME_UNSET before prepare would render as garbage time text.
             duration = player.controller?.duration?.takeIf { it != C.TIME_UNSET && it > 0 } ?: 0

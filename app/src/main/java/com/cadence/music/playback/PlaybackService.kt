@@ -30,8 +30,12 @@ class PlaybackService : MediaLibraryService() {
     private var session: MediaLibrarySession? = null
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var replayGainJob: kotlinx.coroutines.Job? = null
-    private val prefsListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
-        EqManager.apply()
+    private val prefsListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        // saveResumeState() writes resume_* on every transition — must not re-program the EQ.
+        when (key) {
+            "eq_enabled", "eq_bands", "eq_bass" -> EqManager.apply()
+            "rg_enabled" -> applyReplayGain(session?.player?.currentMediaItem?.mediaId)
+        }
     }
 
     override fun onCreate() {
@@ -133,6 +137,7 @@ class PlaybackService : MediaLibraryService() {
         sp.edit()
             .putString("resume_ids", ids.toString())
             .putInt("resume_index", player.currentMediaItemIndex)
+            .putString("resume_media_id", player.currentMediaItem?.mediaId)
             .putLong("resume_position_ms", player.currentPosition.coerceAtLeast(0))
             .apply()
     }
@@ -157,7 +162,10 @@ class PlaybackService : MediaLibraryService() {
             entity.toMediaItem(container)?.let { items.add(it) }
         }
         if (items.isEmpty()) return MediaSession.MediaItemsWithStartPosition(emptyList(), 0, 0)
-        return MediaSession.MediaItemsWithStartPosition(items, startIndex.coerceIn(0, items.size - 1), savedPosition)
+        // The saved track may have been pruned (DB miss); don't seek the next track mid-way.
+        val savedMediaId = sp.getString("resume_media_id", null)
+        val position = if (items.getOrNull(startIndex.coerceIn(0, items.size - 1))?.mediaId == savedMediaId) savedPosition else 0L
+        return MediaSession.MediaItemsWithStartPosition(items, startIndex.coerceIn(0, items.size - 1), position)
     }
 
     private suspend fun TrackEntity.toMediaItem(container: com.cadence.music.AppContainer): MediaItem? {
@@ -198,6 +206,8 @@ class PlaybackService : MediaLibraryService() {
                 runCatching { container.database.trackDao().byServerId(mediaId)?.replayGainDb }
                     .getOrNull()
             }
+            // Stale lookup (slow IO after a fast skip) must not set the new track's volume.
+            if (session?.player?.currentMediaItem?.mediaId != mediaId) return@launch
             val volume = rg?.let { Math.pow(10.0, it.toDouble() / 20.0).toFloat() }
                 ?.coerceIn(0f, 1f) ?: 1f
             session?.player?.volume = volume
@@ -218,9 +228,10 @@ class PlaybackService : MediaLibraryService() {
         getSharedPreferences("cadence", MODE_PRIVATE)
             .unregisterOnSharedPreferenceChangeListener(prefsListener)
         EqManager.detach()
+        // Media3 order: session first, then player — callbacks must not hit a released player.
         session?.run {
-            player.release()
             release()
+            player.release()
         }
         session = null
         super.onDestroy()

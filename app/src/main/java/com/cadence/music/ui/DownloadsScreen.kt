@@ -75,7 +75,6 @@ fun DownloadsScreen(container: AppContainer, onBack: () -> Unit = {}) {
             } else {
                 LazyColumn {
                     items(rows, key = { "${it.download.sourceId}:${it.download.trackServerId}" }) { row ->
-                        val scope = rememberCoroutineScope()
                         DownloadRow(
                             container,
                             row,

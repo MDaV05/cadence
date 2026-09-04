@@ -117,7 +117,8 @@ abstract class AppDatabase : RoomDatabase() {
                 .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
                 // No paths exist from schema 1/2 (they predate exported schemas);
                 // those dev-only installs rebuild destructively instead of crashing.
-                .fallbackToDestructiveMigration()
+                // ponytail: downgrade-only — a missing v9 migration must crash loudly, never wipe.
+                .fallbackToDestructiveMigrationOnDowngrade()
                 .build()
     }
 }

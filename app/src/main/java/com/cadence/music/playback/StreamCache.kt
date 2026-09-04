@@ -12,10 +12,15 @@ object StreamCache {
 
     fun get(context: Context, maxBytes: Long = 2L * 1024 * 1024 * 1024): SimpleCache =
         instance ?: synchronized(this) {
-            instance ?: SimpleCache(
-                File(context.filesDir, "stream_cache"),
-                LeastRecentlyUsedCacheEvictor(maxBytes),
-                StandaloneDatabaseProvider(context),
-            ).also { instance = it }
+            instance ?: run {
+                // One-time cleanup of the pre-cacheDir location (backed-up dead weight).
+                runCatching { File(context.applicationContext.filesDir, "stream_cache").deleteRecursively() }
+                SimpleCache(
+                    // cacheDir (not filesDir): excluded from Auto Backup, OS may evict under pressure.
+                    File(context.applicationContext.cacheDir, "stream_cache"),
+                    LeastRecentlyUsedCacheEvictor(maxBytes),
+                    StandaloneDatabaseProvider(context),
+                ).also { instance = it }
+            }
         }
 }

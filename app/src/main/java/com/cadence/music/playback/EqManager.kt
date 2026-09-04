@@ -35,6 +35,8 @@ object EqManager {
     /** Attach effects to a live audio session and apply current settings. */
     fun attach(sessionId: Int) {
         detach()
+        // UNSET (0) would attach to the global output mix — affect other apps. Skip.
+        if (sessionId <= 0) return
         try {
             val e = Equalizer(0, sessionId)
             try {

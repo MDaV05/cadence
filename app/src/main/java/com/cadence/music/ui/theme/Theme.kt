@@ -101,7 +101,7 @@ fun CadenceTheme(container: AppContainer? = null, content: @Composable () -> Uni
     val id = prefs?.themeId ?: "iris"
     // themeTick bumps on every selection/custom-theme change.
     val tick = container?.themeTick?.intValue ?: 0
-    val spec = remember(id, tick) {
+    val spec = remember(id, tick, container?.customThemes) {
         BUILTIN_THEMES.firstOrNull { it.id == id }
             ?: container?.customThemes
                 ?.firstOrNull { it.name == id.removePrefix("custom:") }

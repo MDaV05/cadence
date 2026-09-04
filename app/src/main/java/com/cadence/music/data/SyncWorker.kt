@@ -27,9 +27,10 @@ class SyncWorker(appContext: Context, params: WorkerParameters) :
             container.library.syncAll()
             container.flushPendingScrobbles()
             Result.success()
-        } catch (_: Exception) {
-            // Transient network/server failures are worth another attempt later.
-            Result.retry()
+        } catch (e: Exception) {
+            // Transient network failures are worth another attempt later;
+            // permanent ones (auth, parse) must not retry forever.
+            return if (e is java.io.IOException) Result.retry() else Result.failure()
         }
     }
 }
