@@ -149,4 +149,8 @@ class Prefs(context: Context) {
     var songSortAscending: Boolean
         get() = sp.getBoolean("song_sort_asc", true)
         set(value) = sp.edit().putBoolean("song_sort_asc", value).apply()
+
+    var updateAutoCheck: Boolean
+        get() = sp.getBoolean("update_auto_check", true)
+        set(value) = sp.edit().putBoolean("update_auto_check", value).apply()
 }
