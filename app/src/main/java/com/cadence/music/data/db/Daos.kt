@@ -56,6 +56,9 @@ interface TrackDao {
     @Query("SELECT DISTINCT artistName FROM tracks WHERE artistName != '' ORDER BY artistName")
     fun observeArtistNames(): Flow<List<String>>
 
+    @Query("SELECT DISTINCT artistName FROM tracks WHERE artistName != '' AND sourceId IN (:sources) ORDER BY artistName")
+    fun observeArtistNamesFor(sources: Set<String>): Flow<List<String>>
+
     @Query("SELECT * FROM tracks WHERE artistName = :name ORDER BY albumName, trackNumber")
     suspend fun byArtist(name: String): List<TrackEntity>
 
@@ -67,6 +70,12 @@ interface TrackDao {
         "FROM tracks WHERE albumName != '' GROUP BY albumName ORDER BY name COLLATE NOCASE"
     )
     fun observeAlbumGroups(): Flow<List<AlbumGroup>>
+
+    @Query(
+        "SELECT albumName AS name, MIN(artistName) AS artistName, COUNT(*) AS trackCount " +
+        "FROM tracks WHERE albumName != '' AND sourceId IN (:sources) GROUP BY albumName ORDER BY name COLLATE NOCASE"
+    )
+    fun observeAlbumGroupsFor(sources: Set<String>): Flow<List<AlbumGroup>>
 
     @Query("SELECT * FROM tracks WHERE playCount > 0 ORDER BY playCount DESC, lastPlayed DESC LIMIT 10")
     suspend fun mostPlayed(): List<TrackEntity>

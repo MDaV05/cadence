@@ -134,45 +134,51 @@ fun SearchScreen(
                     }
                 }
             } else {
-                // cachedIn lives INSIDE remember: called inline during composition it would
-                // return a new Flow instance every recomposition, restarting the pager
-                // collection (and its refresh) in a loop — refresh would never settle.
-                val pagingItems = remember(debounced) {
-                    container.library.searchPaged(debounced).cachedIn(scope)
-                }.collectAsLazyPagingItems()
-                Text(
-                    "${pagingItems.itemCount} result${if (pagingItems.itemCount == 1) "" else "s"}",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                )
-                LazyColumn {
-                    items(
-                        count = pagingItems.itemCount,
-                        key = pagingItems.itemKey { it.id },
-                    ) { i ->
-                        pagingItems[i]?.let { track ->
-                            TrackRow(container, track, onArtistClick) {
-                                recordQuery(query)
-                                focusManager.clearFocus()
-                                player.playNow(listOf(track.toTrack()))
+                if (debounced.isBlank()) {
+                    Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator()
+                    }
+                } else {
+                    // cachedIn lives INSIDE remember: called inline during composition it would
+                    // return a new Flow instance every recomposition, restarting the pager
+                    // collection (and its refresh) in a loop — refresh would never settle.
+                    val pagingItems = remember(debounced) {
+                        container.library.searchPaged(debounced).cachedIn(scope)
+                    }.collectAsLazyPagingItems()
+                    Text(
+                        "${pagingItems.itemCount} result${if (pagingItems.itemCount == 1) "" else "s"}",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    )
+                    LazyColumn {
+                        items(
+                            count = pagingItems.itemCount,
+                            key = pagingItems.itemKey { it.id },
+                        ) { i ->
+                            pagingItems[i]?.let { track ->
+                                TrackRow(container, track, onArtistClick) {
+                                    recordQuery(query)
+                                    focusManager.clearFocus()
+                                    player.playNow(listOf(track.toTrack()))
+                                }
                             }
                         }
-                    }
-                    when (pagingItems.loadState.refresh) {
-                        is LoadState.Loading -> if (pagingItems.itemCount == 0) {
-                            item { Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
-                                CircularProgressIndicator()
-                            } }
+                        when (pagingItems.loadState.refresh) {
+                            is LoadState.Loading -> if (pagingItems.itemCount == 0) {
+                                item { Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                                    CircularProgressIndicator()
+                                } }
+                            }
+                            is LoadState.Error -> if (pagingItems.itemCount == 0) {
+                                item { Text(
+                                    "Couldn't load results.",
+                                    color = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.padding(32.dp),
+                                ) }
+                            }
+                            else -> Unit
                         }
-                        is LoadState.Error -> if (pagingItems.itemCount == 0) {
-                            item { Text(
-                                "Couldn't load results.",
-                                color = MaterialTheme.colorScheme.error,
-                                modifier = Modifier.padding(32.dp),
-                            ) }
-                        }
-                        else -> Unit
                     }
                 }
             }
