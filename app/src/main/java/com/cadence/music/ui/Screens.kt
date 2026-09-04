@@ -416,6 +416,7 @@ private fun ServerTab(container: AppContainer) {
                     RadioButton(selected = mode == m, onClick = {
                         mode = m
                         container.prefs.mode = m
+                        scope.launch { runCatching { container.library.syncAll() } }
                     })
                 },
             )

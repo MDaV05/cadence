@@ -13,6 +13,13 @@ import com.cadence.music.data.source.LocalSource
 import com.cadence.music.data.source.SubsonicSource
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
+
+fun sourcesFor(mode: LibraryMode): Set<String>? = when (mode) {
+    LibraryMode.LOCAL_ONLY -> setOf("local")
+    LibraryMode.API_ONLY -> setOf("subsonic")
+    LibraryMode.HYBRID -> null // null = all sources (future-proof; never enumerate)
+}
 
 class LibraryRepository(
     private val db: AppDatabase,
@@ -21,8 +28,14 @@ class LibraryRepository(
     private val prefs: Prefs,
     private val context: android.content.Context,
 ) {
-    fun tracks(): Flow<List<TrackEntity>> = db.trackDao().observeAll()
-    fun albums(): Flow<List<AlbumEntity>> = db.albumDao().observeAll()
+    fun tracks(): Flow<List<TrackEntity>> = db.trackDao().observeAll().map { list ->
+        val s = sourcesFor(prefs.mode)
+        if (s == null) list else list.filter { it.sourceId in s }
+    }
+    fun albums(): Flow<List<AlbumEntity>> = db.albumDao().observeAll().map { list ->
+        val s = sourcesFor(prefs.mode)
+        if (s == null) list else list.filter { it.sourceId in s }
+    }
     fun artistNames(): Flow<List<String>> = db.trackDao().observeArtistNames()
     fun albumGroups(): Flow<List<com.cadence.music.data.db.AlbumGroup>> =
         db.trackDao().observeAlbumGroups()
@@ -37,7 +50,10 @@ class LibraryRepository(
         when (prefs.mode) {
             LibraryMode.LOCAL_ONLY -> syncLocal()
             LibraryMode.API_ONLY -> syncServer()
-            LibraryMode.HYBRID -> { syncLocal(); syncServer() }
+            LibraryMode.HYBRID -> {
+                syncLocal()
+                syncServer()
+            }
         }
     }
 
