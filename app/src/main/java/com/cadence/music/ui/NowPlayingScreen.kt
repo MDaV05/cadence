@@ -1,5 +1,6 @@
 package com.cadence.music.ui
 
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.Orientation
@@ -25,6 +26,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Pause
@@ -290,6 +292,24 @@ fun NowPlayingScreen(container: AppContainer) {
                         )
                     }
                     Spacer(Modifier.size(28.dp))
+                    // Download the playing song; hides once queued (progress lives on Downloads).
+                    var downloadQueued by remember(state.title) { mutableStateOf(false) }
+                    if (currentTrack?.path == null && !downloadQueued) {
+                        IconButton(onClick = {
+                            val t = currentTrack ?: return@IconButton
+                            container.library.enqueueDownload(t)
+                            downloadQueued = true
+                            Toast.makeText(context, "Download queued", Toast.LENGTH_SHORT).show()
+                        }) {
+                            Icon(
+                                Icons.Filled.Download,
+                                "Download",
+                                Modifier.size(22.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Spacer(Modifier.size(28.dp))
+                    }
                 }
                 IconButton(onClick = { player.toggleShuffle() }) {
                     Icon(
