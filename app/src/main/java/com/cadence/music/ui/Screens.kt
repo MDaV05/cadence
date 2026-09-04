@@ -50,10 +50,18 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import android.content.Intent
+import android.net.Uri
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.cadence.music.AppContainer
 import com.cadence.music.data.db.CustomThemeEntity
 import com.cadence.music.data.prefs.LibraryMode
 import com.cadence.music.data.prefs.Prefs
+import com.cadence.music.data.update.UpdateStatus.Available
+import com.cadence.music.data.update.UpdateStatus.Checking
+import com.cadence.music.data.update.UpdateStatus.Failed
+import com.cadence.music.data.update.UpdateStatus.Idle
+import com.cadence.music.data.update.UpdateStatus.UpToDate
 import com.cadence.music.playback.EqManager
 import com.cadence.music.ui.theme.BUILTIN_THEMES
 import com.cadence.music.ui.theme.ThemeSpec
@@ -114,7 +122,7 @@ fun SettingsScreen(
     onOpenDownloads: () -> Unit = {},
 ) {
     var tab by remember { mutableIntStateOf(0) }
-    val tabs = listOf("Appearance", "Server", "Storage", "Playback")
+    val tabs = listOf("Appearance", "Server", "Storage", "Playback", "About")
 
     Column(Modifier.fillMaxSize()) {
         Text(
@@ -132,6 +140,7 @@ fun SettingsScreen(
             1 -> ServerTab(container)
             2 -> StorageTab(container, onOpenDownloads)
             3 -> PlaybackTab(container, onOpenEqualizer)
+            4 -> AboutTab(container)
         }
     }
 }
@@ -588,6 +597,110 @@ private fun PlaybackTab(container: AppContainer, onOpenEqualizer: () -> Unit) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
             )
+        }
+        item { Spacer(Modifier.height(32.dp)) }
+    }
+}
+
+@Composable
+private fun AboutTab(container: AppContainer) {
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val update by container.updateStatus.collectAsStateWithLifecycle(initialValue = Idle)
+    var lastTapAvailable by remember { mutableStateOf<Available?>(null) }
+
+    fun statusText(): String = when (val u = update) {
+        Idle -> "Never checked"
+        Checking -> "Checking…"
+        is UpToDate -> "Up to date"
+        is Available -> "${u.tag} available — tap to download"
+        is Failed -> "Couldn't check for updates"
+    }
+
+    LazyColumn(Modifier.fillMaxSize()) {
+        item { SectionHeader("App") }
+        item {
+            SettingRow(
+                title = "Version",
+                subtitle = "v${container.installedVersion()}",
+            )
+        }
+        item {
+            SettingRow(
+                title = "Check for updates",
+                subtitle = statusText(),
+                trailing = {
+                    if (update is Checking) CircularProgressIndicator(Modifier.size(24.dp))
+                    else TextButton(onClick = { scope.launch { container.refreshUpdateStatus() } }) {
+                        Text("Check now")
+                    }
+                },
+                onClick = {
+                    val u = update
+                    if (u is Available) {
+                        lastTapAvailable = u
+                        container.downloadUpdate(u.tag, u.assetUrl)
+                    } else {
+                        scope.launch { container.refreshUpdateStatus() }
+                    }
+                },
+            )
+        }
+        val avail = (update as? Available) ?: lastTapAvailable
+        if (avail != null && container.installIntent(avail.tag) != null) {
+            item {
+                SettingRow(
+                    title = "Install ${avail.tag}",
+                    subtitle = "Download finished — tap to install",
+                    onClick = {
+                        container.installIntent(avail.tag)?.let { context.startActivity(it) }
+                    },
+                )
+            }
+        }
+        item {
+            SettingRow(
+                title = "Auto-check on launch",
+                trailing = {
+                    Switch(
+                        checked = container.prefs.updateAutoCheck,
+                        onCheckedChange = { container.prefs.updateAutoCheck = it },
+                    )
+                },
+            )
+        }
+        val notesUrl = (update as? Available)?.notesUrl
+        if (notesUrl != null) {
+            item {
+                SettingRow(
+                    title = "Release notes",
+                    onClick = {
+                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(notesUrl)))
+                    },
+                )
+            }
+        }
+        item { SectionHeader("Project") }
+        item {
+            SettingRow(
+                title = "GitHub",
+                subtitle = "MDaV05/cadence",
+                onClick = {
+                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/MDaV05/cadence")))
+                },
+            )
+        }
+        item {
+            SettingRow(
+                title = "Report an issue",
+                onClick = {
+                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/MDaV05/cadence/issues/new")))
+                },
+            )
+        }
+        item { SectionHeader("Open source") }
+        listOf("Jetpack Compose / Material 3", "Media3", "Room", "Coil", "WorkManager", "Paging").forEach { lib ->
+            item { SettingRow(title = lib) }
         }
         item { Spacer(Modifier.height(32.dp)) }
     }
