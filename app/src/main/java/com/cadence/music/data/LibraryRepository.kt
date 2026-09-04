@@ -13,7 +13,7 @@ import com.cadence.music.data.source.LocalSource
 import com.cadence.music.data.source.SubsonicSource
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.combine
 
 fun sourcesFor(mode: LibraryMode): Set<String>? = when (mode) {
     LibraryMode.LOCAL_ONLY -> setOf("local")
@@ -28,23 +28,31 @@ class LibraryRepository(
     private val prefs: Prefs,
     private val context: android.content.Context,
 ) {
-    fun tracks(): Flow<List<TrackEntity>> = db.trackDao().observeAll().map { list ->
-        val s = sourcesFor(prefs.mode)
-        if (s == null) list else list.filter { it.sourceId in s }
-    }
-    fun albums(): Flow<List<AlbumEntity>> = db.albumDao().observeAll().map { list ->
-        val s = sourcesFor(prefs.mode)
-        if (s == null) list else list.filter { it.sourceId in s }
-    }
+    fun tracks(): Flow<List<TrackEntity>> =
+        combine(db.trackDao().observeAll(), prefs.observeMode()) { list, mode ->
+            val s = sourcesFor(mode)
+            if (s == null) list else list.filter { it.sourceId in s }
+        }
+    fun albums(): Flow<List<AlbumEntity>> =
+        combine(db.albumDao().observeAll(), prefs.observeMode()) { list, mode ->
+            val s = sourcesFor(mode)
+            if (s == null) list else list.filter { it.sourceId in s }
+        }
     fun artistNames(): Flow<List<String>> = db.trackDao().observeArtistNames()
     fun albumGroups(): Flow<List<com.cadence.music.data.db.AlbumGroup>> =
         db.trackDao().observeAlbumGroups()
 
-    suspend fun tracksByArtist(name: String): List<TrackEntity> =
-        db.trackDao().byArtist(name)
+    suspend fun tracksByArtist(name: String): List<TrackEntity> {
+        val list = db.trackDao().byArtist(name)
+        val s = sourcesFor(prefs.mode)
+        return if (s == null) list else list.filter { it.sourceId in s }
+    }
 
-    suspend fun tracksByAlbum(name: String): List<TrackEntity> =
-        db.trackDao().byAlbum(name)
+    suspend fun tracksByAlbum(name: String): List<TrackEntity> {
+        val list = db.trackDao().byAlbum(name)
+        val s = sourcesFor(prefs.mode)
+        return if (s == null) list else list.filter { it.sourceId in s }
+    }
 
     suspend fun syncAll() {
         when (prefs.mode) {

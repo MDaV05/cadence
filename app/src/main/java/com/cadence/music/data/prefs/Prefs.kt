@@ -1,6 +1,10 @@
 package com.cadence.music.data.prefs
 
 import android.content.Context
+import android.content.SharedPreferences
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
 
 enum class LibraryMode { LOCAL_ONLY, API_ONLY, HYBRID }
 
@@ -31,6 +35,16 @@ class Prefs(context: Context) {
         get() = runCatching { LibraryMode.valueOf(sp.getString("mode", null) ?: "") }
             .getOrDefault(LibraryMode.HYBRID)
         set(value) = sp.edit().putString("mode", value.name).apply()
+
+    /** Emits the current mode first, then re-emits on every mode change. */
+    fun observeMode(): Flow<LibraryMode> = callbackFlow {
+        trySend(mode)
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == "mode") trySend(mode)
+        }
+        sp.registerOnSharedPreferenceChangeListener(listener)
+        awaitClose { sp.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
 
     // "raw" keeps original bitrate; otherwise a Subsonic transcode format like "opus" or "mp3"
     var downloadFormat: String
