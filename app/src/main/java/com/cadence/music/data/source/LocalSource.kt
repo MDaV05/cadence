@@ -8,7 +8,10 @@ class LocalSource(private val context: Context) : MusicSource {
 
     override val id = "local"
 
-    override suspend fun scan(): List<Track> {
+    // ContentResolver.query does blocking Binder I/O — never run on Main.
+    override suspend fun scan(): List<Track> = kotlinx.coroutines.withContext(
+        kotlinx.coroutines.Dispatchers.IO
+    ) {
         val tracks = mutableListOf<Track>()
         val collection = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
         val projection = arrayOf(
@@ -43,7 +46,7 @@ class LocalSource(private val context: Context) : MusicSource {
                 )
             }
         }
-        return tracks
+        tracks
     }
 
     override suspend fun search(query: String): List<Track> =

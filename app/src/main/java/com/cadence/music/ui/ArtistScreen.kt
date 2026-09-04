@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Shuffle
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -45,28 +46,37 @@ fun ArtistScreen(container: AppContainer, artistName: String, onAlbumClick: (Str
     val player = container.player
     var tracks by remember { mutableStateOf<List<TrackEntity>>(emptyList()) }
     var info by remember { mutableStateOf<com.cadence.music.data.metadata.ArtistInfo?>(null) }
+    var loading by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf(false) }
 
     LaunchedEffect(artistName) {
-        tracks = container.library.tracksByArtist(artistName)
-        info = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            // Cache-first: the background worker pre-fills this table; a miss
-            // fetches once and is stored so later visits are instant.
-            val dao = container.database.artistInfoDao()
-            val cached = dao.byName(artistName)
-            when {
-                cached != null ->
-                    com.cadence.music.data.metadata.ArtistInfo(cached.bio, cached.imageUrl)
-                else -> {
-                    val fetched =
-                        com.cadence.music.data.metadata.Wikipedia.artistInfoBlocking(artistName)
-                    dao.upsert(
-                        com.cadence.music.data.db.ArtistInfoEntity(
-                            name = artistName, bio = fetched?.bio, imageUrl = fetched?.imageUrl,
+        loading = true; error = false
+        try {
+            tracks = container.library.tracksByArtist(artistName)
+            info = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                // Cache-first: the background worker pre-fills this table; a miss
+                // fetches once and is stored so later visits are instant.
+                val dao = container.database.artistInfoDao()
+                val cached = dao.byName(artistName)
+                when {
+                    cached != null ->
+                        com.cadence.music.data.metadata.ArtistInfo(cached.bio, cached.imageUrl)
+                    else -> {
+                        val fetched =
+                            com.cadence.music.data.metadata.Wikipedia.artistInfoBlocking(artistName)
+                        dao.upsert(
+                            com.cadence.music.data.db.ArtistInfoEntity(
+                                name = artistName, bio = fetched?.bio, imageUrl = fetched?.imageUrl,
+                            )
                         )
-                    )
-                    fetched
+                        fetched
+                    }
                 }
             }
+        } catch (_: Exception) {
+            error = true
+        } finally {
+            loading = false
         }
     }
 
@@ -76,7 +86,20 @@ fun ArtistScreen(container: AppContainer, artistName: String, onAlbumClick: (Str
     }
 
     Scaffold { padding ->
-        LazyVerticalGrid(
+        when {
+            loading -> Column(
+                Modifier.fillMaxSize().padding(padding).padding(32.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                CircularProgressIndicator()
+            }
+            error -> Column(
+                Modifier.fillMaxSize().padding(padding).padding(32.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text("Couldn't load this artist.", color = MaterialTheme.colorScheme.error)
+            }
+            else -> LazyVerticalGrid(
             columns = GridCells.Adaptive(110.dp),
             modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
@@ -139,6 +162,16 @@ fun ArtistScreen(container: AppContainer, artistName: String, onAlbumClick: (Str
             items(tracks, key = { "song:${it.id}" }, span = { GridItemSpan(maxLineSpan) }) { track ->
                 TrackRow(container, track) { player.playNow(listOf(track.toTrack())) }
             }
+            if (tracks.isEmpty()) {
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    Text(
+                        "No songs found for this artist.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
         }
     }
 }

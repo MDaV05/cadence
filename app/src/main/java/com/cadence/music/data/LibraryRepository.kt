@@ -2,6 +2,7 @@ package com.cadence.music.data
 
 import android.content.ContentUris
 import android.provider.MediaStore
+import androidx.room.withTransaction
 import com.cadence.music.data.db.AlbumEntity
 import com.cadence.music.data.db.AppDatabase
 import com.cadence.music.data.db.DownloadEntity
@@ -71,13 +72,15 @@ class LibraryRepository(
                 starred = prev?.starred ?: false,
             )
         }
-        db.trackDao().insertAll(entities)
-        // Remove rows for files that vanished from MediaStore (and any playlist
-        // entries that pointed at them).
+        // Remove rows for files that vanished from MediaStore — atomically,
+        // so a crash between insert and orphan-cleanup can't leave orphans.
         val scannedKeys = entities.map { it.serverId }.toSet()
         val removed = known.values.filter { it.sourceId == "local" && it.serverId !in scannedKeys }
-        removed.forEach { db.trackDao().delete(it) }
-        if (removed.isNotEmpty()) db.playlistDao().deleteOrphanRows()
+        db.withTransaction {
+            db.trackDao().insertAll(entities)
+            removed.forEach { db.trackDao().delete(it) }
+            if (removed.isNotEmpty()) db.playlistDao().deleteOrphanRows()
+        }
     }
 
     /**
@@ -95,24 +98,14 @@ class LibraryRepository(
             val existing = known[album.key]
             if (existing != null && existing.remoteCreated == album.remoteCreated) continue
 
-            db.albumDao().upsert(
-                AlbumEntity(
-                    id = existing?.id ?: 0,
-                    sourceId = "subsonic",
-                    serverId = album.key,
-                    title = album.title,
-                    artistName = album.artist,
-                    year = album.year,
-                    remoteCreated = album.remoteCreated,
-                )
-            )
-            val tracks = subsonic.albumTracksByKey(album.key)
-            if (tracks.isEmpty()) continue
-            fetchedAlbums++
-            fetchedTracks += tracks.size
+            // Fetch before writing: one bad album must not abort the whole sync,
+            // nor leave an album row with no tracks behind.
+            val tracks = runCatching { subsonic.albumTracksByKey(album.key) }.getOrNull() ?: continue
+            if (tracks.isNotEmpty()) {
+                fetchedAlbums++
+                fetchedTracks += tracks.size
+            }
 
-            // Upsert with the existing row id so play stats and playlist
-            // references survive re-syncs.
             val existingTracks = db.trackDao().byAlbumKey(album.key).associateBy { it.serverId }
             val entities = tracks.map { t ->
                 val prev = existingTracks[t.key]
@@ -136,13 +129,45 @@ class LibraryRepository(
                     starred = t.starred || (prev?.starred ?: false),
                 )
             }
-            db.trackDao().insertAll(entities)
-            val remoteKeys = tracks.map { it.key }.toSet()
-            val removed = existingTracks.values.filter { it.serverId !in remoteKeys }
-            removed.forEach { db.trackDao().delete(it) }
-            if (removed.isNotEmpty()) db.playlistDao().deleteOrphanRows()
+            db.withTransaction {
+                db.albumDao().upsert(
+                    AlbumEntity(
+                        id = existing?.id ?: 0,
+                        sourceId = "subsonic",
+                        serverId = album.key,
+                        title = album.title,
+                        artistName = album.artist,
+                        year = album.year,
+                        remoteCreated = album.remoteCreated,
+                    )
+                )
+                if (entities.isNotEmpty()) db.trackDao().insertAll(entities)
+                val remoteKeys = tracks.map { it.key }.toSet()
+                val removed = existingTracks.values.filter { it.serverId !in remoteKeys }
+                removed.forEach { db.trackDao().delete(it) }
+                if (removed.isNotEmpty()) db.playlistDao().deleteOrphanRows()
+            }
         }
+        pruneDeletedAlbums(known.keys, remoteAlbums.map { it.key }.toSet())
         return SyncResult(fetchedAlbums, fetchedTracks)
+    }
+
+    /** Drops albums (and their tracks, files, download rows) deleted server-side. */
+    private suspend fun pruneDeletedAlbums(knownKeys: Set<String>, remoteKeys: Set<String>) {
+        val gone = knownKeys - remoteKeys
+        if (gone.isEmpty()) return
+        val staleTracks = gone.flatMap { db.trackDao().byAlbumKey(it) }
+        db.withTransaction {
+            staleTracks.forEach { t ->
+                if (t.sourceId == "subsonic" && t.path?.startsWith("file:") == true) {
+                    runCatching { java.io.File(java.net.URI(t.path)).delete() }
+                }
+                db.downloadDao().delete(t.serverId, t.sourceId)
+                db.trackDao().delete(t)
+            }
+            gone.forEach { db.albumDao().deleteByServerId(it) }
+            db.playlistDao().deleteOrphanRows()
+        }
     }
 
     // ---- Playlists ----
