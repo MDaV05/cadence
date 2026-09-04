@@ -37,6 +37,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.AlertDialog
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -50,8 +51,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.widget.Toast
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.cadence.music.AppContainer
 import com.cadence.music.data.db.CustomThemeEntity
@@ -609,6 +614,21 @@ private fun AboutTab(container: AppContainer) {
     val update by container.updateStatus.collectAsStateWithLifecycle(initialValue = Idle)
     var lastTapAvailable by remember { mutableStateOf<Available?>(null) }
     var autoCheck by remember { mutableStateOf(container.prefs.updateAutoCheck) }
+    var diag by remember { mutableStateOf("…") }
+    LaunchedEffect(Unit) {
+        diag = withContext(Dispatchers.IO) {
+            val db = container.database
+            val tracks = db.trackDao().count()
+            val albums = db.albumDao().count()
+            val artists = db.trackDao().artistCount()
+            val bytes = listOf(
+                File(container.filesDir(), "downloads"),
+                File(container.cacheDir(), "stream_cache"),
+                File(container.cacheDir(), "metadata_images"),
+            ).sumOf { dir -> dir.walkTopDown().filter { it.isFile }.sumOf { it.length() } }
+            "$tracks tracks • $albums albums • $artists artists • ${formatBytes(bytes)} on disk"
+        }
+    }
 
     fun statusText(): String = when (val u = update) {
         Idle -> "Never checked"
@@ -704,6 +724,32 @@ private fun AboutTab(container: AppContainer) {
         item { SectionHeader("Open source") }
         listOf("Jetpack Compose / Material 3", "Media3", "Room", "Coil", "WorkManager", "Paging").forEach { lib ->
             item { SettingRow(title = lib) }
+        }
+        item { SectionHeader("Diagnostics") }
+        item {
+            SettingRow(
+                title = "Library",
+                subtitle = diag,
+            )
+        }
+        item {
+            SettingRow(
+                title = "Copy debug info",
+                subtitle = "Version, counts, mode — no passwords or tokens",
+                onClick = {
+                    scope.launch {
+                        val info = withContext(Dispatchers.IO) {
+                            "Cadence v${container.installedVersion()}\n" +
+                                "Library: $diag\n" +
+                                "Mode: ${container.prefs.mode}\n" +
+                                "Server: ${if (container.prefs.server == null) "none" else "set"}"
+                        }
+                        val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        cm.setPrimaryClip(ClipData.newPlainText("Cadence debug info", info))
+                        Toast.makeText(context, "Debug info copied", Toast.LENGTH_SHORT).show()
+                    }
+                },
+            )
         }
         item { Spacer(Modifier.height(32.dp)) }
     }
