@@ -381,12 +381,20 @@ private fun songsTab(
     var ascending by remember { mutableStateOf(container.prefs.songSortAscending) }
     var sortMenu by remember { mutableStateOf(false) }
     val sorted = remember(tracks, sort, ascending) { sortSongs(tracks, sort, ascending) }
+    val songCount by container.library.observeTrackCount()
+        .collectAsStateWithLifecycle(initialValue = 0)
 
     Column(Modifier.fillMaxSize()) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp),
-            horizontalArrangement = Arrangement.End,
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
         ) {
+            Text(
+                "$songCount song" + if (songCount == 1) "" else "s",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             androidx.compose.material3.TextButton(onClick = { sortMenu = true }) {
                 Icon(Icons.Filled.Sort, null, Modifier.size(18.dp))
                 Spacer(Modifier.size(6.dp))
