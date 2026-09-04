@@ -12,6 +12,7 @@ coil = "2.7.0"
 coreKtx = "1.16.0"
 coroutines = "1.10.2"
 work = "2.10.0"
+paging = "3.3.6"
 junit = "4.13.2"
 palette = "1.0.0"
 
@@ -35,6 +36,9 @@ room-compiler = { group = "androidx.room", name = "room-compiler", version.ref =
 coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coil" }
 coroutines-guava = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-guava", version.ref = "coroutines" }
 work-runtime-ktx = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "work" }
+paging-runtime = { group = "androidx.paging", name = "paging-runtime-ktx", version.ref = "paging" }
+paging-compose = { group = "androidx.paging", name = "paging-compose", version.ref = "paging" }
+paging-testing = { group = "androidx.paging", name = "paging-testing", version.ref = "paging" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 palette-ktx = { group = "androidx.palette", name = "palette-ktx", version.ref = "palette" }
 

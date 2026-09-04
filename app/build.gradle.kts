@@ -88,6 +88,9 @@ dependencies {
     implementation(libs.coil.compose)
     implementation(libs.coroutines.guava)
     implementation(libs.work.runtime.ktx)
+    implementation(libs.paging.runtime)
+    implementation(libs.paging.compose)
+    testImplementation(libs.paging.testing)
     implementation(libs.palette.ktx)
 
     testImplementation(libs.junit)
