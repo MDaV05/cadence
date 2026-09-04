@@ -348,10 +348,21 @@ private fun songsTab(
         onPauseOrDispose { }
     }
 
-    // Full-list read for the empty-library gate only; FAB keeps its own
-    // collection in LibraryScreen, scrolling list below uses paging.
-    val tracks by container.library.tracks().collectAsStateWithLifecycle(initialValue = emptyList())
-    if (tracks.isEmpty()) {
+    var sort by remember { mutableStateOf(container.prefs.songSort) }
+    var ascending by remember { mutableStateOf(container.prefs.songSortAscending) }
+    var sortMenu by remember { mutableStateOf(false) }
+    // cachedIn lives INSIDE remember: called inline during composition it would
+    // return a new Flow instance every recomposition, restarting the pager
+    // collection (and its refresh) in a loop — refresh would never settle.
+    val pagingItems = remember(sort, ascending) {
+        container.library.tracksPaged(sort, ascending).cachedIn(scope)
+    }.collectAsLazyPagingItems()
+    val songCount by container.library.observeTrackCount()
+        .collectAsStateWithLifecycle(initialValue = 0)
+
+    // Empty gate on the mode-aware count + pager state (never on the initial 0
+    // while still Loading — the spinner below covers that).
+    if (songCount == 0 && pagingItems.loadState.refresh is LoadState.NotLoading) {
         EmptyLibrary(audioGranted, deniedForever) {
             if (!audioGranted) {
                 if (deniedForever) openAppSettings(context) else audioLauncher.launch(audioPermission())
@@ -359,15 +370,6 @@ private fun songsTab(
         }
         return
     }
-
-    var sort by remember { mutableStateOf(container.prefs.songSort) }
-    var ascending by remember { mutableStateOf(container.prefs.songSortAscending) }
-    var sortMenu by remember { mutableStateOf(false) }
-    val pagingItems = remember(sort, ascending) {
-        container.library.tracksPaged(sort, ascending)
-    }.cachedIn(scope).collectAsLazyPagingItems()
-    val songCount by container.library.observeTrackCount()
-        .collectAsStateWithLifecycle(initialValue = 0)
 
     Column(Modifier.fillMaxSize()) {
         Row(
@@ -438,7 +440,7 @@ private fun songsTab(
                     TrackRow(container, track, onArtistClick) { player.playNow(listOf(track.toTrack())) }
                 }
             }
-            when (val s = pagingItems.loadState.refresh) {
+            when (pagingItems.loadState.refresh) {
                 is LoadState.Loading -> if (pagingItems.itemCount == 0) {
                     item { Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator()
@@ -452,13 +454,6 @@ private fun songsTab(
                     ) }
                 }
                 else -> Unit
-            }
-            if (pagingItems.loadState.refresh is LoadState.NotLoading && pagingItems.itemCount == 0) {
-                item { Text(
-                    "No songs yet — sync your library first.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(32.dp),
-                ) }
             }
         }
     }
