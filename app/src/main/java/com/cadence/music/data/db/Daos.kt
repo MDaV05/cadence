@@ -32,6 +32,9 @@ interface TrackDao {
     @Query("SELECT COUNT(*) FROM tracks")
     suspend fun count(): Int
 
+    @Query("SELECT COUNT(DISTINCT artistName) FROM tracks WHERE artistName != ''")
+    suspend fun artistCount(): Int
+
     @Query("SELECT COUNT(*) FROM tracks")
     fun observeCountAll(): Flow<Int>
 
@@ -172,6 +175,9 @@ interface AlbumDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(album: AlbumEntity)
+
+    @Query("SELECT COUNT(*) FROM albums")
+    suspend fun count(): Int
 
     @Query("DELETE FROM albums WHERE serverId = :serverId")
     suspend fun deleteByServerId(serverId: String)

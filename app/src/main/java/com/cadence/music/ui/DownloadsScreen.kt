@@ -141,7 +141,7 @@ private fun DownloadRow(
     )
 }
 
-private fun formatBytes(bytes: Long): String = when {
+internal fun formatBytes(bytes: Long): String = when {
     bytes >= 1L shl 20 -> "%.1f MB".format(bytes.toFloat() / (1L shl 20))
     bytes >= 1L shl 10 -> "%.0f KB".format(bytes.toFloat() / (1L shl 10))
     else -> "$bytes B"
