@@ -95,4 +95,6 @@ dependencies {
     implementation(libs.palette.ktx)
 
     testImplementation(libs.junit)
+    // JVM real org.json so unit tests can exercise toJson/fromJson (android.jar stubs throw).
+    testImplementation(libs.json)
 }

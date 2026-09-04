@@ -14,6 +14,7 @@ coroutines = "1.10.2"
 work = "2.10.0"
 paging = "3.3.6"
 junit = "4.13.2"
+json = "20240303"
 palette = "1.0.0"
 
 [libraries]
@@ -41,6 +42,7 @@ paging-runtime = { group = "androidx.paging", name = "paging-runtime-ktx", versi
 paging-compose = { group = "androidx.paging", name = "paging-compose", version.ref = "paging" }
 paging-testing = { group = "androidx.paging", name = "paging-testing", version.ref = "paging" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
+json = { group = "org.json", name = "json", version.ref = "json" }
 palette-ktx = { group = "androidx.palette", name = "palette-ktx", version.ref = "palette" }
 
 [plugins]
