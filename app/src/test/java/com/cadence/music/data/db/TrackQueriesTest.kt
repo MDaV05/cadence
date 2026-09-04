@@ -52,16 +52,15 @@ class TrackQueriesTest {
     fun `sources filter appends IN clause with bound args`() {
         val q = TrackQueries.tracksQuery(SongSort.TITLE, true, setOf("local", "subsonic"))
         assertEquals(
-            "SELECT * FROM tracks WHERE sourceId IN (?, ?) ORDER BY title COLLATE NOCASE ASC",
+            "SELECT * FROM tracks WHERE (sourceId IN (?, ?)) ORDER BY title COLLATE NOCASE ASC",
             q.sql,
         )
         assertEquals(2, q.argCount)
 
         val s = TrackQueries.searchQuery("love", setOf("subsonic"))
-        assertTrue(s.sql.contains("AND sourceId IN (?)"))
+        assertTrue(s.sql.contains("AND (sourceId IN (?))"))
         assertEquals(4, s.argCount)
     }
-
     @Test
     fun `null sources produce no source filter`() {
         val q = TrackQueries.tracksQuery(SongSort.TITLE, true, null)
@@ -71,5 +70,23 @@ class TrackQueriesTest {
         val s = TrackQueries.searchQuery("love", null)
         assertTrue(!s.sql.contains("sourceId"))
         assertEquals(3, s.argCount)
+    }
+
+    @Test
+    fun `includeDownloaded adds offline OR clause without new args`() {
+        val q = TrackQueries.tracksQuery(SongSort.TITLE, true, setOf("local"), includeDownloaded = true)
+        assertTrue(q.sql.contains("sourceId IN (?)"))
+        assertTrue(q.sql.contains("OR (sourceId = 'subsonic' AND path LIKE 'file:%')"))
+        assertEquals(1, q.argCount)
+
+        val s = TrackQueries.searchQuery("love", setOf("local"), includeDownloaded = true)
+        assertTrue(s.sql.contains("OR (sourceId = 'subsonic' AND path LIKE 'file:%')"))
+        assertEquals(4, s.argCount)
+    }
+
+    @Test
+    fun `includeDownloaded false keeps plain IN clause`() {
+        val q = TrackQueries.tracksQuery(SongSort.TITLE, true, setOf("local"), includeDownloaded = false)
+        assertTrue(!q.sql.contains("path LIKE"))
     }
 }

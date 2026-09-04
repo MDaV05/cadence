@@ -11,6 +11,7 @@ object TrackQueries {
         sort: SongSort,
         ascending: Boolean,
         sources: Set<String>? = null,
+        includeDownloaded: Boolean = false,
     ): SupportSQLiteQuery {
         val dir = if (ascending) "ASC" else "DESC"
         // Mirrors sortSongs() semantics exactly: NOCASE text, null lastPlayed as 0,
@@ -25,17 +26,23 @@ object TrackQueries {
             SongSort.MOST_PLAYED -> "playCount $dir, COALESCE(lastPlayed, 0) $dir"
         }
         // Sources come ONLY from sourcesFor() (internal constants) — never
-        // interpolate raw strings into SQL; values ride as bound args.
+        // interpolate raw strings into SQL; values ride as bound args. The downloaded
+        // clause uses literals for the same reason (fixed internal strings only).
         if (sources == null) return SimpleSQLiteQuery("SELECT * FROM tracks ORDER BY $order")
         val sorted = sources.sorted()
         val placeholders = sorted.joinToString(", ") { "?" }
+        val downloaded = if (includeDownloaded) " OR (sourceId = 'subsonic' AND path LIKE 'file:%')" else ""
         return SimpleSQLiteQuery(
-            "SELECT * FROM tracks WHERE sourceId IN ($placeholders) ORDER BY $order",
+            "SELECT * FROM tracks WHERE (sourceId IN ($placeholders)$downloaded) ORDER BY $order",
             sorted.toTypedArray(),
         )
     }
 
-    fun searchQuery(raw: String, sources: Set<String>? = null): SupportSQLiteQuery {
+    fun searchQuery(
+        raw: String,
+        sources: Set<String>? = null,
+        includeDownloaded: Boolean = false,
+    ): SupportSQLiteQuery {
         val like = "%${escapeLike(raw)}%"
         val match =
             "title LIKE ? ESCAPE '\\' OR artistName LIKE ? ESCAPE '\\' OR albumName LIKE ? ESCAPE '\\'"
@@ -47,8 +54,9 @@ object TrackQueries {
         }
         val sorted = sources.sorted()
         val placeholders = sorted.joinToString(", ") { "?" }
+        val downloaded = if (includeDownloaded) " OR (sourceId = 'subsonic' AND path LIKE 'file:%')" else ""
         return SimpleSQLiteQuery(
-            "SELECT * FROM tracks WHERE ($match) AND sourceId IN ($placeholders) " +
+            "SELECT * FROM tracks WHERE ($match) AND (sourceId IN ($placeholders)$downloaded) " +
                 "ORDER BY title COLLATE NOCASE",
             arrayOf(like, like, like, *sorted.toTypedArray()),
         )

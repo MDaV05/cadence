@@ -27,6 +27,17 @@ fun sourcesFor(mode: LibraryMode): Set<String>? = when (mode) {
     LibraryMode.HYBRID -> null // null = all sources (future-proof; never enumerate)
 }
 
+/** A server track with a downloaded file belongs to the local set (shows "Downloaded" in UI). */
+fun isDownloaded(sourceId: String, path: String?): Boolean =
+    sourceId == "subsonic" && path?.startsWith("file:") == true
+
+/** Display predicate: downloaded tracks are visible (and shufflable) in local-only mode. */
+fun isIncluded(sourceId: String, path: String?, mode: LibraryMode): Boolean = when (mode) {
+    LibraryMode.HYBRID -> true
+    LibraryMode.API_ONLY -> sourceId == "subsonic"
+    LibraryMode.LOCAL_ONLY -> sourceId == "local" || isDownloaded(sourceId, path)
+}
+
 class LibraryRepository(
     private val db: AppDatabase,
     private val local: LocalSource,
@@ -38,8 +49,7 @@ class LibraryRepository(
     // All scrolling UI must use tracksPaged()/searchPaged().
     fun tracks(): Flow<List<TrackEntity>> =
         combine(db.trackDao().observeAll(), prefs.observeMode()) { list, mode ->
-            val s = sourcesFor(mode)
-            if (s == null) list else list.filter { it.sourceId in s }
+            list.filter { isIncluded(it.sourceId, it.path, mode) }
         }
 
     // Paged reads for big libraries; pageSize 50 ≈ 3 screens, maxSize 300 bounds memory,
@@ -49,48 +59,59 @@ class LibraryRepository(
     fun tracksPaged(sort: SongSort, ascending: Boolean): Flow<PagingData<TrackEntity>> =
         prefs.observeMode().flatMapLatest { mode ->
             Pager(trackPagingConfig) {
-                db.trackDao().tracksPaged(TrackQueries.tracksQuery(sort, ascending, sourcesFor(mode)))
+                db.trackDao().tracksPaged(
+                    TrackQueries.tracksQuery(sort, ascending, sourcesFor(mode), mode == LibraryMode.LOCAL_ONLY)
+                )
             }.flow
         }
 
     fun searchPaged(query: String): Flow<PagingData<TrackEntity>> =
         prefs.observeMode().flatMapLatest { mode ->
             Pager(trackPagingConfig) {
-                db.trackDao().tracksPaged(TrackQueries.searchQuery(query, sourcesFor(mode)))
+                db.trackDao().tracksPaged(
+                    TrackQueries.searchQuery(query, sourcesFor(mode), mode == LibraryMode.LOCAL_ONLY)
+                )
             }.flow
         }
     fun albums(): Flow<List<AlbumEntity>> =
-        combine(db.albumDao().observeAll(), prefs.observeMode()) { list, mode ->
-            val s = sourcesFor(mode)
-            if (s == null) list else list.filter { it.sourceId in s }
+        prefs.observeMode().flatMapLatest { mode ->
+            when (mode) {
+                // A downloaded album stays visible via its tracks' files (albums carry no path).
+                LibraryMode.LOCAL_ONLY -> db.albumDao().observeAlbumsOffline()
+                LibraryMode.API_ONLY -> db.albumDao().observeAlbumsFor(setOf("subsonic"))
+                LibraryMode.HYBRID -> db.albumDao().observeAll()
+            }
         }
     fun artistNames(): Flow<List<String>> =
         prefs.observeMode().flatMapLatest { mode ->
             val s = sourcesFor(mode)
-            if (s == null) db.trackDao().observeArtistNames() else db.trackDao().observeArtistNamesFor(s)
+            if (s == null) db.trackDao().observeArtistNames()
+            else db.trackDao().observeArtistNamesFor(s, mode == LibraryMode.LOCAL_ONLY)
         }
     /** Mode-aware total used for the Library counter; paging-safe (separate COUNT, not itemCount). */
     fun observeTrackCount(): Flow<Int> =
         prefs.observeMode().flatMapLatest { mode ->
             val s = sourcesFor(mode)
-            if (s == null) db.trackDao().observeCountAll() else db.trackDao().observeCountFor(s)
+            if (s == null) db.trackDao().observeCountAll()
+            else db.trackDao().observeCountFor(s, mode == LibraryMode.LOCAL_ONLY)
         }
     fun albumGroups(): Flow<List<com.cadence.music.data.db.AlbumGroup>> =
         prefs.observeMode().flatMapLatest { mode ->
             val s = sourcesFor(mode)
-            if (s == null) db.trackDao().observeAlbumGroups() else db.trackDao().observeAlbumGroupsFor(s)
+            if (s == null) db.trackDao().observeAlbumGroups()
+            else db.trackDao().observeAlbumGroupsFor(s, mode == LibraryMode.LOCAL_ONLY)
         }
 
     suspend fun tracksByArtist(name: String): List<TrackEntity> {
         val list = db.trackDao().byArtist(name)
-        val s = sourcesFor(prefs.mode)
-        return if (s == null) list else list.filter { it.sourceId in s }
+        val mode = prefs.mode
+        return list.filter { isIncluded(it.sourceId, it.path, mode) }
     }
 
     suspend fun tracksByAlbum(name: String): List<TrackEntity> {
         val list = db.trackDao().byAlbum(name)
-        val s = sourcesFor(prefs.mode)
-        return if (s == null) list else list.filter { it.sourceId in s }
+        val mode = prefs.mode
+        return list.filter { isIncluded(it.sourceId, it.path, mode) }
     }
 
     suspend fun syncAll() {
@@ -180,7 +201,8 @@ class LibraryRepository(
                     artistName = t.artist,
                     albumName = t.album,
                     albumKey = t.albumKey,
-                    path = null,
+                    // Preserve the downloaded file: REPLACE would otherwise wipe it on re-sync.
+                    path = prev?.path,
                     durationMs = t.durationMs,
                     trackNumber = 0,
                     replayGainDb = prev?.replayGainDb,
