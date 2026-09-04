@@ -18,7 +18,7 @@ A light, fast, native Android music player for your own library — local files,
 
 ## Quick Start
 
-1. Grab the latest `cadence-<version>-release.apk` from the [releases page](https://github.com/MDaV05/cadence/releases) and install it (Android will confirm the install).
+1. Grab the latest `cadence-<version>-release.apk` from the [releases page](https://github.com/MDaV05/cadence/releases) and install it.
 2. Open the app:
    - **Local music** — grant audio access in Library and you're done.
    - **Server music** — Settings → Server → enter your Subsonic URL, username, and password → Save & sync.
