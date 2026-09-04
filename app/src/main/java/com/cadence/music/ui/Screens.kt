@@ -616,18 +616,20 @@ private fun AboutTab(container: AppContainer) {
     var autoCheck by remember { mutableStateOf(container.prefs.updateAutoCheck) }
     var diag by remember { mutableStateOf("…") }
     LaunchedEffect(Unit) {
-        diag = withContext(Dispatchers.IO) {
-            val db = container.database
-            val tracks = db.trackDao().count()
-            val albums = db.albumDao().count()
-            val artists = db.trackDao().artistCount()
-            val bytes = listOf(
-                File(container.filesDir(), "downloads"),
-                File(container.cacheDir(), "stream_cache"),
-                File(container.cacheDir(), "metadata_images"),
-            ).sumOf { dir -> dir.walkTopDown().filter { it.isFile }.sumOf { it.length() } }
-            "$tracks tracks • $albums albums • $artists artists • ${formatBytes(bytes)} on disk"
-        }
+        diag = runCatching {
+            withContext(Dispatchers.IO) {
+                val db = container.database
+                val tracks = db.trackDao().count()
+                val albums = db.albumDao().count()
+                val artists = db.trackDao().artistCount()
+                val bytes = listOf(
+                    File(container.filesDir(), "downloads"),
+                    File(container.cacheDir(), "stream_cache"),
+                    File(container.cacheDir(), "metadata_images"),
+                ).sumOf { dir -> dir.walkTopDown().filter { it.isFile }.sumOf { it.length() } }
+                "$tracks tracks • $albums albums • $artists artists • ${formatBytes(bytes)} on disk"
+            }
+        }.getOrDefault("Unavailable")
     }
 
     fun statusText(): String = when (val u = update) {
