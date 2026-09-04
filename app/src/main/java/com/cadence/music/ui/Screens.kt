@@ -608,6 +608,7 @@ private fun AboutTab(container: AppContainer) {
     val context = LocalContext.current
     val update by container.updateStatus.collectAsStateWithLifecycle(initialValue = Idle)
     var lastTapAvailable by remember { mutableStateOf<Available?>(null) }
+    var autoCheck by remember { mutableStateOf(container.prefs.updateAutoCheck) }
 
     fun statusText(): String = when (val u = update) {
         Idle -> "Never checked"
@@ -616,6 +617,9 @@ private fun AboutTab(container: AppContainer) {
         is Available -> "${u.tag} available — tap to download"
         is Failed -> "Couldn't check for updates"
     }
+
+    val avail = (update as? Available) ?: lastTapAvailable
+    val pendingInstall = avail?.takeIf { container.installIntent(it.tag) != null }
 
     LazyColumn(Modifier.fillMaxSize()) {
         item { SectionHeader("App") }
@@ -646,14 +650,13 @@ private fun AboutTab(container: AppContainer) {
                 },
             )
         }
-        val avail = (update as? Available) ?: lastTapAvailable
-        if (avail != null && container.installIntent(avail.tag) != null) {
+        if (pendingInstall != null) {
             item {
                 SettingRow(
-                    title = "Install ${avail.tag}",
+                    title = "Install ${pendingInstall.tag}",
                     subtitle = "Download finished — tap to install",
                     onClick = {
-                        container.installIntent(avail.tag)?.let { context.startActivity(it) }
+                        container.installIntent(pendingInstall.tag)?.let { context.startActivity(it) }
                     },
                 )
             }
@@ -663,8 +666,8 @@ private fun AboutTab(container: AppContainer) {
                 title = "Auto-check on launch",
                 trailing = {
                     Switch(
-                        checked = container.prefs.updateAutoCheck,
-                        onCheckedChange = { container.prefs.updateAutoCheck = it },
+                        checked = autoCheck,
+                        onCheckedChange = { autoCheck = it; container.prefs.updateAutoCheck = it },
                     )
                 },
             )
