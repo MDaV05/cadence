@@ -1,6 +1,7 @@
 package com.cadence.music.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -9,10 +10,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -22,17 +23,23 @@ import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.paging.LoadState
+import androidx.paging.cachedIn
+import androidx.paging.compose.collectAsLazyPagingItems
+import androidx.paging.compose.itemKey
 import com.cadence.music.AppContainer
+import kotlinx.coroutines.delay
 
 /**
  * Library search over the synced tracks table. Recent queries live in Prefs
@@ -47,18 +54,19 @@ fun SearchScreen(
 ) {
     val player = container.player
     val focusManager = LocalFocusManager.current
-    val all by container.library.tracks().collectAsStateWithLifecycle(initialValue = emptyList())
+    val scope = rememberCoroutineScope()
     var query by rememberSaveable { mutableStateOf("") }
+    var debounced by rememberSaveable { mutableStateOf("") }
+    LaunchedEffect(query) {
+        delay(300)
+        debounced = query
+    }
     var history by remember { mutableStateOf(container.prefs.searchHistory) }
 
     fun recordQuery(q: String) {
         if (q.isBlank()) return
         history = (listOf(q) + history.filter { !it.equals(q, true) }).take(10)
         container.prefs.searchHistory = history
-    }
-
-    val results = if (query.isBlank()) emptyList() else all.filter {
-        it.title.contains(query, true) || it.artistName.contains(query, true) || it.albumName.contains(query, true)
     }
 
     Scaffold { padding ->
@@ -126,19 +134,45 @@ fun SearchScreen(
                     }
                 }
             } else {
+                // cachedIn lives INSIDE remember: called inline during composition it would
+                // return a new Flow instance every recomposition, restarting the pager
+                // collection (and its refresh) in a loop — refresh would never settle.
+                val pagingItems = remember(debounced) {
+                    container.library.searchPaged(debounced).cachedIn(scope)
+                }.collectAsLazyPagingItems()
                 Text(
-                    "${results.size} result${if (results.size == 1) "" else "s"}",
+                    "${pagingItems.itemCount} result${if (pagingItems.itemCount == 1) "" else "s"}",
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                 )
                 LazyColumn {
-                    items(results, key = { it.id }) { track ->
-                        TrackRow(container, track, onArtistClick) {
-                            recordQuery(query)
-                            focusManager.clearFocus()
-                            player.playNow(listOf(track.toTrack()))
+                    items(
+                        count = pagingItems.itemCount,
+                        key = pagingItems.itemKey { it.id },
+                    ) { i ->
+                        pagingItems[i]?.let { track ->
+                            TrackRow(container, track, onArtistClick) {
+                                recordQuery(query)
+                                focusManager.clearFocus()
+                                player.playNow(listOf(track.toTrack()))
+                            }
                         }
+                    }
+                    when (pagingItems.loadState.refresh) {
+                        is LoadState.Loading -> if (pagingItems.itemCount == 0) {
+                            item { Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator()
+                            } }
+                        }
+                        is LoadState.Error -> if (pagingItems.itemCount == 0) {
+                            item { Text(
+                                "Couldn't load results.",
+                                color = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.padding(32.dp),
+                            ) }
+                        }
+                        else -> Unit
                     }
                 }
             }
