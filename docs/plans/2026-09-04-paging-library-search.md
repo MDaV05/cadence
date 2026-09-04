@@ -515,3 +515,23 @@ Run the Python XML counter used before; expect ≥28 tests (22 existing + 6 new)
 
 1. RECENTLY_PLAYED descending: `cmp.reversed()` puts never-played (`0`) LAST in desc. `COALESCE(lastPlayed,0) DESC` matches exactly. ✓ No question — parity verified against `sortSongs()`.
 2. `maxSize = 300` drops distant pages; scroll jump re-fetches from Room (cheap, indexed `tracks` rowid). Acceptable.
+
+---
+
+## Amendment A — Mode-aware paged queries (added 2026-09-04, after library-mode fix)
+
+Context: `sourcesFor(mode): Set<String>?` (`null` = all) now lives in `LibraryRepository.kt`
+with `Prefs.observeMode(): Flow<LibraryMode>` (callbackFlow). Paged queries must honor the
+active library mode, otherwise single-source modes show cross-mode tracks.
+
+- **A1 (folds into Task 2):** `TrackQueries.tracksQuery(sort, ascending, sources: Set<String>? = null)`
+  and `searchQuery(raw, sources: Set<String>? = null)` append `AND sourceId IN (?, ...)` with
+  bound args when non-null. Sources come ONLY from `sourcesFor()` (internal constants) — never
+  interpolate raw strings into SQL. Task 2 tests gain two cases: sources filter SQL + args, and
+  `null` produces no `WHERE`/`AND sourceId` fragment.
+- **A2 (folds into Task 4):** repository resolves mode reactively —
+  `prefs.observeMode().flatMapLatest { mode -> Pager(trackPagingConfig) { dao.tracksPaged(TrackQueries.tracksQuery(sort, ascending, sourcesFor(mode))) }.flow }`
+  (same shape for `searchPaged`). Signatures unchanged; UI `remember(sort, ascending)` /
+  `remember(debounced)` keys unchanged — mode switches flow through `flatMapLatest` + `cachedIn`
+  with no restart. Needs `import kotlinx.coroutines.flow.flatMapLatest`.
+- **A3 (Task 5/6 checklists):** add "switch library mode in Settings → list and count refresh without restart".
