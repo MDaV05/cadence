@@ -34,7 +34,7 @@ fun isNewerTag(tag: String, installed: String): Boolean {
 }
 
 fun pickApkAsset(assets: List<ReleaseAsset>, tag: String): ReleaseAsset? =
-    assets.firstOrNull { it.name == "cadence-$tag-release.apk" }
+    assets.firstOrNull { it.name == "cadence-$tag-release.apk" && it.url.isNotBlank() }
 
 /** Thin Android shell (HTTP + org.json) — covered by build, not unit tests. */
 suspend fun fetchLatest(): ReleaseInfo? = withContext(Dispatchers.IO) {

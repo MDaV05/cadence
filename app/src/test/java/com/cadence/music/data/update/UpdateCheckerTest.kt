@@ -46,4 +46,13 @@ class UpdateCheckerTest {
     fun `missing asset returns null`() {
         assertEquals(null, pickApkAsset(listOf(ReleaseAsset("notes.txt", "https://example.com/n")), "v1.2.4"))
     }
+
+    @Test
+    fun `blank url asset with matching name is skipped`() {
+        val assets = listOf(
+            ReleaseAsset("cadence-v1.2.4-release.apk", ""),
+            ReleaseAsset("cadence-v1.2.4-release.apk", "https://example.com/r"),
+        )
+        assertEquals("https://example.com/r", pickApkAsset(assets, "v1.2.4")?.url)
+    }
 }
