@@ -2,7 +2,7 @@
 
 A light, fast, native Android music player for your own library — local files, Subsonic servers, or both.
 
-[![GitHub release](https://img.shields.io/github/v/release/MDaV05/cadence)](https://github.com/MDaV05/cadence/releases)
+[![GitHub release](https://img.shields.io/github/v/release/MDaV05/cadence)](https://github.com/MDaV05/cadence/releases) [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 
 ## Features
 
@@ -41,11 +41,11 @@ Tagged builds (`v*`) name themselves from the tag and bump `versionCode` from co
 
 ## Contributing
 
-Issues and pull requests are welcome — [issue tracker](https://github.com/MDaV05/cadence/issues/new). One concern per commit, lowercase conventional messages (`feat:`, `fix:`, `ui:`, `data:`, `chore:`), matching existing history.
+Issues and pull requests are welcome — [issue tracker](https://github.com/MDaV05/cadence/issues/new). One concern per commit, lowercase conventional messages (`feat:`, `fix:`, `ui:`, `data:`, `chore:`), matching existing history. By contributing, you agree your work lands under the project's license below.
 
 ## License
 
-No license file yet — all rights reserved by default until one is added.
+[GNU General Public License v3.0](LICENSE) — free to use, share, and modify; derivatives must stay open under the same terms.
 
 ## Support
 
