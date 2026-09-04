@@ -2,13 +2,18 @@ package com.cadence.music.data
 
 import android.content.ContentUris
 import android.provider.MediaStore
+import androidx.paging.Pager
+import androidx.paging.PagingConfig
+import androidx.paging.PagingData
 import androidx.room.withTransaction
 import com.cadence.music.data.db.AlbumEntity
 import com.cadence.music.data.db.AppDatabase
 import com.cadence.music.data.db.DownloadEntity
 import com.cadence.music.data.db.TrackEntity
+import com.cadence.music.data.db.TrackQueries
 import com.cadence.music.data.prefs.LibraryMode
 import com.cadence.music.data.prefs.Prefs
+import com.cadence.music.data.prefs.Prefs.SongSort
 import com.cadence.music.data.source.LocalSource
 import com.cadence.music.data.source.SubsonicSource
 import kotlinx.coroutines.flow.first
@@ -29,10 +34,30 @@ class LibraryRepository(
     private val prefs: Prefs,
     private val context: android.content.Context,
 ) {
+    // Full-list read kept ONLY for one-shot shuffle-all (Home + Library FAB).
+    // All scrolling UI must use tracksPaged()/searchPaged().
     fun tracks(): Flow<List<TrackEntity>> =
         combine(db.trackDao().observeAll(), prefs.observeMode()) { list, mode ->
             val s = sourcesFor(mode)
             if (s == null) list else list.filter { it.sourceId in s }
+        }
+
+    // Paged reads for big libraries; pageSize 50 ≈ 3 screens, maxSize 300 bounds memory,
+    // no placeholders (counts shift during sync anyway).
+    private val trackPagingConfig = PagingConfig(pageSize = 50, maxSize = 300, enablePlaceholders = false)
+
+    fun tracksPaged(sort: SongSort, ascending: Boolean): Flow<PagingData<TrackEntity>> =
+        prefs.observeMode().flatMapLatest { mode ->
+            Pager(trackPagingConfig) {
+                db.trackDao().tracksPaged(TrackQueries.tracksQuery(sort, ascending, sourcesFor(mode)))
+            }.flow
+        }
+
+    fun searchPaged(query: String): Flow<PagingData<TrackEntity>> =
+        prefs.observeMode().flatMapLatest { mode ->
+            Pager(trackPagingConfig) {
+                db.trackDao().tracksPaged(TrackQueries.searchQuery(query, sourcesFor(mode)))
+            }.flow
         }
     fun albums(): Flow<List<AlbumEntity>> =
         combine(db.albumDao().observeAll(), prefs.observeMode()) { list, mode ->
