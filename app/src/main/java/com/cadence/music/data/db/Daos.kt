@@ -151,6 +151,9 @@ interface AlbumDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(album: AlbumEntity)
+
+    @Query("DELETE FROM albums WHERE serverId = :serverId")
+    suspend fun deleteByServerId(serverId: String)
 }
 
 @Dao

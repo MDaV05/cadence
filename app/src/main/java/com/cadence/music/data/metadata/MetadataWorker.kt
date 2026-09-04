@@ -43,7 +43,9 @@ class MetadataWorker(appContext: Context, params: WorkerParameters) :
     }
 
     private suspend fun fetchMissingLyrics(db: com.cadence.music.data.db.AppDatabase) {
-        val missing = withContext(Dispatchers.IO) { db.lyricsDao().trackIdsMissingLyrics() }
+        // ponytail: bounded per run — completed rows are negative-cached, so the
+        // queue drains across runs instead of blowing the 10-min worker limit.
+        val missing = withContext(Dispatchers.IO) { db.lyricsDao().trackIdsMissingLyrics() }.take(LYRICS_BATCH)
         for (id in missing) {
             if (isStopped) return
             val t = withContext(Dispatchers.IO) { db.trackDao().byId(id) } ?: continue
@@ -63,7 +65,7 @@ class MetadataWorker(appContext: Context, params: WorkerParameters) :
         val names = (
             withContext(Dispatchers.IO) { db.artistInfoDao().missingArtistNames() } +
                 withContext(Dispatchers.IO) { db.artistInfoDao().staleArtistNames(staleBefore) }
-            ).distinct()
+            ).distinct().take(ARTIST_BATCH)
         for (name in names) {
             if (isStopped) return
             val info = runCatching { Wikipedia.artistInfoBlocking(name) }.getOrNull()
@@ -79,7 +81,7 @@ class MetadataWorker(appContext: Context, params: WorkerParameters) :
     private suspend fun prewarmArt(container: com.cadence.music.AppContainer) {
         val context = applicationContext
         val db = container.database
-        val albums = withContext(Dispatchers.IO) { db.albumDao().bySource("subsonic") }
+        val albums = withContext(Dispatchers.IO) { db.albumDao().bySource("subsonic") }.take(ART_BATCH)
         for (album in albums) {
             if (isStopped) return
             val track = withContext(Dispatchers.IO) { db.trackDao().byAlbumKey(album.serverId).firstOrNull() }
@@ -98,6 +100,11 @@ class MetadataWorker(appContext: Context, params: WorkerParameters) :
 
     companion object {
         private const val STALE_AFTER_MS = 30L * 24 * 60 * 60 * 1000
+        // Per-run budgets: ~250ms/item + HTTP keeps each phase inside the worker limit.
+        private const val LYRICS_BATCH = 200
+        private const val ARTIST_BATCH = 100
+        // Art repeats are Coil disk-cache hits; the cap bounds fresh-network time.
+        private const val ART_BATCH = 100
     }
 }
 

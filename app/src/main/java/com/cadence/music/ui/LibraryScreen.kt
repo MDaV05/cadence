@@ -54,7 +54,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.cadence.music.AppContainer
@@ -356,6 +359,15 @@ private fun songsTab(
         }
     }
 
+    // Return-from-Settings grants/denies must be reflected; remembered state goes stale.
+    LifecycleResumeEffect(Unit) {
+        audioGranted = isGranted(context, audioPermission())
+        context.hostActivity()?.let {
+            deniedForever = !audioGranted && permanentlyDenied(it, audioPermission())
+        } ?: run { if (audioGranted) deniedForever = false }
+        onPauseOrDispose { }
+    }
+
     if (tracks.isEmpty()) {
         EmptyLibrary(audioGranted, deniedForever) {
             if (!audioGranted) {
@@ -378,17 +390,22 @@ private fun songsTab(
             androidx.compose.material3.TextButton(onClick = { sortMenu = true }) {
                 Icon(Icons.Filled.Sort, null, Modifier.size(18.dp))
                 Spacer(Modifier.size(6.dp))
+                val sortLabel = when (sort) {
+                    com.cadence.music.data.prefs.Prefs.SongSort.TITLE -> "Title"
+                    com.cadence.music.data.prefs.Prefs.SongSort.ARTIST -> "Artist"
+                    com.cadence.music.data.prefs.Prefs.SongSort.ALBUM -> "Album"
+                    com.cadence.music.data.prefs.Prefs.SongSort.DURATION -> "Duration"
+                    com.cadence.music.data.prefs.Prefs.SongSort.RECENTLY_ADDED -> "Recently added"
+                    com.cadence.music.data.prefs.Prefs.SongSort.RECENTLY_PLAYED -> "Recently played"
+                    com.cadence.music.data.prefs.Prefs.SongSort.MOST_PLAYED -> "Most played"
+                }
                 Text(
-                    when (sort) {
-                        com.cadence.music.data.prefs.Prefs.SongSort.TITLE -> "Title"
-                        com.cadence.music.data.prefs.Prefs.SongSort.ARTIST -> "Artist"
-                        com.cadence.music.data.prefs.Prefs.SongSort.ALBUM -> "Album"
-                        com.cadence.music.data.prefs.Prefs.SongSort.DURATION -> "Duration"
-                        com.cadence.music.data.prefs.Prefs.SongSort.RECENTLY_ADDED -> "Recently added"
-                        com.cadence.music.data.prefs.Prefs.SongSort.RECENTLY_PLAYED -> "Recently played"
-                        com.cadence.music.data.prefs.Prefs.SongSort.MOST_PLAYED -> "Most played"
-                    } + if (ascending) " ↑" else " ↓",
+                    sortLabel + if (ascending) " ↑" else " ↓",
                     style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier.semantics {
+                        contentDescription =
+                            "Sort by $sortLabel, ${if (ascending) "ascending" else "descending"}"
+                    },
                 )
             }
             androidx.compose.material3.DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {

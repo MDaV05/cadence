@@ -65,7 +65,11 @@ fun AppNav() {
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 8.dp, vertical = 4.dp)
-                            .clickable { navController.navigate("nowplaying") { launchSingleTop = true } },
+                            .clickable(
+                                role = androidx.compose.ui.semantics.Role.Button,
+                                onClickLabel = "Open now playing",
+                                onClick = { navController.navigate("nowplaying") { launchSingleTop = true } },
+                            ),
                     ) {
                         Row(
                             modifier = Modifier.padding(start = 12.dp),

@@ -2,6 +2,7 @@ package com.cadence.music.ui
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -18,6 +19,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -40,6 +42,8 @@ fun AlbumScreen(container: AppContainer, albumName: String) {
     val context = androidx.compose.ui.platform.LocalContext.current
     var tracks by remember { mutableStateOf<List<com.cadence.music.data.db.TrackEntity>>(emptyList()) }
     var art by remember { mutableStateOf<String?>(null) }
+    var loading by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf(false) }
 
     fun downloadAll() {
         tracks.filter { it.sourceId == "subsonic" && it.path == null }
@@ -47,12 +51,33 @@ fun AlbumScreen(container: AppContainer, albumName: String) {
     }
 
     LaunchedEffect(albumName) {
-        tracks = container.library.tracksByAlbum(albumName)
-        art = tracks.firstOrNull()?.let { container.artResolver.urlFor(it) }
+        loading = true; error = false
+        try {
+            tracks = container.library.tracksByAlbum(albumName)
+            art = tracks.firstOrNull()?.let { container.artResolver.urlFor(it) }
+        } catch (_: Exception) {
+            error = true
+        } finally {
+            loading = false
+        }
     }
 
     Scaffold { padding ->
-        LazyColumn(modifier = Modifier.fillMaxSize().padding(padding)) {
+        when {
+            loading -> Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
+            }
+            error -> Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+                Text("Couldn't load this album.", color = MaterialTheme.colorScheme.error)
+            }
+            tracks.isEmpty() -> Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+                Text(
+                    "No songs found for this album.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(32.dp),
+                )
+            }
+            else -> LazyColumn(modifier = Modifier.fillMaxSize().padding(padding)) {
             item {
                 Row(
                     Modifier.fillMaxWidth().padding(16.dp),
@@ -106,6 +131,7 @@ fun AlbumScreen(container: AppContainer, albumName: String) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+            }
             }
         }
     }

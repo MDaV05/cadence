@@ -34,12 +34,21 @@ class DownloadWorker(context: Context, params: WorkerParameters) :
             songId, prefsFormat, app.container.prefs.downloadBitrate,
         )
 
-        db.downloadDao().upsert(
-            DownloadEntity(track.serverId, track.sourceId, "running")
-        )
-
         val out = File(applicationContext.filesDir, "downloads").apply { mkdirs() }
             .resolve("${track.serverId.replace(Regex("[^A-Za-z0-9_-]"), "_")}.audio")
+
+        // Read before the "running" upsert below overwrites the row.
+        // A format switch (raw->opus) must not reuse a stale file as done.
+        val prior = db.downloadDao().byTrack(track.sourceId, track.serverId)
+        if (prior?.status == "done" && prior.transcode == prefsFormat && out.exists()) {
+            db.trackDao().setPath(trackId, Uri.fromFile(out).toString())
+            return Result.success()
+        }
+        if (prior != null && prior.transcode != prefsFormat) runCatching { out.delete() }
+
+        db.downloadDao().upsert(
+            DownloadEntity(track.serverId, track.sourceId, "running", transcode = prefsFormat)
+        )
 
         try {
             var done = if (out.exists()) out.length() else 0L
@@ -84,12 +93,12 @@ class DownloadWorker(context: Context, params: WorkerParameters) :
 
             db.trackDao().setPath(trackId, Uri.fromFile(out).toString())
             db.downloadDao().upsert(
-                DownloadEntity(track.serverId, track.sourceId, "done", out.length())
+                DownloadEntity(track.serverId, track.sourceId, "done", out.length(), prefsFormat)
             )
             return Result.success()
         } catch (e: Exception) {
             db.downloadDao().upsert(
-                DownloadEntity(track.serverId, track.sourceId, "failed", updatedAt = System.currentTimeMillis())
+                DownloadEntity(track.serverId, track.sourceId, "failed", updatedAt = System.currentTimeMillis(), transcode = prefsFormat)
             )
             return if (runAttemptCount < 3) Result.retry() else Result.failure()
         }
