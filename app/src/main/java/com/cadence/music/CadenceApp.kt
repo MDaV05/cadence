@@ -7,6 +7,7 @@ import android.os.Build
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.NetworkType
@@ -73,6 +74,7 @@ class CadenceApp : Application(), coil.ImageLoaderFactory {
             .setConstraints(
                 Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
             )
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 10, TimeUnit.SECONDS)
             .build()
         WorkManager.getInstance(this).enqueueUniquePeriodicWork(
             "library-sync", ExistingPeriodicWorkPolicy.KEEP, request,

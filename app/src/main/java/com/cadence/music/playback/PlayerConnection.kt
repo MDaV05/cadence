@@ -158,10 +158,12 @@ class PlayerConnection(
             }
             if (c.currentMediaItem?.mediaId != key) return@launch
             // Scrobble rule: half the track or 4 minutes, whichever comes first.
+            // ponytail: capped by duration so sub-second tracks still count.
             val thresholdMs = minOf(
                 if (durMs > 0) durMs / 2 else SCROBBLE_MAX_MS,
                 SCROBBLE_MAX_MS,
             ).coerceAtLeast(MIN_LISTEN_MS)
+                .coerceAtMost(durMs.takeIf { it > 0 } ?: Long.MAX_VALUE)
             delay(thresholdMs)
             if (c.currentMediaItem?.mediaId != key) return@launch
             listenJob = null

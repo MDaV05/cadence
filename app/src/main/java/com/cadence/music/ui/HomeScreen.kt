@@ -77,12 +77,12 @@ fun HomeScreen(
     val nowTitle by player.state.collectAsStateWithLifecycle()
     LaunchedEffect(nowTitle.title) {
         val dao = container.database.trackDao()
-        withContext(Dispatchers.IO) {
-            recent = dao.recentlyPlayed()
-            most = dao.mostPlayed()
-            added = dao.recentlyAdded()
-            total = dao.count()
-        }
+        // Query off-main, assign on-main: mutating snapshot state from IO misses recomposition.
+        val r = withContext(Dispatchers.IO) { dao.recentlyPlayed() }
+        val m = withContext(Dispatchers.IO) { dao.mostPlayed() }
+        val a = withContext(Dispatchers.IO) { dao.recentlyAdded() }
+        val t = withContext(Dispatchers.IO) { dao.count() }
+        recent = r; most = m; added = a; total = t
     }
 
     Scaffold { padding ->

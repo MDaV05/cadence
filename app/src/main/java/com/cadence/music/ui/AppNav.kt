@@ -65,7 +65,7 @@ fun AppNav() {
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 8.dp, vertical = 4.dp)
-                            .clickable { navController.navigate("nowplaying") },
+                            .clickable { navController.navigate("nowplaying") { launchSingleTop = true } },
                     ) {
                         Row(
                             modifier = Modifier.padding(start = 12.dp),
@@ -103,31 +103,31 @@ fun AppNav() {
                     NavigationBar {
                     NavigationBarItem(
                         selected = current == "home",
-                        onClick = { navController.navigate("home") { launchSingleTop = true } },
+                        onClick = { navController.navigate("home") { launchSingleTop = true; popUpTo(navController.graph.startDestinationId) { saveState = true }; restoreState = true } },
                         icon = { Icon(if (current == "home") Icons.Filled.Home else Icons.Outlined.Home, null) },
                         label = { Text("Home") },
                     )
                     NavigationBarItem(
                         selected = current == "library",
-                        onClick = { navController.navigate("library") { launchSingleTop = true } },
+                        onClick = { navController.navigate("library") { launchSingleTop = true; popUpTo(navController.graph.startDestinationId) { saveState = true }; restoreState = true } },
                         icon = { Icon(if (current == "library") Icons.Filled.LibraryMusic else Icons.Outlined.LibraryMusic, null) },
                         label = { Text("Library") },
                     )
                     NavigationBarItem(
                         selected = current == "playlists",
-                        onClick = { navController.navigate("playlists") { launchSingleTop = true } },
+                        onClick = { navController.navigate("playlists") { launchSingleTop = true; popUpTo(navController.graph.startDestinationId) { saveState = true }; restoreState = true } },
                         icon = { Icon(if (current == "playlists") Icons.AutoMirrored.Filled.QueueMusic else Icons.AutoMirrored.Outlined.QueueMusic, null) },
                         label = { Text("Playlists") },
                     )
                     NavigationBarItem(
                         selected = current == "search",
-                        onClick = { navController.navigate("search") { launchSingleTop = true } },
+                        onClick = { navController.navigate("search") { launchSingleTop = true; popUpTo(navController.graph.startDestinationId) { saveState = true }; restoreState = true } },
                         icon = { Icon(if (current == "search") Icons.Filled.Search else Icons.Outlined.Search, null) },
                         label = { Text("Search") },
                     )
                     NavigationBarItem(
                         selected = current == "settings",
-                        onClick = { navController.navigate("settings") { launchSingleTop = true } },
+                        onClick = { navController.navigate("settings") { launchSingleTop = true; popUpTo(navController.graph.startDestinationId) { saveState = true }; restoreState = true } },
                         icon = { Icon(if (current == "settings") Icons.Filled.Settings else Icons.Outlined.Settings, null) },
                         label = { Text("Settings") },
                     )
@@ -148,13 +148,13 @@ fun AppNav() {
             }, onAlbumClick = { name ->
                 navController.navigate("album/${Uri.encode(name)}")
             }, onOpenLibrary = {
-                navController.navigate("library") { launchSingleTop = true }
+                navController.navigate("library") { launchSingleTop = true; popUpTo(navController.graph.startDestinationId) { saveState = true }; restoreState = true }
             }, onOpenPlaylists = {
-                navController.navigate("playlists") { launchSingleTop = true }
+                navController.navigate("playlists") { launchSingleTop = true; popUpTo(navController.graph.startDestinationId) { saveState = true }; restoreState = true }
             }, onOpenSearch = {
-                navController.navigate("search") { launchSingleTop = true }
+                navController.navigate("search") { launchSingleTop = true; popUpTo(navController.graph.startDestinationId) { saveState = true }; restoreState = true }
             }, onOpenDownloads = {
-                navController.navigate("downloads") { launchSingleTop = true }
+                navController.navigate("downloads") { launchSingleTop = true; popUpTo(navController.graph.startDestinationId) { saveState = true }; restoreState = true }
             }) }
             composable("library") { LibraryScreen(container, onArtistClick = { name ->
                 navController.navigate("artist/${Uri.encode(name)}")
