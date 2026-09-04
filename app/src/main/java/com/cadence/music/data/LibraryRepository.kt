@@ -64,7 +64,11 @@ class LibraryRepository(
             val s = sourcesFor(mode)
             if (s == null) list else list.filter { it.sourceId in s }
         }
-    fun artistNames(): Flow<List<String>> = db.trackDao().observeArtistNames()
+    fun artistNames(): Flow<List<String>> =
+        prefs.observeMode().flatMapLatest { mode ->
+            val s = sourcesFor(mode)
+            if (s == null) db.trackDao().observeArtistNames() else db.trackDao().observeArtistNamesFor(s)
+        }
     /** Mode-aware total used for the Library counter; paging-safe (separate COUNT, not itemCount). */
     fun observeTrackCount(): Flow<Int> =
         prefs.observeMode().flatMapLatest { mode ->
@@ -72,7 +76,10 @@ class LibraryRepository(
             if (s == null) db.trackDao().observeCountAll() else db.trackDao().observeCountFor(s)
         }
     fun albumGroups(): Flow<List<com.cadence.music.data.db.AlbumGroup>> =
-        db.trackDao().observeAlbumGroups()
+        prefs.observeMode().flatMapLatest { mode ->
+            val s = sourcesFor(mode)
+            if (s == null) db.trackDao().observeAlbumGroups() else db.trackDao().observeAlbumGroupsFor(s)
+        }
 
     suspend fun tracksByArtist(name: String): List<TrackEntity> {
         val list = db.trackDao().byArtist(name)
