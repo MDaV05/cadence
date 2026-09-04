@@ -668,7 +668,10 @@ private fun AboutTab(container: AppContainer) {
                         lastTapAvailable = u
                         if (enqueuedTag != u.tag) {
                             enqueuedTag = u.tag
-                            runCatching { container.downloadUpdate(u.tag, u.assetUrl) }
+                            runCatching { container.downloadUpdate(u.tag, u.assetUrl) }.onFailure {
+                                enqueuedTag = null
+                                Toast.makeText(context, "Couldn't start download", Toast.LENGTH_SHORT).show()
+                            }
                         }
                     } else {
                         enqueuedTag = null
