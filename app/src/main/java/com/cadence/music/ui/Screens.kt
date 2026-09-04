@@ -613,6 +613,7 @@ private fun AboutTab(container: AppContainer) {
     val context = LocalContext.current
     val update by container.updateStatus.collectAsStateWithLifecycle(initialValue = Idle)
     var lastTapAvailable by remember { mutableStateOf<Available?>(null) }
+    var enqueuedTag by remember { mutableStateOf<String?>(null) }
     var autoCheck by remember { mutableStateOf(container.prefs.updateAutoCheck) }
     var diag by remember { mutableStateOf("…") }
     LaunchedEffect(Unit) {
@@ -657,7 +658,7 @@ private fun AboutTab(container: AppContainer) {
                 subtitle = statusText(),
                 trailing = {
                     if (update is Checking) CircularProgressIndicator(Modifier.size(24.dp))
-                    else TextButton(onClick = { scope.launch { container.refreshUpdateStatus() } }) {
+                    else TextButton(onClick = { enqueuedTag = null; scope.launch { container.refreshUpdateStatus() } }) {
                         Text("Check now")
                     }
                 },
@@ -665,8 +666,12 @@ private fun AboutTab(container: AppContainer) {
                     val u = update
                     if (u is Available) {
                         lastTapAvailable = u
-                        container.downloadUpdate(u.tag, u.assetUrl)
+                        if (enqueuedTag != u.tag) {
+                            enqueuedTag = u.tag
+                            runCatching { container.downloadUpdate(u.tag, u.assetUrl) }
+                        }
                     } else {
+                        enqueuedTag = null
                         scope.launch { container.refreshUpdateStatus() }
                     }
                 },
