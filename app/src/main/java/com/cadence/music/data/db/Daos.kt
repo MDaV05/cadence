@@ -1,18 +1,24 @@
 package com.cadence.music.data.db
 
+import androidx.paging.PagingSource
 import androidx.room.Dao
 import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.RawQuery
 import androidx.room.Transaction
 import androidx.room.Upsert
+import androidx.sqlite.db.SupportSQLiteQuery
 import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface TrackDao {
     @Query("SELECT * FROM tracks ORDER BY title")
     fun observeAll(): Flow<List<TrackEntity>>
+
+    @RawQuery(observedEntities = [TrackEntity::class])
+    fun tracksPaged(query: SupportSQLiteQuery): PagingSource<Int, TrackEntity>
 
     @Query("SELECT * FROM tracks WHERE id = :id")
     suspend fun byId(id: Long): TrackEntity?
