@@ -22,17 +22,23 @@ class PlexSource(private val entry: ServerEntry, private val deviceId: String) :
     fun thumbUrl(thumb: String): String =
         "${base()}/photo/:/transcode?url=${java.net.URLEncoder.encode(thumb, "UTF-8").replace("%2F", "/")}&X-Plex-Token=${token()}"
 
-    fun coverArtUrl(albumKey: String): String =
-        thumbUrl((cachedThumb(albumKey.removePrefix("plex:")) ?: ""))
+    suspend fun coverArtUrl(albumKey: String): String? =
+        metadataFor(albumKey.removePrefix("plex:"))?.optString("thumb", null)?.let { thumbUrl(it) }
 
     fun downloadUrl(songId: String): String {
         val ratingKey = songId.removePrefix("plex:")
         // Direct play: downloads are the same direct-play Part URL.
-        return partUrl(cachedPart(ratingKey) ?: "/library/metadata/$ratingKey/download")
+        return partUrl("/library/metadata/$ratingKey/download")
     }
 
-    override suspend fun streamUrl(track: Track): String? =
-        track.streamUrl ?: cachedPart(track.key.removePrefix("plex:"))?.let { partUrl(it) }
+    override suspend fun streamUrl(track: Track): String? {
+        track.streamUrl?.let { return it }
+        // Stateless: every instance is fresh, so resolve the Part live.
+        val partKey = metadataFor(track.key.removePrefix("plex:"))
+            ?.optJSONArray("Media")?.optJSONObject(0)
+            ?.optJSONArray("Part")?.optJSONObject(0)?.optString("key", null)
+        return partKey?.let { partUrl(it) }
+    }
 
     // scan(): no-op (library sync uses listAlbums+albumTracksByKey, same rationale as Task 2).
     override suspend fun scan(): List<Track> = emptyList()
@@ -62,8 +68,6 @@ class PlexSource(private val entry: ServerEntry, private val deviceId: String) :
                     val a = items.getJSONObject(i)
                     val ratingKey = a.optString("ratingKey", "")
                     if (ratingKey.isBlank()) continue
-                    val thumb = a.optString("thumb", null)
-                    thumbCache[ratingKey] = thumb
                     out += Album(
                         key = "plex:$ratingKey",
                         sourceId = id,
@@ -89,7 +93,6 @@ class PlexSource(private val entry: ServerEntry, private val deviceId: String) :
             // Direct play: pick the first audio Part; transcode decision deferred (v1).
             val partKey = m.optJSONArray("Media")?.optJSONObject(0)
                 ?.optJSONArray("Part")?.optJSONObject(0)?.optString("key", null)
-            if (partKey != null) partCache[ratingKey] = partKey
             val parentKey = m.optString("parentRatingKey", albumRatingKey)
             Track(
                 key = "plex:$ratingKey",
@@ -127,7 +130,6 @@ class PlexSource(private val entry: ServerEntry, private val deviceId: String) :
                 val ratingKey = m.optString("ratingKey", null) ?: continue
                 val partKey = m.optJSONArray("Media")?.optJSONObject(0)
                     ?.optJSONArray("Part")?.optJSONObject(0)?.optString("key", null)
-                if (partKey != null) partCache[ratingKey] = partKey
                 out += Track(
                     key = "plex:$ratingKey",
                     sourceId = id,
@@ -152,6 +154,11 @@ class PlexSource(private val entry: ServerEntry, private val deviceId: String) :
     // override always offered.
     // NOTE: setStarred intentionally absent — Plex starring unsupported v1;
     // repository never routes stars to plex (Task 4).
+    // Stateless: streamUrl/coverArtUrl resolve live via metadataFor (no caches).
+    private suspend fun metadataFor(ratingKey: String): org.json.JSONObject? =
+        get("library/metadata/$ratingKey")
+            ?.optJSONObject("MediaContainer")?.optJSONArray("Metadata")?.optJSONObject(0)
+
     protected suspend fun get(path: String): org.json.JSONObject? =
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             runCatching {
@@ -172,9 +179,4 @@ class PlexSource(private val entry: ServerEntry, private val deviceId: String) :
                 }
             }.getOrNull()
         }
-
-    private val thumbCache = HashMap<String, String?>() // ratingKey → thumb path (memory only)
-    private val partCache = HashMap<String, String?>() // ratingKey → Part key (memory only)
-    private fun cachedThumb(ratingKey: String): String? = thumbCache[ratingKey]
-    private fun cachedPart(ratingKey: String): String? = partCache[ratingKey]
 }

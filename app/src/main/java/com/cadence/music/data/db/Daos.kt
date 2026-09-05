@@ -38,11 +38,8 @@ interface TrackDao {
     @Query("SELECT COUNT(*) FROM tracks")
     fun observeCountAll(): Flow<Int>
 
-    @Query(
-        "SELECT COUNT(*) FROM tracks WHERE sourceId IN (:sources) " +
-            "OR (:includeDownloaded AND sourceId != 'local' AND path LIKE 'file:%')"
-    )
-    fun observeCountFor(sources: Set<String>, includeDownloaded: Boolean = false): Flow<Int>
+    @RawQuery(observedEntities = [TrackEntity::class])
+    fun observeCountFor(query: SupportSQLiteQuery): Flow<Int>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(tracks: List<TrackEntity>)
@@ -62,11 +59,8 @@ interface TrackDao {
     @Query("SELECT DISTINCT artistName FROM tracks WHERE artistName != '' ORDER BY artistName")
     fun observeArtistNames(): Flow<List<String>>
 
-    @Query(
-        "SELECT DISTINCT artistName FROM tracks WHERE artistName != '' AND (sourceId IN (:sources) " +
-            "OR (:includeDownloaded AND sourceId != 'local' AND path LIKE 'file:%')) ORDER BY artistName"
-    )
-    fun observeArtistNamesFor(sources: Set<String>, includeDownloaded: Boolean = false): Flow<List<String>>
+    @RawQuery(observedEntities = [TrackEntity::class])
+    fun observeArtistNamesFor(query: SupportSQLiteQuery): Flow<List<String>>
 
     @Query("SELECT * FROM tracks WHERE artistName = :name ORDER BY albumName, trackNumber")
     suspend fun byArtist(name: String): List<TrackEntity>
@@ -80,13 +74,8 @@ interface TrackDao {
     )
     fun observeAlbumGroups(): Flow<List<AlbumGroup>>
 
-    @Query(
-        "SELECT albumName AS name, MIN(artistName) AS artistName, COUNT(*) AS trackCount " +
-            "FROM tracks WHERE albumName != '' AND (sourceId IN (:sources) " +
-            "OR (:includeDownloaded AND sourceId != 'local' AND path LIKE 'file:%')) " +
-            "GROUP BY albumName ORDER BY name COLLATE NOCASE"
-    )
-    fun observeAlbumGroupsFor(sources: Set<String>, includeDownloaded: Boolean = false): Flow<List<AlbumGroup>>
+    @RawQuery(observedEntities = [TrackEntity::class])
+    fun observeAlbumGroupsFor(query: SupportSQLiteQuery): Flow<List<AlbumGroup>>
 
     @Query("SELECT * FROM tracks WHERE playCount > 0 ORDER BY playCount DESC, lastPlayed DESC LIMIT 10")
     suspend fun mostPlayed(): List<TrackEntity>
@@ -172,8 +161,8 @@ interface AlbumDao {
     @Query("SELECT * FROM albums ORDER BY year DESC, title")
     fun observeAll(): Flow<List<AlbumEntity>>
 
-    @Query("SELECT * FROM albums WHERE sourceId IN (:sources) ORDER BY year DESC, title")
-    fun observeAlbumsFor(sources: Set<String>): Flow<List<AlbumEntity>>
+    @RawQuery(observedEntities = [AlbumEntity::class])
+    fun observeAlbumsFor(query: SupportSQLiteQuery): Flow<List<AlbumEntity>>
 
     /** Local albums plus server albums with at least one downloaded track. */
     @Query(
