@@ -28,6 +28,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.map
 
 fun sourcesFor(mode: LibraryMode): Set<String>? = when (mode) {
@@ -225,12 +226,23 @@ class LibraryRepository(
         return list.filter { isIncluded(it.sourceId, it.path, mode) && (active.isEmpty() || isEntryActive(it.sourceId, it.serverId, active)) }
     }
 
+    /** Per-entry sync failures (entryId → message); cleared on success. */
+    val lastSyncError = MutableStateFlow<Map<String, String>>(emptyMap())
+
     suspend fun syncAll() {
         // Local part honors mode as today (LOCAL_ONLY/HYBRID sync local files).
         if (prefs.mode != LibraryMode.API_ONLY) syncLocal()
         for (entry in prefs.servers.filter { it.active }) {
             // One bad server must not abort the rest (same isolation as per-album handling).
-            runCatching { syncServerEntry(entry) }.getOrDefault(SyncResult(0, 0))
+            try {
+                syncServerEntry(entry)
+                if (lastSyncError.value.containsKey(entry.id)) {
+                    lastSyncError.value = lastSyncError.value - entry.id
+                }
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                lastSyncError.value = lastSyncError.value + (entry.id to (e.message ?: "Sync failed"))
+            }
         }
         pruneUnknownEntries()
     }
@@ -331,7 +343,7 @@ class LibraryRepository(
         var fetchedAlbums = 0
         var fetchedTracks = 0
         for (album in remoteAlbums) {
-            val nsAlbumKey = "${entry.id}:${album.key}"
+            val nsAlbumKey = namespacedKey(entry.id, album.key)
             val existing = known[nsAlbumKey]
             if (existing != null && existing.remoteCreated == album.remoteCreated) continue
 
@@ -352,7 +364,7 @@ class LibraryRepository(
 
             val existingTracks = db.trackDao().byAlbumKey(nsAlbumKey).associateBy { it.serverId }
             val entities = tracks.map { t ->
-                val nsKey = "${entry.id}:${t.key}"
+                val nsKey = namespacedKey(entry.id, t.key)
                 val prev = existingTracks[nsKey]
                 TrackEntity(
                     id = prev?.id ?: 0,
@@ -361,7 +373,7 @@ class LibraryRepository(
                     title = t.title,
                     artistName = t.artist,
                     albumName = t.album,
-                    albumKey = t.albumKey?.let { "${entry.id}:$it" },
+                    albumKey = t.albumKey?.let { namespacedKey(entry.id, it) },
                     // Preserve the downloaded file: REPLACE would otherwise wipe it on re-sync.
                     path = prev?.path,
                     durationMs = t.durationMs,
@@ -388,13 +400,13 @@ class LibraryRepository(
                     )
                 )
                 if (entities.isNotEmpty()) db.trackDao().insertAll(entities)
-                val remoteKeys = tracks.map { "${entry.id}:${it.key}" }.toSet()
+                val remoteKeys = tracks.map { namespacedKey(entry.id, it.key) }.toSet()
                 val removed = existingTracks.values.filter { it.serverId !in remoteKeys }
                 removed.forEach { db.trackDao().delete(it) }
                 if (removed.isNotEmpty()) db.playlistDao().deleteOrphanRows()
             }
         }
-        pruneDeletedAlbums(entry, known.keys, remoteAlbums.map { "${entry.id}:${it.key}" }.toSet())
+        pruneDeletedAlbums(entry, known.keys, remoteAlbums.map { namespacedKey(entry.id, it.key) }.toSet())
         return SyncResult(fetchedAlbums, fetchedTracks)
     }
 
