@@ -47,7 +47,7 @@ class PlexSource(private val entry: ServerEntry, private val deviceId: String) :
         val musicKeys = (0 until sections.length()).mapNotNull { i ->
             val d = sections.getJSONObject(i)
             val type = d.optString("type", "")
-            if (type == "music" || type == "artist") d.getString("key") else null
+            if (type == "music" || type == "artist") d.optString("key", "").ifBlank { null } else null
         }
         val out = mutableListOf<Album>()
         for (section in musicKeys) {
@@ -60,7 +60,8 @@ class PlexSource(private val entry: ServerEntry, private val deviceId: String) :
                 if (items.length() == 0) break
                 for (i in 0 until items.length()) {
                     val a = items.getJSONObject(i)
-                    val ratingKey = a.getString("ratingKey")
+                    val ratingKey = a.optString("ratingKey", "")
+                    if (ratingKey.isBlank()) continue
                     val thumb = a.optString("thumb", null)
                     thumbCache[ratingKey] = thumb
                     out += Album(
