@@ -34,7 +34,7 @@ object TrackQueries {
         if (sources == null) {
             if (activeSql.isEmpty()) return SimpleSQLiteQuery("SELECT * FROM tracks ORDER BY $order")
             return SimpleSQLiteQuery(
-                "SELECT * FROM tracks WHERE $activeSql ORDER BY $order",
+                "SELECT * FROM tracks WHERE ${activeSql.removePrefix(" AND ")} ORDER BY $order",
                 activeArgs,
             )
         }
@@ -87,13 +87,23 @@ object TrackQueries {
         val (activeSql, activeArgs) = activeFilter(activePrefixes)
         if (sources == null) {
             if (activeSql.isEmpty()) return SimpleSQLiteQuery("SELECT COUNT(*) FROM tracks")
-            return SimpleSQLiteQuery("SELECT COUNT(*) FROM tracks WHERE $activeSql", activeArgs)
+            return SimpleSQLiteQuery(
+                "SELECT COUNT(*) FROM tracks WHERE ${activeSql.removePrefix(" AND ")}",
+                activeArgs,
+            )
         }
         val sorted = sources.sorted()
         val placeholders = sorted.joinToString(", ") { "?" }
+        val entryFilter = "sourceId IN ($placeholders) " +
+            "OR (? AND sourceId != 'local' AND path LIKE 'file:%')"
+        if (activeSql.isEmpty()) {
+            return SimpleSQLiteQuery(
+                "SELECT COUNT(*) FROM tracks WHERE $entryFilter",
+                arrayOf(*sorted.toTypedArray(), if (includeDownloaded) 1 else 0),
+            )
+        }
         return SimpleSQLiteQuery(
-            "SELECT COUNT(*) FROM tracks WHERE sourceId IN ($placeholders) " +
-                "OR (? AND sourceId != 'local' AND path LIKE 'file:%')$activeSql",
+            "SELECT COUNT(*) FROM tracks WHERE ($entryFilter)$activeSql",
             arrayOf(*sorted.toTypedArray(), if (includeDownloaded) 1 else 0, *activeArgs),
         )
     }
