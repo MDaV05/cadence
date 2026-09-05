@@ -28,11 +28,9 @@ class DownloadWorker(context: Context, params: WorkerParameters) :
         val db = app.container.database
         val track = db.trackDao().byId(trackId) ?: return Result.failure()
 
-        val songId = track.serverId.removePrefix("sub:")
         val prefsFormat = app.container.prefs.downloadFormat
-        val url = app.container.library.subsonic.downloadUrl(
-            songId, prefsFormat, app.container.prefs.downloadBitrate,
-        )
+        val url = app.container.library.downloadUrlFor(track.serverId, prefsFormat, app.container.prefs.downloadBitrate)
+            ?: return Result.failure()
 
         val out = File(applicationContext.filesDir, "downloads").apply { mkdirs() }
             .resolve("${track.serverId.replace(Regex("[^A-Za-z0-9_-]"), "_")}.audio")

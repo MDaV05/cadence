@@ -155,9 +155,16 @@ class PlaybackService : MediaLibraryService() {
         val items = mutableListOf<MediaItem>()
         var startIndex = 0
         for (i in 0 until ids.length()) {
-            val entity = withContext(Dispatchers.IO) {
-                runCatching { container.database.trackDao().byServerId(ids.optString(i)) }.getOrNull()
-            } ?: continue
+            val rawId = ids.optString(i)
+            var entity = withContext(Dispatchers.IO) {
+                runCatching { container.database.trackDao().byServerId(rawId) }.getOrNull()
+            }
+            if (entity == null && !rawId.contains(':')) {
+                entity = withContext(Dispatchers.IO) {
+                    runCatching { container.database.trackDao().byServerId("primary:$rawId") }.getOrNull()
+                }
+            }
+            entity ?: continue
             if (i == savedIndex) startIndex = items.size
             entity.toMediaItem(container)?.let { items.add(it) }
         }
@@ -174,7 +181,7 @@ class PlaybackService : MediaLibraryService() {
                 key = serverId, sourceId = sourceId, title = title, artist = artistName,
                 album = albumName, albumKey = albumKey, durationMs = durationMs, localPath = null,
             )
-            container.subsonic.streamUrl(track)
+            container.library.streamUrlFor(track)
         }.getOrNull() ?: return null
         return MediaItem.Builder()
             .setUri(uri)
