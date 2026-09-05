@@ -31,6 +31,9 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -44,15 +47,27 @@ import com.cadence.music.AppContainer
 import com.cadence.music.CadenceApp
 
 @Composable
-fun AppNav(initialSettingsTab: Int = 0) {
+fun AppNav(initialSettingsTab: Int = 0, onDeepLinkConsumed: () -> Unit = {}) {
     val navController = rememberNavController()
     val backStack by navController.currentBackStackEntryAsState()
     val current = backStack?.destination?.route
 
     val container = (LocalContext.current.applicationContext as CadenceApp).container
 
+    // Sticky: MainActivity clears its flag via onDeepLinkConsumed, which would flip
+    // SettingsScreen's keyed remember(initialTab) back to 0 mid-visit. Holding the
+    // applied tab here keeps the in-flight visit stable; it is dropped on leaving
+    // Settings so later manual visits open the default tab.
+    var deepLinkTab by remember { mutableIntStateOf(0) }
     androidx.compose.runtime.LaunchedEffect(initialSettingsTab) {
-        if (initialSettingsTab != 0) navController.navigate("settings") { launchSingleTop = true }
+        if (initialSettingsTab != 0) {
+            deepLinkTab = initialSettingsTab
+            navController.navigate("settings") { launchSingleTop = true }
+            onDeepLinkConsumed()
+        }
+    }
+    androidx.compose.runtime.LaunchedEffect(current) {
+        if (current != null && current != "settings") deepLinkTab = 0
     }
 
     Scaffold(
@@ -181,7 +196,7 @@ fun AppNav(initialSettingsTab: Int = 0) {
             composable("search") { SearchScreen(container, onArtistClick = { name ->
                 navController.navigate("artist/${Uri.encode(name)}")
             }) }
-            composable("settings") { SettingsScreen(container, initialTab = initialSettingsTab, onOpenEqualizer = {
+            composable("settings") { SettingsScreen(container, initialTab = deepLinkTab, onOpenEqualizer = {
                 navController.navigate("equalizer")
             }, onOpenDownloads = {
                 navController.navigate("downloads")
