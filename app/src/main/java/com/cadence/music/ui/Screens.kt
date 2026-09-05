@@ -33,7 +33,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
+import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.AlertDialog
@@ -141,7 +141,7 @@ fun SettingsScreen(
             style = MaterialTheme.typography.headlineMedium,
             modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 4.dp),
         )
-        TabRow(selectedTabIndex = tab) {
+        ScrollableTabRow(selectedTabIndex = tab, edgePadding = 16.dp) {
             tabs.forEachIndexed { i, label ->
                 Tab(selected = tab == i, onClick = { tab = i }, text = { Text(label) })
             }
@@ -1081,10 +1081,6 @@ private fun AboutTab(container: AppContainer) {
                     context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/MDaV05/cadence/issues/new")))
                 },
             )
-        }
-        item { SectionHeader("Open source") }
-        listOf("Jetpack Compose / Material 3", "Media3", "Room", "Coil", "WorkManager", "Paging").forEach { lib ->
-            item { SettingRow(title = lib) }
         }
         item { SectionHeader("Support Cadence") }
         listOf(
