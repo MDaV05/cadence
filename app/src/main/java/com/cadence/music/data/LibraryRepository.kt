@@ -31,18 +31,18 @@ import kotlinx.coroutines.flow.flatMapLatest
 
 fun sourcesFor(mode: LibraryMode): Set<String>? = when (mode) {
     LibraryMode.LOCAL_ONLY -> setOf("local")
-    LibraryMode.API_ONLY -> setOf("subsonic")
+    LibraryMode.API_ONLY -> setOf("subsonic", "jellyfin", "emby", "plex")
     LibraryMode.HYBRID -> null // null = all sources (future-proof; never enumerate)
 }
 
 /** A server track with a downloaded file belongs to the local set (shows "Downloaded" in UI). */
 fun isDownloaded(sourceId: String, path: String?): Boolean =
-    sourceId == "subsonic" && path?.startsWith("file:") == true
+    sourceId != "local" && path?.startsWith("file:") == true
 
 /** Display predicate: downloaded tracks are visible (and shufflable) in local-only mode. */
 fun isIncluded(sourceId: String, path: String?, mode: LibraryMode): Boolean = when (mode) {
     LibraryMode.HYBRID -> true
-    LibraryMode.API_ONLY -> sourceId == "subsonic"
+    LibraryMode.API_ONLY -> sourceId != "local"
     LibraryMode.LOCAL_ONLY -> sourceId == "local" || isDownloaded(sourceId, path)
 }
 
@@ -52,8 +52,6 @@ fun remoteKey(serverId: String, entry: ServerEntry): String = serverId.removePre
 class LibraryRepository(
     private val db: AppDatabase,
     private val local: LocalSource,
-    // Retained for the Task 5 ServerTab rewrite (library.subsonic.ping()); Task 5 deletes.
-    val subsonic: SubsonicSource,
     private val prefs: Prefs,
     private val context: android.content.Context,
 ) {
@@ -158,7 +156,9 @@ class LibraryRepository(
             when (mode) {
                 // A downloaded album stays visible via its tracks' files (albums carry no path).
                 LibraryMode.LOCAL_ONLY -> db.albumDao().observeAlbumsOffline()
-                LibraryMode.API_ONLY -> db.albumDao().observeAlbumsFor(setOf("subsonic"))
+                LibraryMode.API_ONLY -> db.albumDao().observeAlbumsFor(
+                    setOf("subsonic", "jellyfin", "emby", "plex")
+                )
                 LibraryMode.HYBRID -> db.albumDao().observeAll()
             }
         }
@@ -243,13 +243,6 @@ class LibraryRepository(
             removed.forEach { db.trackDao().delete(it) }
             if (removed.isNotEmpty()) db.playlistDao().deleteOrphanRows()
         }
-    }
-
-    /** Deprecated: Task 5 rewrites callers (ServerTab save&sync); delete there. */
-    @Deprecated("Task 5 rewrites callers")
-    suspend fun syncServer(): SyncResult {
-        val first = prefs.servers.firstOrNull { it.active } ?: return SyncResult(0, 0)
-        return syncServerEntry(first)
     }
 
     /**
@@ -438,7 +431,7 @@ class LibraryRepository(
     suspend fun deleteDownload(download: DownloadEntity, track: TrackEntity?) {
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             val fileUri = track?.path
-            if (track != null && track.sourceId == "subsonic" && fileUri != null && fileUri.startsWith("file:")) {
+            if (track != null && track.sourceId != "local" && fileUri != null && fileUri.startsWith("file:")) {
                 runCatching {
                     java.io.File(java.net.URI(fileUri)).delete()
                     db.trackDao().setPath(track.id, null)

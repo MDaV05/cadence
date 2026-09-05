@@ -205,7 +205,7 @@ fun TrackRow(
                     onDismiss = { showNew = false },
                 )
             } else {
-                if (track.sourceId == "subsonic" && track.path == null) {
+                if (track.sourceId != "local" && track.path == null) {
                     ListItem(
                         headlineContent = { Text("Download for offline") },
                         leadingContent = { Icon(Icons.Filled.Download, null) },

@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
@@ -62,6 +63,11 @@ import com.cadence.music.AppContainer
 import com.cadence.music.data.db.CustomThemeEntity
 import com.cadence.music.data.prefs.LibraryMode
 import com.cadence.music.data.prefs.Prefs
+import com.cadence.music.data.prefs.ServerEntry
+import com.cadence.music.data.prefs.ServerType
+import com.cadence.music.data.source.EmbySource
+import com.cadence.music.data.source.JellyfinSource
+import com.cadence.music.data.source.PlexPin
 import com.cadence.music.data.update.UpdateStatus.Available
 import com.cadence.music.data.update.UpdateStatus.Checking
 import com.cadence.music.data.update.UpdateStatus.Failed
@@ -352,69 +358,67 @@ private fun NewThemeDialog(container: AppContainer, onDismiss: () -> Unit) {
 @Composable
 private fun ServerTab(container: AppContainer) {
     val scope = rememberCoroutineScope()
-    val server = container.prefs.server
-    var url by remember { mutableStateOf(server?.url ?: "") }
-    var user by remember { mutableStateOf(server?.user ?: "") }
-    var pass by remember { mutableStateOf(server?.password ?: "") }
+    var servers by remember { mutableStateOf(container.prefs.servers) }
+    var showPicker by remember { mutableStateOf(false) }
+    var addType by remember { mutableStateOf<ServerType?>(null) }
+    var confirmDelete by remember { mutableStateOf<ServerEntry?>(null) }
     var mode by remember { mutableStateOf(container.prefs.mode) }
     var status by remember { mutableStateOf("") }
-    var busy by remember { mutableStateOf(false) }
+
+    fun refresh() { servers = container.prefs.servers }
 
     LazyColumn(Modifier.fillMaxSize()) {
-        item { SectionHeader("Server") }
+        item { SectionHeader("Servers") }
+        items(servers, key = { it.id }) { e ->
+            SettingRow(
+                title = "${e.type.name.lowercase().replaceFirstChar { it.uppercase() }} • ${e.url}",
+                subtitle = if (e.active) "Active" else "Disabled",
+                trailing = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Switch(
+                            checked = e.active,
+                            onCheckedChange = { checked ->
+                                container.prefs.servers = container.prefs.servers.map {
+                                    if (it.id == e.id) it.copy(active = checked) else it
+                                }
+                                refresh()
+                                scope.launch { runCatching { container.library.syncAll() } }
+                            },
+                        )
+                        IconButton(onClick = { confirmDelete = e }) {
+                            Icon(Icons.Filled.Delete, "Remove server")
+                        }
+                    }
+                },
+            )
+        }
         item {
-            Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedTextField(url, { url = it }, label = { Text("URL") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-                OutlinedTextField(user, { user = it }, label = { Text("Username") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-                OutlinedTextField(
-                    pass, { pass = it },
-                    label = { Text("Password") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
-                )
-            }
+            TextButton(
+                onClick = { showPicker = true },
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            ) { Text("+ Add server") }
         }
         item {
             Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
-                        enabled = !busy && url.isNotBlank() && user.isNotBlank(),
                         onClick = {
-                            busy = true; status = ""
-                            scope.launch {
-                                try {
-                                    // Scheme-less URLs ("192.168.1.106:4533") would fail silently on Android 9+.
-                                    val normalized = url.trim().let { if (it.contains("://")) it else "http://$it" }
-                                    container.prefs.server =
-                                        com.cadence.music.data.prefs.ServerConfig(normalized, user, pass)
-                                    status = if (container.library.subsonic.ping()) {
-                                        val n = container.library.syncServer()
-                                        "Connected — synced ${n.tracksFetched} tracks (${n.albumsFetched} albums)"
-                                    } else "Connection failed"
-                                } catch (e: Exception) {
-                                    status = "Error: ${e.message}"
-                                }
-                                busy = false
-                            }
-                        },
-                    ) { Text("Save & sync") }
-
-                    Button(
-                        enabled = !busy,
-                        onClick = {
-                            busy = true; status = ""
+                            status = ""
                             scope.launch {
                                 runCatching { container.library.syncAll() }
                                     .onSuccess { status = "Library synced" }
                                     .onFailure { status = "Sync error: ${it.message}" }
-                                busy = false
                             }
                         },
                     ) { Text("Rescan") }
                 }
-                if (busy) CircularProgressIndicator(Modifier.padding(top = 8.dp))
-                if (status.isNotEmpty()) Text(status, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp))
+                if (status.isNotEmpty()) {
+                    Text(
+                        status,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                }
             }
         }
 
@@ -435,7 +439,333 @@ private fun ServerTab(container: AppContainer) {
         }
         item { Spacer(Modifier.height(32.dp)) }
     }
+
+    if (showPicker) {
+        ServerTypePicker(
+            onPick = { t -> showPicker = false; addType = t },
+            onDismiss = { showPicker = false },
+        )
+    }
+    addType?.let { t ->
+        AddServerSheet(
+            container = container,
+            type = t,
+            onSaved = { refresh() },
+            onDismiss = { addType = null },
+        )
+    }
+    confirmDelete?.let { e ->
+        AlertDialog(
+            onDismissRequest = { confirmDelete = null },
+            title = { Text("Remove server?") },
+            text = { Text("Its tracks leave the library on the next sync. Downloads are kept.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    container.prefs.servers = container.prefs.servers.filter { it.id != e.id }
+                    confirmDelete = null
+                    refresh()
+                    scope.launch { runCatching { container.library.syncAll() } }
+                }) { Text("Remove") }
+            },
+            dismissButton = { TextButton(onClick = { confirmDelete = null }) { Text("Cancel") } },
+        )
+    }
 }
+
+@Composable
+private fun ServerTypePicker(onPick: (ServerType) -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Add server") },
+        text = {
+            Column {
+                listOf(
+                    ServerType.SUBSONIC to "Navidrome, Gonic…",
+                    ServerType.JELLYFIN to "Jellyfin servers",
+                    ServerType.EMBY to "Emby servers",
+                    ServerType.PLEX to "plex.tv login",
+                ).forEach { (t, subtitle) ->
+                    SettingRow(
+                        title = t.name.lowercase().replaceFirstChar { it.uppercase() },
+                        subtitle = subtitle,
+                        onClick = { onPick(t) },
+                    )
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+private fun normalizeServerUrl(raw: String): String =
+    raw.trim().let { if (it.contains("://")) it else "http://$it" }
+
+private fun newServerId(): String = java.util.UUID.randomUUID().toString().take(8)
+
+@Composable
+private fun AddServerSheet(
+    container: AppContainer,
+    type: ServerType,
+    onSaved: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val deviceId = remember {
+        runCatching {
+            android.provider.Settings.Secure.getString(
+                context.contentResolver, android.provider.Settings.Secure.ANDROID_ID,
+            )
+        }.getOrNull() ?: "cadence"
+    }
+    var url by remember { mutableStateOf("") }
+    var user by remember { mutableStateOf("") }
+    var pass by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf("") }
+    // Plex PIN flow state: 0 = connect button, 1 = waiting for approval, 2 = pick server.
+    var plexPhase by remember { mutableStateOf(0) }
+    var plexCode by remember { mutableStateOf("") }
+    var plexToken by remember { mutableStateOf<String?>(null) }
+    var plexOptions by remember { mutableStateOf(emptyList<Pair<String, String>>()) }
+    var plexPolling by remember { mutableStateOf(false) }
+
+    fun saveAndSync(entry: ServerEntry) {
+        container.prefs.servers = container.prefs.servers + entry
+        onSaved()
+        onDismiss()
+        scope.launch { runCatching { container.library.syncAll() } }
+    }
+
+    suspend fun saveTyped() {
+        // Scheme-less URLs ("192.168.1.106:4533") would fail silently on Android 9+.
+        val candidate = ServerEntry(
+            id = newServerId(), type = type,
+            url = normalizeServerUrl(url), user = user.trim(), password = pass,
+        )
+        when (type) {
+            ServerType.SUBSONIC -> {
+                if (container.library.pingEntry(candidate)) saveAndSync(candidate)
+                else error = "Couldn't connect — check URL and credentials."
+            }
+            ServerType.JELLYFIN, ServerType.EMBY -> {
+                val authed = if (type == ServerType.JELLYFIN) {
+                    JellyfinSource(candidate, deviceId).authenticate()
+                } else {
+                    EmbySource(candidate, deviceId).authenticate()
+                }
+                if (authed != null) {
+                    saveAndSync(candidate.copy(token = authed.first, userId = authed.second, password = null))
+                } else {
+                    error = "Couldn't connect — check URL and credentials."
+                }
+            }
+            ServerType.PLEX -> error = "Couldn't connect — check URL and credentials."
+        }
+    }
+
+    fun startPlexPin() {
+        busy = true; error = ""; plexPolling = true
+        scope.launch {
+            val pin = plexRequestPin(deviceId)
+            if (pin == null || !plexPolling) {
+                busy = false
+                if (plexPolling) error = "Couldn't connect — check URL and credentials."
+                return@launch
+            }
+            plexCode = pin.second; plexPhase = 1
+            val deadline = System.currentTimeMillis() + 120_000
+            var token: String? = null
+            while (System.currentTimeMillis() < deadline && plexPolling) {
+                kotlinx.coroutines.delay(2_000)
+                token = plexPollToken(pin.first, deviceId)
+                if (token != null) break
+            }
+            busy = false
+            if (!plexPolling) return@launch
+            if (token == null) {
+                error = "Timed out waiting for approval — try again."
+                return@launch
+            }
+            plexToken = token
+            plexOptions = plexFetchServers(token, deviceId)
+            if (plexOptions.isNotEmpty()) url = plexOptions.first().second
+            plexPhase = 2
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = { plexPolling = false; onDismiss() },
+        title = { Text(type.name.lowercase().replaceFirstChar { it.uppercase() }) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (type == ServerType.PLEX) {
+                    when (plexPhase) {
+                        0 -> Text("Sign in with your Plex account, then pick this device's server.")
+                        1 -> {
+                            Text("Enter this code at plex.tv/link:")
+                            Text(plexCode, style = MaterialTheme.typography.headlineMedium)
+                            TextButton(onClick = {
+                                context.startActivity(
+                                    Intent(Intent.ACTION_VIEW, Uri.parse("https://plex.tv/link")),
+                                )
+                            }) { Text("Approve at plex.tv/link") }
+                        }
+                        else -> {
+                            plexOptions.forEach { (name, uri) ->
+                                SettingRow(
+                                    title = name,
+                                    subtitle = uri,
+                                    trailing = {
+                                        RadioButton(selected = url == uri, onClick = { url = uri })
+                                    },
+                                    onClick = { url = uri },
+                                )
+                            }
+                            OutlinedTextField(
+                                url, { url = it },
+                                label = { Text("Server URL") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                            )
+                        }
+                    }
+                } else {
+                    OutlinedTextField(url, { url = it }, label = { Text("URL") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                    OutlinedTextField(user, { user = it }, label = { Text("Username") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                    OutlinedTextField(
+                        pass, { pass = it },
+                        label = { Text("Password") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                    )
+                }
+                if (busy) CircularProgressIndicator()
+                if (error.isNotEmpty()) {
+                    Text(error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                }
+            }
+        },
+        confirmButton = {
+            when {
+                type != ServerType.PLEX -> TextButton(
+                    enabled = !busy && url.isNotBlank() && user.isNotBlank(),
+                    onClick = {
+                        busy = true; error = ""
+                        scope.launch {
+                            try { saveTyped() } catch (e: Exception) {
+                                error = "Error: ${e.message}"
+                            }
+                            busy = false
+                        }
+                    },
+                ) { Text("Save & test") }
+                plexPhase == 0 -> TextButton(enabled = !busy, onClick = { startPlexPin() }) {
+                    Text("Connect with Plex")
+                }
+                plexPhase == 2 -> TextButton(
+                    enabled = !busy && url.isNotBlank() && plexToken != null,
+                    onClick = {
+                        val name = plexOptions.firstOrNull { it.second == url }?.first ?: "Plex"
+                        val candidate = ServerEntry(
+                            id = newServerId(), type = ServerType.PLEX,
+                            url = normalizeServerUrl(url), user = name, token = plexToken,
+                        )
+                        busy = true; error = ""
+                        scope.launch {
+                            if (container.library.pingEntry(candidate)) saveAndSync(candidate)
+                            else error = "Couldn't connect — check URL and credentials."
+                            busy = false
+                        }
+                    },
+                ) { Text("Save & test") }
+                else -> TextButton(enabled = !busy, onClick = { plexPolling = false; onDismiss() }) {
+                    Text("Cancel")
+                }
+            }
+        },
+        dismissButton = { TextButton(onClick = { plexPolling = false; onDismiss() }) { Text("Close") } },
+    )
+}
+
+/** plex.tv client headers shared by the PIN flow. */
+private fun plexClientHeaders(deviceId: String): Map<String, String> = mapOf(
+    "X-Plex-Product" to "Cadence",
+    "X-Plex-Client-Identifier" to deviceId,
+    "X-Plex-Version" to "0.2.0",
+    "Accept" to "application/json",
+)
+
+private suspend fun plexRequestPin(deviceId: String): Pair<Long, String>? =
+    withContext(Dispatchers.IO) {
+        runCatching {
+            val conn = java.net.URL(PlexPin.requestUrl()).openConnection() as java.net.HttpURLConnection
+            conn.connectTimeout = 10_000
+            conn.readTimeout = 30_000
+            conn.requestMethod = "POST"
+            plexClientHeaders(deviceId).forEach { (k, v) -> conn.setRequestProperty(k, v) }
+            try {
+                if (conn.responseCode !in 200..299) return@runCatching null
+                val obj = org.json.JSONObject(conn.inputStream.bufferedReader().readText())
+                obj.getLong("id") to obj.getString("code")
+            } finally {
+                conn.disconnect()
+            }
+        }.getOrNull()
+    }
+
+/** One PIN poll; returns the auth token once the user approved, else null. */
+private suspend fun plexPollToken(pinId: Long, deviceId: String): String? =
+    withContext(Dispatchers.IO) {
+        runCatching {
+            val conn = java.net.URL(PlexPin.pollUrl(pinId)).openConnection() as java.net.HttpURLConnection
+            conn.connectTimeout = 10_000
+            conn.readTimeout = 30_000
+            plexClientHeaders(deviceId).forEach { (k, v) -> conn.setRequestProperty(k, v) }
+            try {
+                if (conn.responseCode !in 200..299) return@runCatching null
+                org.json.JSONObject(conn.inputStream.bufferedReader().readText())
+                    .optString("authToken", null)?.ifBlank { null }
+            } finally {
+                conn.disconnect()
+            }
+        }.getOrNull()
+    }
+
+/** Server list as (name, preferred uri); manual URL override always offered by the caller. */
+private suspend fun plexFetchServers(token: String, deviceId: String): List<Pair<String, String>> =
+    withContext(Dispatchers.IO) {
+        runCatching {
+            val conn = java.net.URL(PlexPin.resourcesUrl()).openConnection() as java.net.HttpURLConnection
+            conn.connectTimeout = 10_000
+            conn.readTimeout = 30_000
+            plexClientHeaders(deviceId).forEach { (k, v) -> conn.setRequestProperty(k, v) }
+            conn.setRequestProperty("X-Plex-Token", token)
+            try {
+                if (conn.responseCode !in 200..299) return@runCatching emptyList()
+                val arr = org.json.JSONArray(conn.inputStream.bufferedReader().readText())
+                (0 until arr.length()).mapNotNull { i ->
+                    val r = arr.optJSONObject(i) ?: return@mapNotNull null
+                    val name = r.optString("name", "Plex server")
+                    val conns = r.optJSONArray("connections") ?: return@mapNotNull null
+                    var fallback: String? = null
+                    var preferred: String? = null
+                    for (j in 0 until conns.length()) {
+                        val c = conns.optJSONObject(j) ?: continue
+                        val uri = c.optString("uri", "").trimEnd('/')
+                        if (uri.isBlank()) continue
+                        fallback = fallback ?: uri
+                        if (!c.optBoolean("relay", false)) preferred = preferred ?: uri
+                    }
+                    (preferred ?: fallback)?.let { name to it }
+                }
+            } finally {
+                conn.disconnect()
+            }
+        }.getOrDefault(emptyList())
+    }
 
 // ---- Storage ----
 
@@ -735,6 +1065,23 @@ private fun AboutTab(container: AppContainer) {
         listOf("Jetpack Compose / Material 3", "Media3", "Room", "Coil", "WorkManager", "Paging").forEach { lib ->
             item { SettingRow(title = lib) }
         }
+        item { SectionHeader("Support Cadence") }
+        listOf(
+            "BNB Smart Chain" to "0x57Ff65FB4b773F15BdfB507086facd28d8D7d049",
+            "Bitcoin" to "bc1qeepyu36y79jw0nn4fyrkhppuppsdgvc6svxu36",
+        ).forEach { (label, address) ->
+            item {
+                SettingRow(
+                    title = label,
+                    subtitle = address,
+                    onClick = {
+                        val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        cm.setPrimaryClip(ClipData.newPlainText("Cadence $label address", address))
+                        Toast.makeText(context, "$label address copied", Toast.LENGTH_SHORT).show()
+                    },
+                )
+            }
+        }
         item { SectionHeader("Diagnostics") }
         item {
             SettingRow(
@@ -752,7 +1099,7 @@ private fun AboutTab(container: AppContainer) {
                             "Cadence v${container.installedVersion()}\n" +
                                 "Database: $diag\n" +
                                 "Mode: ${container.prefs.mode}\n" +
-                                "Server: ${if (container.prefs.server == null) "none" else "set"}"
+                                "Servers: ${container.prefs.servers.count { it.active }} active of ${container.prefs.servers.size}"
                         }
                         val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                         cm.setPrimaryClip(ClipData.newPlainText("Cadence debug info", info))

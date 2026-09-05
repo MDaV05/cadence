@@ -26,7 +26,6 @@ import com.cadence.music.data.metadata.ArtResolver
 import com.cadence.music.data.metadata.MetadataSync
 import com.cadence.music.data.prefs.Prefs
 import com.cadence.music.data.source.LocalSource
-import com.cadence.music.data.source.SubsonicSource
 import com.cadence.music.data.update.UpdateStatus
 import com.cadence.music.data.update.UpdateStatus.Available
 import com.cadence.music.data.update.UpdateStatus.Checking
@@ -60,7 +59,7 @@ class CadenceApp : Application(), coil.ImageLoaderFactory {
         schedulePeriodicSync()
         MetadataSync.schedule(this)
         // Catch up on library changes since the app was last open.
-        if (hasAudioPermission() || container.prefs.server != null) {
+        if (hasAudioPermission() || container.prefs.servers.any { it.active }) {
             appScope.launch {
                 runCatching { container.library.syncAll() }
                 runCatching { container.flushPendingScrobbles() }
@@ -109,7 +108,7 @@ class AppContainer(app: Application) {
     val prefs = Prefs(app)
     val database: AppDatabase = AppDatabase.build(app)
     val localSource = LocalSource(app)
-    val library = LibraryRepository(database, localSource, SubsonicSource { prefs.server }, prefs, app)
+    val library = LibraryRepository(database, localSource, prefs, app)
     val artResolver = ArtResolver(library)
     val player = PlayerConnection(
         app,

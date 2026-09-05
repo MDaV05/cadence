@@ -76,11 +76,11 @@ class TrackQueriesTest {
     fun `includeDownloaded adds offline OR clause without new args`() {
         val q = TrackQueries.tracksQuery(SongSort.TITLE, true, setOf("local"), includeDownloaded = true)
         assertTrue(q.sql.contains("sourceId IN (?)"))
-        assertTrue(q.sql.contains("OR (sourceId = 'subsonic' AND path LIKE 'file:%')"))
+        assertTrue(q.sql.contains("OR (sourceId != 'local' AND path LIKE 'file:%')"))
         assertEquals(1, q.argCount)
 
         val s = TrackQueries.searchQuery("love", setOf("local"), includeDownloaded = true)
-        assertTrue(s.sql.contains("OR (sourceId = 'subsonic' AND path LIKE 'file:%')"))
+        assertTrue(s.sql.contains("OR (sourceId != 'local' AND path LIKE 'file:%')"))
         assertEquals(4, s.argCount)
     }
 
