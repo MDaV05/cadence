@@ -109,13 +109,12 @@ class AppContainer(app: Application) {
     val prefs = Prefs(app)
     val database: AppDatabase = AppDatabase.build(app)
     val localSource = LocalSource(app)
-    val subsonic = SubsonicSource { prefs.server }
-    val library = LibraryRepository(database, localSource, subsonic, prefs, app)
-    val artResolver = ArtResolver(subsonic)
+    val library = LibraryRepository(database, localSource, SubsonicSource { prefs.server }, prefs, app)
+    val artResolver = ArtResolver(library)
     val player = PlayerConnection(
         app,
         submitScrobble = { artist, title, album -> submitScrobble(artist, title, album) },
-        resolveStreamUrl = { track -> subsonic.streamUrl(track) },
+        resolveStreamUrl = { track -> library.streamUrlFor(track) },
         onTrackPlayed = { mediaId ->
             database.trackDao().byServerId(mediaId)?.let { database.trackDao().recordPlay(it.id) }
         },

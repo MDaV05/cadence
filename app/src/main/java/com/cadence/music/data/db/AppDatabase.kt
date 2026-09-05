@@ -19,7 +19,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         PendingScrobbleEntity::class,
         CustomThemeEntity::class,
     ],
-    version = 8,
+    version = 9,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -112,9 +112,19 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Single-server legacy rows gain the "primary" entry prefix; local rows untouched.
+                db.execSQL("UPDATE tracks SET serverId = 'primary:' || serverId WHERE sourceId != 'local'")
+                db.execSQL("UPDATE tracks SET albumKey = 'primary:' || albumKey WHERE albumKey IS NOT NULL AND sourceId != 'local'")
+                db.execSQL("UPDATE albums SET serverId = 'primary:' || serverId")
+                db.execSQL("UPDATE downloads SET trackServerId = 'primary:' || trackServerId")
+            }
+        }
+
         fun build(context: Context): AppDatabase =
             Room.databaseBuilder(context, AppDatabase::class.java, "cadence.db")
-                .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
+                .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
                 // No paths exist from schema 1/2 (they predate exported schemas);
                 // those dev-only installs rebuild destructively instead of crashing.
                 // ponytail: downgrade-only — a missing v9 migration must crash loudly, never wipe.

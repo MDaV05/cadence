@@ -14,8 +14,16 @@ import com.cadence.music.data.db.TrackQueries
 import com.cadence.music.data.prefs.LibraryMode
 import com.cadence.music.data.prefs.Prefs
 import com.cadence.music.data.prefs.Prefs.SongSort
+import com.cadence.music.data.prefs.ServerConfig
+import com.cadence.music.data.prefs.ServerEntry
+import com.cadence.music.data.prefs.ServerType
+import com.cadence.music.data.source.EmbyLikeSource
+import com.cadence.music.data.source.EmbySource
+import com.cadence.music.data.source.JellyfinSource
 import com.cadence.music.data.source.LocalSource
+import com.cadence.music.data.source.PlexSource
 import com.cadence.music.data.source.SubsonicSource
+import com.cadence.music.data.source.Track
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
@@ -38,13 +46,85 @@ fun isIncluded(sourceId: String, path: String?, mode: LibraryMode): Boolean = wh
     LibraryMode.LOCAL_ONLY -> sourceId == "local" || isDownloaded(sourceId, path)
 }
 
+/** Strips the "<entryId>:" prefix, recovering the source-level remote key. */
+fun remoteKey(serverId: String, entry: ServerEntry): String = serverId.removePrefix("${entry.id}:")
+
 class LibraryRepository(
     private val db: AppDatabase,
     private val local: LocalSource,
+    // Retained for the Task 5 ServerTab rewrite (library.subsonic.ping()); Task 5 deletes.
     val subsonic: SubsonicSource,
     private val prefs: Prefs,
     private val context: android.content.Context,
 ) {
+    private val deviceId: String by lazy {
+        android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID) ?: "cadence"
+    }
+
+    private fun sourceFor(entry: ServerEntry): Any = when (entry.type) {
+        ServerType.SUBSONIC -> SubsonicSource { ServerConfig(entry.url, entry.user, entry.password ?: "") }
+        ServerType.JELLYFIN -> JellyfinSource(entry, deviceId)
+        ServerType.EMBY -> EmbySource(entry, deviceId)
+        ServerType.PLEX -> PlexSource(entry, deviceId)
+    }
+
+    /** Entry id is the segment before the FIRST ':'; null when absent or unknown. */
+    fun entryForServerId(serverId: String): ServerEntry? {
+        val id = serverId.substringBefore(':').takeIf { serverId.contains(':') } ?: return null
+        return prefs.entry(id)
+    }
+
+    /** Fresh authenticated stream URL for any namespaced in-memory Track. */
+    suspend fun streamUrlFor(track: Track): String? {
+        track.localPath?.let { return it }
+        val entry = entryForServerId(track.key) ?: return null
+        val remote = remoteKey(track.key, entry)
+        return when (val s = sourceFor(entry)) {
+            is SubsonicSource -> s.streamUrl(track.copy(key = remote))
+            is EmbyLikeSource -> s.streamUrl(track.copy(key = remote))
+            is PlexSource -> s.streamUrl(track.copy(key = remote))
+            else -> null
+        }
+    }
+
+    fun downloadUrlFor(serverId: String, format: String, bitrate: Int): String? {
+        val entry = entryForServerId(serverId) ?: return null
+        val remote = remoteKey(serverId, entry)
+        return when (val s = sourceFor(entry)) {
+            is SubsonicSource -> s.downloadUrl(remote.removePrefix("sub:"), format, bitrate)
+            is EmbyLikeSource -> s.downloadUrl(remote)
+            is PlexSource -> s.downloadUrl(remote)
+            else -> null
+        }
+    }
+
+    fun coverArtFor(albumKey: String): String? {
+        val entry = entryForServerId(albumKey) ?: return null
+        val remote = remoteKey(albumKey, entry)
+        return when (val s = sourceFor(entry)) {
+            is SubsonicSource -> s.coverArtUrl(remote)
+            is EmbyLikeSource -> s.coverArtUrl(remote)
+            is PlexSource -> s.coverArtUrl(remote)
+            else -> null
+        }
+    }
+
+    suspend fun setStarredFor(serverId: String, starred: Boolean) {
+        val entry = entryForServerId(serverId) ?: return
+        val remote = remoteKey(serverId, entry)
+        when (val s = sourceFor(entry)) {
+            is SubsonicSource -> runCatching { s.setStarred(remote.removePrefix("sub:"), starred) }
+            is EmbyLikeSource -> runCatching { s.setStarred(remote, starred) }
+            // Plex: starring unsupported v1 — silent no-op.
+        }
+    }
+
+    suspend fun pingEntry(entry: ServerEntry): Boolean = when (val s = sourceFor(entry)) {
+        is SubsonicSource -> s.ping()
+        is EmbyLikeSource -> s.ping()
+        is PlexSource -> s.ping()
+        else -> false
+    }
     // Full-list read kept ONLY for one-shot shuffle-all (Home + Library FAB).
     // All scrolling UI must use tracksPaged()/searchPaged().
     fun tracks(): Flow<List<TrackEntity>> =
@@ -115,13 +195,11 @@ class LibraryRepository(
     }
 
     suspend fun syncAll() {
-        when (prefs.mode) {
-            LibraryMode.LOCAL_ONLY -> syncLocal()
-            LibraryMode.API_ONLY -> syncServer()
-            LibraryMode.HYBRID -> {
-                syncLocal()
-                syncServer()
-            }
+        // Local part honors mode as today (LOCAL_ONLY/HYBRID sync local files).
+        if (prefs.mode != LibraryMode.API_ONLY) syncLocal()
+        for (entry in prefs.servers.filter { it.active }) {
+            // One bad server must not abort the rest (same isolation as per-album handling).
+            runCatching { syncServerEntry(entry) }.getOrDefault(SyncResult(0, 0))
         }
     }
 
@@ -167,40 +245,70 @@ class LibraryRepository(
         }
     }
 
+    /** Deprecated: Task 5 rewrites callers (ServerTab save&sync); delete there. */
+    @Deprecated("Task 5 rewrites callers")
+    suspend fun syncServer(): SyncResult {
+        val first = prefs.servers.firstOrNull { it.active } ?: return SyncResult(0, 0)
+        return syncServerEntry(first)
+    }
+
     /**
      * Incremental: lists albums (cheap, 1 request per 500) and only re-fetches
      * tracks for albums that are new or whose server-side `created` changed.
      */
-    suspend fun syncServer(): SyncResult {
-        if (prefs.server == null) return SyncResult(0, 0)
-        val remoteAlbums = subsonic.listAlbums()
-        val known = db.albumDao().bySource("subsonic").associateBy { it.serverId }
+    suspend fun syncServerEntry(entry: ServerEntry): SyncResult {
+        if (prefs.servers.none { it.active }) return SyncResult(0, 0)
+        val sourceId = when (entry.type) {
+            ServerType.SUBSONIC -> "subsonic"
+            ServerType.JELLYFIN -> "jellyfin"
+            ServerType.EMBY -> "emby"
+            ServerType.PLEX -> "plex"
+        }
+        val s = sourceFor(entry)
+        val remoteAlbums = when (s) {
+            is SubsonicSource -> s.listAlbums()
+            is EmbyLikeSource -> s.listAlbums()
+            is PlexSource -> s.listAlbums()
+            else -> emptyList()
+        }
+        val known = db.albumDao().bySource(sourceId)
+            .filter { it.serverId.startsWith("${entry.id}:") }
+            .associateBy { it.serverId }
 
         var fetchedAlbums = 0
         var fetchedTracks = 0
         for (album in remoteAlbums) {
-            val existing = known[album.key]
+            val nsAlbumKey = "${entry.id}:${album.key}"
+            val existing = known[nsAlbumKey]
             if (existing != null && existing.remoteCreated == album.remoteCreated) continue
 
             // Fetch before writing: one bad album must not abort the whole sync,
             // nor leave an album row with no tracks behind.
-            val tracks = runCatching { subsonic.albumTracksByKey(album.key) }.getOrNull() ?: continue
+            val tracks = runCatching {
+                when (s) {
+                    is SubsonicSource -> s.albumTracksByKey(album.key)
+                    is EmbyLikeSource -> s.albumTracksByKey(album.key)
+                    is PlexSource -> s.albumTracksByKey(album.key)
+                    else -> null
+                }
+            }.getOrNull() ?: continue
             if (tracks.isNotEmpty()) {
                 fetchedAlbums++
                 fetchedTracks += tracks.size
             }
 
-            val existingTracks = db.trackDao().byAlbumKey(album.key).associateBy { it.serverId }
+            val existingTracks = db.trackDao().byAlbumKey(nsAlbumKey).associateBy { it.serverId }
             val entities = tracks.map { t ->
-                val prev = existingTracks[t.key]
+                val nsKey = "${entry.id}:${t.key}"
+                val prev = existingTracks[nsKey]
                 TrackEntity(
                     id = prev?.id ?: 0,
-                    sourceId = "subsonic",
-                    serverId = t.key,
+                    sourceId = sourceId,
+                    serverId = nsKey,
                     title = t.title,
                     artistName = t.artist,
                     albumName = t.album,
-                    albumKey = t.albumKey,
+                    albumKey = t.albumKey?.let { "${entry.id}:$it" },
                     // Preserve the downloaded file: REPLACE would otherwise wipe it on re-sync.
                     path = prev?.path,
                     durationMs = t.durationMs,
@@ -218,8 +326,8 @@ class LibraryRepository(
                 db.albumDao().upsert(
                     AlbumEntity(
                         id = existing?.id ?: 0,
-                        sourceId = "subsonic",
-                        serverId = album.key,
+                        sourceId = sourceId,
+                        serverId = nsAlbumKey,
                         title = album.title,
                         artistName = album.artist,
                         year = album.year,
@@ -227,24 +335,24 @@ class LibraryRepository(
                     )
                 )
                 if (entities.isNotEmpty()) db.trackDao().insertAll(entities)
-                val remoteKeys = tracks.map { it.key }.toSet()
+                val remoteKeys = tracks.map { "${entry.id}:${it.key}" }.toSet()
                 val removed = existingTracks.values.filter { it.serverId !in remoteKeys }
                 removed.forEach { db.trackDao().delete(it) }
                 if (removed.isNotEmpty()) db.playlistDao().deleteOrphanRows()
             }
         }
-        pruneDeletedAlbums(known.keys, remoteAlbums.map { it.key }.toSet())
+        pruneDeletedAlbums(entry, known.keys, remoteAlbums.map { "${entry.id}:${it.key}" }.toSet())
         return SyncResult(fetchedAlbums, fetchedTracks)
     }
 
     /** Drops albums (and their tracks, files, download rows) deleted server-side. */
-    private suspend fun pruneDeletedAlbums(knownKeys: Set<String>, remoteKeys: Set<String>) {
+    private suspend fun pruneDeletedAlbums(entry: ServerEntry, knownKeys: Set<String>, remoteKeys: Set<String>) {
         val gone = knownKeys - remoteKeys
         if (gone.isEmpty()) return
         val staleTracks = gone.flatMap { db.trackDao().byAlbumKey(it) }
         db.withTransaction {
             staleTracks.forEach { t ->
-                if (t.sourceId == "subsonic" && t.path?.startsWith("file:") == true) {
+                if (t.sourceId != "local" && t.path?.startsWith("file:") == true) {
                     runCatching { java.io.File(java.net.URI(t.path)).delete() }
                 }
                 db.downloadDao().delete(t.serverId, t.sourceId)
@@ -308,12 +416,12 @@ class LibraryRepository(
 
     /** Queues a track for download; only server tracks are downloadable. */
     fun enqueueDownload(track: TrackEntity) {
-        if (track.sourceId != "subsonic") return
+        if (track.sourceId == "local") return
         com.cadence.music.data.downloads.DownloadWorker.enqueue(context, track.id)
     }
 
     fun enqueueDownloads(tracks: List<TrackEntity>) {
-        tracks.filter { it.sourceId == "subsonic" }.forEach { enqueueDownload(it) }
+        tracks.filter { it.sourceId != "local" }.forEach { enqueueDownload(it) }
     }
 
     suspend fun retryDownload(download: DownloadEntity, track: TrackEntity?) {
@@ -344,9 +452,9 @@ class LibraryRepository(
     suspend fun toggleStar(track: TrackEntity) {
         val starred = !track.starred
         db.trackDao().setStarred(track.id, starred)
-        if (track.sourceId == "subsonic") {
+        if (track.sourceId != "local") {
             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                runCatching { subsonic.setStarred(track.serverId.removePrefix("sub:"), starred) }
+                setStarredFor(track.serverId, starred)
             }
         }
     }

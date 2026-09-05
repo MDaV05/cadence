@@ -1,16 +1,16 @@
 package com.cadence.music.data.metadata
 
+import com.cadence.music.data.LibraryRepository
 import com.cadence.music.data.db.TrackEntity
-import com.cadence.music.data.source.SubsonicSource
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 /**
- * Resolves album art URLs for tracks. Server tracks use the Subsonic coverArt
- * endpoint directly; local tracks are matched to MusicBrainz once per
+ * Resolves album art URLs for tracks. Server tracks route through the library
+ * (per-entry cover art); local tracks are matched to MusicBrainz once per
  * (artist, album) and served from Cover Art Archive.
  */
-class ArtResolver(private val subsonic: SubsonicSource) {
+class ArtResolver(private val library: LibraryRepository) {
 
     private val mbCache = HashMap<String, String?>()
     private val mutex = Mutex()
@@ -25,8 +25,8 @@ class ArtResolver(private val subsonic: SubsonicSource) {
                 ).toString()
             }
         }
-        if (track.sourceId == "subsonic" && track.albumKey != null) {
-            return subsonic.coverArtUrl(track.albumKey)
+        if (track.sourceId != "local" && track.albumKey != null) {
+            return library.coverArtFor(track.albumKey)
         }
         val key = "${track.artistName}::${track.albumName}"
         return mutex.withLock { mbCache[key] } ?: run {
