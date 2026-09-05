@@ -92,6 +92,16 @@ class Prefs(context: Context) {
         awaitClose { sp.unregisterOnSharedPreferenceChangeListener(listener) }
     }
 
+    /** Emits the current server list first, then re-emits on every servers change. */
+    fun observeServers(): Flow<List<ServerEntry>> = callbackFlow {
+        trySend(servers)
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == "servers_json") trySend(servers)
+        }
+        sp.registerOnSharedPreferenceChangeListener(listener)
+        awaitClose { sp.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
+
     // "raw" keeps original bitrate; otherwise a Subsonic transcode format like "opus" or "mp3"
     var downloadFormat: String
         get() = sp.getString("download_format", null) ?: "raw"

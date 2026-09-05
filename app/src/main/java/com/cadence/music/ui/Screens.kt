@@ -458,7 +458,7 @@ private fun ServerTab(container: AppContainer) {
         AlertDialog(
             onDismissRequest = { confirmDelete = null },
             title = { Text("Remove server?") },
-            text = { Text("Its tracks leave the library on the next sync. Downloads are kept.") },
+            text = { Text("Its tracks and downloads leave the library on the next sync.") },
             confirmButton = {
                 TextButton(onClick = {
                     container.prefs.servers = container.prefs.servers.filter { it.id != e.id }

@@ -28,6 +28,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
 
 fun sourcesFor(mode: LibraryMode): Set<String>? = when (mode) {
     LibraryMode.LOCAL_ONLY -> setOf("local")
@@ -68,7 +69,7 @@ class LibraryRepository(
 
     /** Entry id is the segment before the FIRST ':'; null when absent or unknown. */
     fun entryForServerId(serverId: String): ServerEntry? {
-        val id = serverId.substringBefore(':').takeIf { serverId.contains(':') } ?: return null
+        val id = entryIdOf(serverId) ?: return null
         return prefs.entry(id)
     }
 
@@ -96,7 +97,7 @@ class LibraryRepository(
         }
     }
 
-    fun coverArtFor(albumKey: String): String? {
+    suspend fun coverArtFor(albumKey: String): String? {
         val entry = entryForServerId(albumKey) ?: return null
         val remote = remoteKey(albumKey, entry)
         return when (val s = sourceFor(entry)) {
@@ -123,11 +124,29 @@ class LibraryRepository(
         is PlexSource -> s.ping()
         else -> false
     }
+
+    /**
+     * Active-entry filter for SQL builders: empty when nothing is disabled
+     * (SQL byte-identical to the unfiltered queries), else active ids + "local"
+     * so local rows survive the AND.
+     */
+    private fun activePrefixesFor(list: List<ServerEntry>): Set<String> =
+        if (list.any { !it.active }) list.filter { it.active }.map { it.id }.toSet() + "local"
+        else emptySet()
+
+    private fun activePrefixesSnapshot(): Set<String> = activePrefixesFor(prefs.servers)
+
+    private fun observeActivePrefixes(): Flow<Set<String>> =
+        prefs.observeServers().map { activePrefixesFor(it) }
+
+    private fun observeModeAndActive(): Flow<Pair<LibraryMode, Set<String>>> =
+        combine(prefs.observeMode(), observeActivePrefixes()) { mode, active -> mode to active }
+
     // Full-list read kept ONLY for one-shot shuffle-all (Home + Library FAB).
     // All scrolling UI must use tracksPaged()/searchPaged().
     fun tracks(): Flow<List<TrackEntity>> =
-        combine(db.trackDao().observeAll(), prefs.observeMode()) { list, mode ->
-            list.filter { isIncluded(it.sourceId, it.path, mode) }
+        combine(db.trackDao().observeAll(), prefs.observeMode(), observeActivePrefixes()) { list, mode, active ->
+            list.filter { isIncluded(it.sourceId, it.path, mode) && (active.isEmpty() || isEntryActive(it.sourceId, it.serverId, active)) }
         }
 
     // Paged reads for big libraries; pageSize 50 ≈ 3 screens, maxSize 300 bounds memory,
@@ -135,63 +154,75 @@ class LibraryRepository(
     private val trackPagingConfig = PagingConfig(pageSize = 50, maxSize = 300, enablePlaceholders = false)
 
     fun tracksPaged(sort: SongSort, ascending: Boolean): Flow<PagingData<TrackEntity>> =
-        prefs.observeMode().flatMapLatest { mode ->
+        observeModeAndActive().flatMapLatest { (mode, active) ->
             Pager(trackPagingConfig) {
                 db.trackDao().tracksPaged(
-                    TrackQueries.tracksQuery(sort, ascending, sourcesFor(mode), mode == LibraryMode.LOCAL_ONLY)
+                    TrackQueries.tracksQuery(sort, ascending, sourcesFor(mode), mode == LibraryMode.LOCAL_ONLY, active)
                 )
             }.flow
         }
 
     fun searchPaged(query: String): Flow<PagingData<TrackEntity>> =
-        prefs.observeMode().flatMapLatest { mode ->
+        observeModeAndActive().flatMapLatest { (mode, active) ->
             Pager(trackPagingConfig) {
                 db.trackDao().tracksPaged(
-                    TrackQueries.searchQuery(query, sourcesFor(mode), mode == LibraryMode.LOCAL_ONLY)
+                    TrackQueries.searchQuery(query, sourcesFor(mode), mode == LibraryMode.LOCAL_ONLY, active)
                 )
             }.flow
         }
     fun albums(): Flow<List<AlbumEntity>> =
-        prefs.observeMode().flatMapLatest { mode ->
-            when (mode) {
+        observeModeAndActive().flatMapLatest { (mode, active) ->
+            val base = when (mode) {
                 // A downloaded album stays visible via its tracks' files (albums carry no path).
                 LibraryMode.LOCAL_ONLY -> db.albumDao().observeAlbumsOffline()
                 LibraryMode.API_ONLY -> db.albumDao().observeAlbumsFor(
-                    setOf("subsonic", "jellyfin", "emby", "plex")
+                    TrackQueries.albumsForQuery(setOf("subsonic", "jellyfin", "emby", "plex"), active)
                 )
                 LibraryMode.HYBRID -> db.albumDao().observeAll()
             }
+            base.map { list ->
+                if (active.isEmpty()) list
+                else list.filter { isEntryActive(it.sourceId, it.serverId, active) }
+            }
         }
     fun artistNames(): Flow<List<String>> =
-        prefs.observeMode().flatMapLatest { mode ->
+        observeModeAndActive().flatMapLatest { (mode, active) ->
             val s = sourcesFor(mode)
-            if (s == null) db.trackDao().observeArtistNames()
-            else db.trackDao().observeArtistNamesFor(s, mode == LibraryMode.LOCAL_ONLY)
+            if (s == null && active.isEmpty()) db.trackDao().observeArtistNames()
+            else db.trackDao().observeArtistNamesFor(
+                TrackQueries.artistNamesQuery(s, mode == LibraryMode.LOCAL_ONLY, active)
+            )
         }
     /** Mode-aware total used for the Library counter; paging-safe (separate COUNT, not itemCount). */
     fun observeTrackCount(): Flow<Int> =
-        prefs.observeMode().flatMapLatest { mode ->
+        observeModeAndActive().flatMapLatest { (mode, active) ->
             val s = sourcesFor(mode)
-            if (s == null) db.trackDao().observeCountAll()
-            else db.trackDao().observeCountFor(s, mode == LibraryMode.LOCAL_ONLY)
+            if (s == null && active.isEmpty()) db.trackDao().observeCountAll()
+            else db.trackDao().observeCountFor(
+                TrackQueries.countQuery(s, mode == LibraryMode.LOCAL_ONLY, active)
+            )
         }
     fun albumGroups(): Flow<List<com.cadence.music.data.db.AlbumGroup>> =
-        prefs.observeMode().flatMapLatest { mode ->
+        observeModeAndActive().flatMapLatest { (mode, active) ->
             val s = sourcesFor(mode)
-            if (s == null) db.trackDao().observeAlbumGroups()
-            else db.trackDao().observeAlbumGroupsFor(s, mode == LibraryMode.LOCAL_ONLY)
+            if (s == null && active.isEmpty()) db.trackDao().observeAlbumGroups()
+            else db.trackDao().observeAlbumGroupsFor(
+                TrackQueries.albumGroupsQuery(s, mode == LibraryMode.LOCAL_ONLY, active)
+            )
         }
 
     suspend fun tracksByArtist(name: String): List<TrackEntity> {
         val list = db.trackDao().byArtist(name)
         val mode = prefs.mode
-        return list.filter { isIncluded(it.sourceId, it.path, mode) }
+        val active = activePrefixesSnapshot()
+        return list.filter { isIncluded(it.sourceId, it.path, mode) && (active.isEmpty() || isEntryActive(it.sourceId, it.serverId, active)) }
     }
 
     suspend fun tracksByAlbum(name: String): List<TrackEntity> {
         val list = db.trackDao().byAlbum(name)
         val mode = prefs.mode
-        return list.filter { isIncluded(it.sourceId, it.path, mode) }
+        val active = activePrefixesSnapshot()
+        return list.filter { isIncluded(it.sourceId, it.path, mode) && (active.isEmpty() || isEntryActive(it.sourceId, it.serverId, active)) }
     }
 
     suspend fun syncAll() {
@@ -200,6 +231,35 @@ class LibraryRepository(
         for (entry in prefs.servers.filter { it.active }) {
             // One bad server must not abort the rest (same isolation as per-album handling).
             runCatching { syncServerEntry(entry) }.getOrDefault(SyncResult(0, 0))
+        }
+        pruneUnknownEntries()
+    }
+
+    /**
+     * Drops rows for entries no longer configured (deleted servers).
+     * Unprefixed non-local rows (shouldn't exist post-v9) are left alone.
+     */
+    private suspend fun pruneUnknownEntries() {
+        val known = prefs.servers.map { it.id }.toSet() + "local"
+        fun unknown(serverId: String): Boolean {
+            val prefix = entryIdOf(serverId) ?: return false
+            return prefix != "local" && prefix !in known
+        }
+        val staleTracks = db.trackDao().observeAll().first().filter { unknown(it.serverId) }
+        val staleAlbums = db.albumDao().observeAll().first().filter { unknown(it.serverId) }
+        val staleDownloads = db.downloadDao().observeAll().first().filter { unknown(it.trackServerId) }
+        if (staleTracks.isEmpty() && staleAlbums.isEmpty() && staleDownloads.isEmpty()) return
+        db.withTransaction {
+            staleTracks.forEach { t ->
+                if (t.sourceId != "local" && t.path?.startsWith("file:") == true) {
+                    runCatching { java.io.File(java.net.URI(t.path)).delete() }
+                }
+                db.downloadDao().delete(t.serverId, t.sourceId)
+                db.trackDao().delete(t)
+            }
+            staleAlbums.forEach { db.albumDao().deleteByServerId(it.serverId) }
+            staleDownloads.forEach { db.downloadDao().delete(it.trackServerId, it.sourceId) }
+            db.playlistDao().deleteOrphanRows()
         }
     }
 
