@@ -4,7 +4,7 @@ import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
-data class AlbumGroup(val name: String, val artistName: String, val trackCount: Int)
+data class AlbumGroup(val name: String, val artistName: String, val trackCount: Int, val norm: String = "")
 
 data class PlaylistTrackRow(val row: com.cadence.music.data.db.PlaylistTrackEntity, val track: TrackEntity)
 
@@ -22,6 +22,7 @@ data class TrackEntity(
     val title: String,
     val artistName: String = "",
     val albumName: String = "",
+    val albumNorm: String = "",
     val albumKey: String? = null,
     val path: String?,
     val durationMs: Long,

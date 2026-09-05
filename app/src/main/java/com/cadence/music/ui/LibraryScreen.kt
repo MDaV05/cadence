@@ -472,12 +472,12 @@ private fun albumsTab(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        items(albums, key = { it.name }) { album ->
-            val art by produceState<String?>(null, album.name) {
-                value = container.library.tracksByAlbum(album.name).firstOrNull()
+        items(albums, key = { it.norm }) { album ->
+            val art by produceState<String?>(null, album.norm) {
+                value = container.library.tracksByAlbumNorm(album.norm).firstOrNull()
                     ?.let { container.artResolver.urlFor(it) }
             }
-            Column(Modifier.clickable { if (album.name.isNotBlank()) onAlbumClick(album.name) }) {
+            Column(Modifier.clickable { if (album.norm.isNotBlank()) onAlbumClick(album.norm) }) {
                 AsyncImage(
                     model = art,
                     contentDescription = album.name,
