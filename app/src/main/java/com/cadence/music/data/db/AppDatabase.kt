@@ -6,6 +6,7 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.cadence.music.data.legacyPrefixSql
 
 @Database(
     entities = [
@@ -115,10 +116,7 @@ abstract class AppDatabase : RoomDatabase() {
         private val MIGRATION_8_9 = object : Migration(8, 9) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 // Single-server legacy rows gain the "primary" entry prefix; local rows untouched.
-                db.execSQL("UPDATE tracks SET serverId = 'primary:' || serverId WHERE sourceId != 'local'")
-                db.execSQL("UPDATE tracks SET albumKey = 'primary:' || albumKey WHERE albumKey IS NOT NULL AND sourceId != 'local'")
-                db.execSQL("UPDATE albums SET serverId = 'primary:' || serverId")
-                db.execSQL("UPDATE downloads SET trackServerId = 'primary:' || trackServerId")
+                legacyPrefixSql().forEach { db.execSQL(it) }
             }
         }
 

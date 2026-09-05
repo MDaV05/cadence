@@ -362,17 +362,21 @@ private fun ServerTab(container: AppContainer) {
     var showPicker by remember { mutableStateOf(false) }
     var addType by remember { mutableStateOf<ServerType?>(null) }
     var confirmDelete by remember { mutableStateOf<ServerEntry?>(null) }
+    var editTarget by remember { mutableStateOf<ServerEntry?>(null) }
     var mode by remember { mutableStateOf(container.prefs.mode) }
     var status by remember { mutableStateOf("") }
+    val syncErrors by container.library.lastSyncError.collectAsStateWithLifecycle()
 
     fun refresh() { servers = container.prefs.servers }
 
     LazyColumn(Modifier.fillMaxSize()) {
         item { SectionHeader("Servers") }
         items(servers, key = { it.id }) { e ->
+            val failed = syncErrors.containsKey(e.id)
             SettingRow(
                 title = "${e.type.name.lowercase().replaceFirstChar { it.uppercase() }} • ${e.url}",
-                subtitle = if (e.active) "Active" else "Disabled",
+                subtitle = if (failed) "Sync failed — tap to edit" else if (e.active) "Active" else "Disabled",
+                onClick = if (failed) ({ editTarget = e }) else null,
                 trailing = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Switch(
@@ -454,6 +458,15 @@ private fun ServerTab(container: AppContainer) {
             onDismiss = { addType = null },
         )
     }
+    editTarget?.let { target ->
+        AddServerSheet(
+            container = container,
+            type = target.type,
+            existing = target,
+            onSaved = { refresh() },
+            onDismiss = { editTarget = null },
+        )
+    }
     confirmDelete?.let { e ->
         AlertDialog(
             onDismissRequest = { confirmDelete = null },
@@ -507,6 +520,7 @@ private fun newServerId(): String = java.util.UUID.randomUUID().toString().take(
 private fun AddServerSheet(
     container: AppContainer,
     type: ServerType,
+    existing: ServerEntry? = null,
     onSaved: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -519,20 +533,25 @@ private fun AddServerSheet(
             )
         }.getOrNull() ?: "cadence"
     }
-    var url by remember { mutableStateOf("") }
-    var user by remember { mutableStateOf("") }
-    var pass by remember { mutableStateOf("") }
+    var url by remember { mutableStateOf(existing?.url ?: "") }
+    var user by remember { mutableStateOf(existing?.user ?: "") }
+    var pass by remember { mutableStateOf(existing?.password ?: "") }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf("") }
     // Plex PIN flow state: 0 = connect button, 1 = waiting for approval, 2 = pick server.
-    var plexPhase by remember { mutableStateOf(0) }
+    // Editing a Plex entry jumps to 2 (URL edit; token preserved).
+    var plexPhase by remember { mutableStateOf(if (existing?.type == ServerType.PLEX) 2 else 0) }
     var plexCode by remember { mutableStateOf("") }
     var plexToken by remember { mutableStateOf<String?>(null) }
     var plexOptions by remember { mutableStateOf(emptyList<Pair<String, String>>()) }
     var plexPolling by remember { mutableStateOf(false) }
 
     fun saveAndSync(entry: ServerEntry) {
-        container.prefs.servers = container.prefs.servers + entry
+        // Same id = update in place, never a duplicate row.
+        val cur = container.prefs.servers
+        container.prefs.servers =
+            if (cur.any { it.id == entry.id }) cur.map { if (it.id == entry.id) entry else it }
+            else cur + entry
         onSaved()
         onDismiss()
         scope.launch { runCatching { container.library.syncAll() } }
@@ -541,7 +560,7 @@ private fun AddServerSheet(
     suspend fun saveTyped() {
         // Scheme-less URLs ("192.168.1.106:4533") would fail silently on Android 9+.
         val candidate = ServerEntry(
-            id = newServerId(), type = type,
+            id = existing?.id ?: newServerId(), type = type,
             url = normalizeServerUrl(url), user = user.trim(), password = pass,
         )
         when (type) {
@@ -666,12 +685,14 @@ private fun AddServerSheet(
                     Text("Connect with Plex")
                 }
                 plexPhase == 2 -> TextButton(
-                    enabled = !busy && url.isNotBlank() && plexToken != null,
+                    enabled = !busy && url.isNotBlank() && (plexToken != null || existing?.token != null),
                     onClick = {
-                        val name = plexOptions.firstOrNull { it.second == url }?.first ?: "Plex"
+                        val name = plexOptions.firstOrNull { it.second == url }?.first
+                            ?: existing?.user ?: "Plex"
                         val candidate = ServerEntry(
-                            id = newServerId(), type = ServerType.PLEX,
-                            url = normalizeServerUrl(url), user = name, token = plexToken,
+                            id = existing?.id ?: newServerId(), type = ServerType.PLEX,
+                            url = normalizeServerUrl(url), user = name,
+                            token = plexToken ?: existing?.token,
                         )
                         busy = true; error = ""
                         scope.launch {

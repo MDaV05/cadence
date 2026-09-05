@@ -34,6 +34,12 @@ class DownloadWorker(context: Context, params: WorkerParameters) :
 
         val out = File(applicationContext.filesDir, "downloads").apply { mkdirs() }
             .resolve("${track.serverId.replace(Regex("[^A-Za-z0-9_-]"), "_")}.audio")
+            .let { derived ->
+                // v9 renamed serverIds; a track downloaded pre-rename still names the OLD file.
+                track.path?.takeIf { it.startsWith("file:") }
+                    ?.let { runCatching { File(java.net.URI(it)) }.getOrNull() }
+                    ?.takeIf { it.exists() } ?: derived
+            }
 
         // Read before the "running" upsert below overwrites the row.
         // A format switch (raw->opus) must not reuse a stale file as done.

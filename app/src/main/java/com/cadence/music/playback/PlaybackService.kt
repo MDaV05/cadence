@@ -15,6 +15,7 @@ import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaSession
 import com.cadence.music.CadenceApp
 import com.cadence.music.data.db.TrackEntity
+import com.cadence.music.data.resumeLookupIds
 import com.google.common.util.concurrent.ListenableFuture
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -154,15 +155,15 @@ class PlaybackService : MediaLibraryService() {
         val ids = JSONArray(idsJson)
         val items = mutableListOf<MediaItem>()
         var startIndex = 0
+        val knownIds = container.prefs.servers.map { it.id }.toSet()
         for (i in 0 until ids.length()) {
             val rawId = ids.optString(i)
-            var entity = withContext(Dispatchers.IO) {
-                runCatching { container.database.trackDao().byServerId(rawId) }.getOrNull()
-            }
-            if (entity == null && !rawId.contains(':')) {
+            var entity: TrackEntity? = null
+            for (candidate in resumeLookupIds(rawId, knownIds)) {
                 entity = withContext(Dispatchers.IO) {
-                    runCatching { container.database.trackDao().byServerId("primary:$rawId") }.getOrNull()
+                    runCatching { container.database.trackDao().byServerId(candidate) }.getOrNull()
                 }
+                if (entity != null) break
             }
             entity ?: continue
             if (i == savedIndex) startIndex = items.size

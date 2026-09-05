@@ -31,14 +31,20 @@ class EmbyLikeTest {
     }
 
     @Test
-    fun `emby and jellyfin share paths`() {
+    fun `downloadUrl strips own prefix`() {
         val j = JellyfinSource(entry)
+        assertEquals("https://box:8096/Items/abc/Download?api_key=tok", j.downloadUrl("jelly:abc"))
         val e = EmbySource(entry.copy(type = com.cadence.music.data.prefs.ServerType.EMBY))
-        assertEquals(j.streamUrlFor("abc"), e.streamUrlFor("abc").replace("box:8096", "box:8096"))
+        assertEquals("https://box:8096/Items/abc/Download?api_key=tok", e.downloadUrl("emby:abc"))
     }
 
     @Test
-    fun `album track keys carry prefix`() {
-        assertTrue("jelly:abc".removePrefix("jelly:") == "abc")
+    fun `embedded stream url wins over derived`() = kotlinx.coroutines.runBlocking {
+        val s = JellyfinSource(entry)
+        val t = Track(
+            key = "jelly:abc", sourceId = "jellyfin", title = "T", artist = "A",
+            album = "B", durationMs = 1, localPath = null, streamUrl = "https://cdn/x",
+        )
+        assertEquals("https://cdn/x", s.streamUrl(t))
     }
 }
