@@ -325,20 +325,15 @@ class LibraryRepository(
     }
 
     /**
-     * One-shot: drops artist_info rows poisoned by pre-normalization lookups (collab strings like
-     * "Future and Drake" that missed and were negative-cached as null). Only names the new
-     * normalization would change — genuinely unknown artists keep their negative cache (no refetch loop).
+     * One-shot v2: drops ALL all-null artist_info rows. Safe now that misses are never cached
+     * (Task F) — any remaining null row is stale by definition. Genuinely unknown artists simply
+     * re-enter the missing queue and retry on the worker schedule (batch-capped).
      */
     suspend fun repairArtistInfo(): Int {
         if (prefs.artistRepairDone) return 0
-        val poisoned = withContext(Dispatchers.IO) {
-            db.artistInfoDao().names().filter { com.cadence.music.data.tags.primaryArtist(it) != it.trim() }
-        }
-        if (poisoned.isNotEmpty()) {
-            withContext(Dispatchers.IO) { poisoned.forEach { db.artistInfoDao().deleteByName(it) } }
-        }
+        val dropped = withContext(Dispatchers.IO) { db.artistInfoDao().deleteNullRows() }
         prefs.artistRepairDone = true
-        return poisoned.size
+        return dropped
     }
 
     /**

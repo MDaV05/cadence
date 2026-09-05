@@ -131,11 +131,9 @@ interface ArtistInfoDao {
     @Query("SELECT name FROM artist_info WHERE fetchedAt < :staleBefore")
     suspend fun staleArtistNames(staleBefore: Long): List<String>
 
-    @Query("SELECT name FROM artist_info")
-    suspend fun names(): List<String>
-
-    @Query("DELETE FROM artist_info WHERE name = :name")
-    suspend fun deleteByName(name: String)
+    /** Drops never-resolved rows; returns the count. Misses are no longer cached, so these are stale. */
+    @Query("DELETE FROM artist_info WHERE bio IS NULL AND imageUrl IS NULL")
+    suspend fun deleteNullRows(): Int
 }
 
 @Dao

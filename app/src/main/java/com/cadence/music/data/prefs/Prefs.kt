@@ -211,8 +211,8 @@ class Prefs(context: Context) {
         set(value) = sp.edit().putBoolean("update_auto_check", value).apply()
 
     var artistRepairDone: Boolean
-        get() = sp.getBoolean("artist_repair_v1", false)
-        set(value) = sp.edit().putBoolean("artist_repair_v1", value).apply()
+        get() = sp.getBoolean("artist_repair_v2", false)
+        set(value) = sp.edit().putBoolean("artist_repair_v2", value).apply()
 
     /** Last update tag a heads-up notification was posted for; "" = none yet. */
     var lastNotifiedTag: String
