@@ -20,18 +20,26 @@ import com.cadence.music.data.prefs.ServerType
 import com.cadence.music.data.source.EmbyLikeSource
 import com.cadence.music.data.source.EmbySource
 import com.cadence.music.data.source.JellyfinSource
+import com.cadence.music.data.source.Album
 import com.cadence.music.data.source.LocalSource
 import com.cadence.music.data.source.PlexSource
 import com.cadence.music.data.source.SubsonicSource
 import com.cadence.music.data.source.Track
 import com.cadence.music.data.tags.albumNormKey
 import com.cadence.music.data.tags.primaryArtist
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 
 fun sourcesFor(mode: LibraryMode): Set<String>? = when (mode) {
     LibraryMode.LOCAL_ONLY -> setOf("local")
@@ -52,6 +60,13 @@ fun isIncluded(sourceId: String, path: String?, mode: LibraryMode): Boolean = wh
 
 /** Strips the "<entryId>:" prefix, recovering the source-level remote key. */
 fun remoteKey(serverId: String, entry: ServerEntry): String = serverId.removePrefix("${entry.id}:")
+
+sealed interface SyncState {
+    data object Idle : SyncState
+    data class Running(val doneAlbums: Int, val totalAlbums: Int, val serverUrl: String) : SyncState
+    data class Done(val tracksFetched: Int) : SyncState
+    data class Failed(val message: String) : SyncState
+}
 
 class LibraryRepository(
     private val db: AppDatabase,
@@ -221,13 +236,6 @@ class LibraryRepository(
         return list.filter { isIncluded(it.sourceId, it.path, mode) && (active.isEmpty() || isEntryActive(it.sourceId, it.serverId, active)) }
     }
 
-    suspend fun tracksByAlbum(name: String): List<TrackEntity> {
-        val list = db.trackDao().byAlbum(name)
-        val mode = prefs.mode
-        val active = activePrefixesSnapshot()
-        return list.filter { isIncluded(it.sourceId, it.path, mode) && (active.isEmpty() || isEntryActive(it.sourceId, it.serverId, active)) }
-    }
-
     suspend fun tracksByAlbumNorm(norm: String): List<TrackEntity> {
         val list = db.trackDao().byAlbumNorm(norm)
         val mode = prefs.mode
@@ -237,6 +245,52 @@ class LibraryRepository(
 
     /** Per-entry sync failures (entryId → message); cleared on success. */
     val lastSyncError = MutableStateFlow<Map<String, String>>(emptyMap())
+
+    private val _syncState = MutableStateFlow<SyncState>(SyncState.Idle)
+    val syncState: StateFlow<SyncState> = _syncState
+    private val syncScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var syncJob: Job? = null
+    /** Starts a sync unless one is running (returns the running job). Survives UI navigation. */
+    @Synchronized
+    fun launchSync(): Job {
+        syncJob?.takeIf { it.isActive }?.let { return it }
+        return syncScope.launch { runSync() }.also { syncJob = it }
+    }
+
+    /**
+     * App-scoped sync: same body as [syncAll] plus per-album progress and one
+     * retry pass per entry (inside [syncEntry]). One bad server still doesn't
+     * abort the rest; the first entry-level message becomes the terminal Failed.
+     */
+    private suspend fun runSync() {
+        try {
+            // Local part honors mode as today (LOCAL_ONLY/HYBRID sync local files).
+            if (prefs.mode != LibraryMode.API_ONLY) syncLocal()
+            var tracksFetched = 0
+            var failure: String? = null
+            for (entry in prefs.servers.filter { it.active }) {
+                // One bad server must not abort the rest (same isolation as syncAll).
+                try {
+                    tracksFetched += syncEntry(entry) { done, total ->
+                        _syncState.value = SyncState.Running(done, total, entry.url)
+                    }.tracksFetched
+                    if (lastSyncError.value.containsKey(entry.id)) {
+                        lastSyncError.value = lastSyncError.value - entry.id
+                    }
+                } catch (e: Exception) {
+                    if (e is CancellationException) throw e
+                    val msg = e.message ?: "Sync failed"
+                    lastSyncError.value = lastSyncError.value + (entry.id to msg)
+                    if (failure == null) failure = msg
+                }
+            }
+            pruneUnknownEntries()
+            _syncState.value = if (failure != null) SyncState.Failed(failure) else SyncState.Done(tracksFetched)
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            _syncState.value = SyncState.Failed(e.message ?: "Sync failed")
+        }
+    }
 
     suspend fun syncAll() {
         // Local part honors mode as today (LOCAL_ONLY/HYBRID sync local files).
@@ -331,7 +385,15 @@ class LibraryRepository(
      * Incremental: lists albums (cheap, 1 request per 500) and only re-fetches
      * tracks for albums that are new or whose server-side `created` changed.
      */
-    suspend fun syncServerEntry(entry: ServerEntry): SyncResult {
+    suspend fun syncServerEntry(entry: ServerEntry): SyncResult = syncEntry(entry, null)
+
+    /**
+     * Shared per-entry sync body. Albums whose track fetch throws are collected
+     * and re-attempted ONCE at the end, then given up. Cancellation is never
+     * swallowed. Progress (when observed) starts at (0, total) after listAlbums
+     * and ticks after every album.
+     */
+    private suspend fun syncEntry(entry: ServerEntry, onProgress: ((done: Int, total: Int) -> Unit)?): SyncResult {
         if (prefs.servers.none { it.active }) return SyncResult(0, 0)
         val sourceId = when (entry.type) {
             ServerType.SUBSONIC -> "subsonic"
@@ -352,73 +414,116 @@ class LibraryRepository(
 
         var fetchedAlbums = 0
         var fetchedTracks = 0
+        var done = 0
+        onProgress?.invoke(0, remoteAlbums.size)
+        val failedKeys = mutableListOf<Album>()
         for (album in remoteAlbums) {
             val nsAlbumKey = namespacedKey(entry.id, album.key)
             val existing = known[nsAlbumKey]
-            if (existing != null && existing.remoteCreated == album.remoteCreated) continue
+            if (existing != null && existing.remoteCreated == album.remoteCreated) {
+                done++
+                onProgress?.invoke(done, remoteAlbums.size)
+                continue
+            }
 
             // Fetch before writing: one bad album must not abort the whole sync,
             // nor leave an album row with no tracks behind.
-            val tracks = runCatching {
-                when (s) {
-                    is SubsonicSource -> s.albumTracksByKey(album.key)
-                    is EmbyLikeSource -> s.albumTracksByKey(album.key)
-                    is PlexSource -> s.albumTracksByKey(album.key)
-                    else -> null
-                }
-            }.getOrNull() ?: continue
-            if (tracks.isNotEmpty()) {
-                fetchedAlbums++
-                fetchedTracks += tracks.size
+            val tracks: List<Track>? = try {
+                fetchAlbumTracks(s, album.key)
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                failedKeys.add(album)
+                done++
+                onProgress?.invoke(done, remoteAlbums.size)
+                continue
             }
-
-            val existingTracks = db.trackDao().byAlbumKey(nsAlbumKey).associateBy { it.serverId }
-            val entities = tracks.map { t ->
-                val nsKey = namespacedKey(entry.id, t.key)
-                val prev = existingTracks[nsKey]
-                TrackEntity(
-                    id = prev?.id ?: 0,
-                    sourceId = sourceId,
-                    serverId = nsKey,
-                    title = t.title,
-                    artistName = primaryArtist(t.artist),
-                    albumName = t.album,
-                    albumNorm = albumNormKey(t.album, t.artist),
-                    albumKey = t.albumKey?.let { namespacedKey(entry.id, it) },
-                    // Preserve the downloaded file: REPLACE would otherwise wipe it on re-sync.
-                    path = prev?.path,
-                    durationMs = t.durationMs,
-                    trackNumber = 0,
-                    replayGainDb = prev?.replayGainDb,
-                    albumMediaId = prev?.albumMediaId,
-                    playCount = prev?.playCount ?: 0,
-                    lastPlayed = prev?.lastPlayed,
-                    // OR-preserve: a star made offline survives until the server
-                    // confirms the unstar on a later sync.
-                    starred = t.starred || (prev?.starred ?: false),
-                )
+            if (tracks == null) {
+                done++
+                onProgress?.invoke(done, remoteAlbums.size)
+                continue
             }
-            db.withTransaction {
-                db.albumDao().upsert(
-                    AlbumEntity(
-                        id = existing?.id ?: 0,
-                        sourceId = sourceId,
-                        serverId = nsAlbumKey,
-                        title = album.title,
-                        artistName = album.artist,
-                        year = album.year,
-                        remoteCreated = album.remoteCreated,
-                    )
-                )
-                if (entities.isNotEmpty()) db.trackDao().insertAll(entities)
-                val remoteKeys = tracks.map { namespacedKey(entry.id, it.key) }.toSet()
-                val removed = existingTracks.values.filter { it.serverId !in remoteKeys }
-                removed.forEach { db.trackDao().delete(it) }
-                if (removed.isNotEmpty()) db.playlistDao().deleteOrphanRows()
-            }
+            val r = storeAlbum(entry, sourceId, album, tracks, existing)
+            fetchedAlbums += r.albumsFetched
+            fetchedTracks += r.tracksFetched
+            done++
+            onProgress?.invoke(done, remoteAlbums.size)
+        }
+        // ONE retry pass over failed album keys, then give up.
+        for (album in failedKeys) {
+            val tracks = try {
+                fetchAlbumTracks(s, album.key)
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                continue
+            } ?: continue
+            val r = storeAlbum(entry, sourceId, album, tracks, known[namespacedKey(entry.id, album.key)])
+            fetchedAlbums += r.albumsFetched
+            fetchedTracks += r.tracksFetched
         }
         pruneDeletedAlbums(entry, known.keys, remoteAlbums.map { namespacedKey(entry.id, it.key) }.toSet())
         return SyncResult(fetchedAlbums, fetchedTracks)
+    }
+
+    private suspend fun fetchAlbumTracks(s: Any, albumKey: String): List<Track>? = when (s) {
+        is SubsonicSource -> s.albumTracksByKey(albumKey)
+        is EmbyLikeSource -> s.albumTracksByKey(albumKey)
+        is PlexSource -> s.albumTracksByKey(albumKey)
+        else -> null
+    }
+
+    private suspend fun storeAlbum(
+        entry: ServerEntry,
+        sourceId: String,
+        album: Album,
+        tracks: List<Track>,
+        existing: AlbumEntity?,
+    ): SyncResult {
+        val nsAlbumKey = namespacedKey(entry.id, album.key)
+        val existingTracks = db.trackDao().byAlbumKey(nsAlbumKey).associateBy { it.serverId }
+        val entities = tracks.map { t ->
+            val nsKey = namespacedKey(entry.id, t.key)
+            val prev = existingTracks[nsKey]
+            TrackEntity(
+                id = prev?.id ?: 0,
+                sourceId = sourceId,
+                serverId = nsKey,
+                title = t.title,
+                artistName = primaryArtist(t.artist),
+                albumName = t.album,
+                albumNorm = albumNormKey(t.album, t.artist),
+                albumKey = t.albumKey?.let { namespacedKey(entry.id, it) },
+                // Preserve the downloaded file: REPLACE would otherwise wipe it on re-sync.
+                path = prev?.path,
+                durationMs = t.durationMs,
+                trackNumber = 0,
+                replayGainDb = prev?.replayGainDb,
+                albumMediaId = prev?.albumMediaId,
+                playCount = prev?.playCount ?: 0,
+                lastPlayed = prev?.lastPlayed,
+                // OR-preserve: a star made offline survives until the server
+                // confirms the unstar on a later sync.
+                starred = t.starred || (prev?.starred ?: false),
+            )
+        }
+        db.withTransaction {
+            db.albumDao().upsert(
+                AlbumEntity(
+                    id = existing?.id ?: 0,
+                    sourceId = sourceId,
+                    serverId = nsAlbumKey,
+                    title = album.title,
+                    artistName = album.artist,
+                    year = album.year,
+                    remoteCreated = album.remoteCreated,
+                )
+            )
+            if (entities.isNotEmpty()) db.trackDao().insertAll(entities)
+            val remoteKeys = tracks.map { namespacedKey(entry.id, it.key) }.toSet()
+            val removed = existingTracks.values.filter { it.serverId !in remoteKeys }
+            removed.forEach { db.trackDao().delete(it) }
+            if (removed.isNotEmpty()) db.playlistDao().deleteOrphanRows()
+        }
+        return SyncResult(if (tracks.isNotEmpty()) 1 else 0, tracks.size)
     }
 
     /** Drops albums (and their tracks, files, download rows) deleted server-side. */
