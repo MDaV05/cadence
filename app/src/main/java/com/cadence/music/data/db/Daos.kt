@@ -127,6 +127,12 @@ interface ArtistInfoDao {
     /** Cached rows old enough to be worth refreshing. */
     @Query("SELECT name FROM artist_info WHERE fetchedAt < :staleBefore")
     suspend fun staleArtistNames(staleBefore: Long): List<String>
+
+    @Query("SELECT name FROM artist_info")
+    suspend fun names(): List<String>
+
+    @Query("DELETE FROM artist_info WHERE name = :name")
+    suspend fun deleteByName(name: String)
 }
 
 @Dao

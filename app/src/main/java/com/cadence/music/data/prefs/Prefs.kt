@@ -209,4 +209,8 @@ class Prefs(context: Context) {
     var updateAutoCheck: Boolean
         get() = sp.getBoolean("update_auto_check", true)
         set(value) = sp.edit().putBoolean("update_auto_check", value).apply()
+
+    var artistRepairDone: Boolean
+        get() = sp.getBoolean("artist_repair_v1", false)
+        set(value) = sp.edit().putBoolean("artist_repair_v1", value).apply()
 }

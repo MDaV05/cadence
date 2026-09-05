@@ -61,8 +61,10 @@ class CadenceApp : Application(), coil.ImageLoaderFactory {
         // Catch up on library changes since the app was last open.
         if (hasAudioPermission() || container.prefs.servers.any { it.active }) {
             appScope.launch {
+                val repaired = runCatching { container.library.repairArtistInfo() }.getOrDefault(0)
                 runCatching { container.library.syncAll() }
                 runCatching { container.flushPendingScrobbles() }
+                if (repaired > 0) runCatching { MetadataSync.runNow(this@CadenceApp) }
             }
         }
         appScope.launch { container.loadCustomThemes() }

@@ -40,6 +40,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 fun sourcesFor(mode: LibraryMode): Set<String>? = when (mode) {
     LibraryMode.LOCAL_ONLY -> setOf("local")
@@ -308,6 +309,23 @@ class LibraryRepository(
             }
         }
         pruneUnknownEntries()
+    }
+
+    /**
+     * One-shot: drops artist_info rows poisoned by pre-normalization lookups (collab strings like
+     * "Future and Drake" that missed and were negative-cached as null). Only names the new
+     * normalization would change — genuinely unknown artists keep their negative cache (no refetch loop).
+     */
+    suspend fun repairArtistInfo(): Int {
+        if (prefs.artistRepairDone) return 0
+        val poisoned = withContext(Dispatchers.IO) {
+            db.artistInfoDao().names().filter { com.cadence.music.data.tags.primaryArtist(it) != it.trim() }
+        }
+        if (poisoned.isNotEmpty()) {
+            withContext(Dispatchers.IO) { poisoned.forEach { db.artistInfoDao().deleteByName(it) } }
+        }
+        prefs.artistRepairDone = true
+        return poisoned.size
     }
 
     /**
