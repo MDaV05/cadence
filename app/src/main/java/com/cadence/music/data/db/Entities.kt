@@ -96,6 +96,31 @@ data class ArtistInfoEntity(
     val fetchedAt: Long = System.currentTimeMillis(),
 )
 
+/** User-picked track cover (file path under filesDir/covers); wins over everything. */
+@Entity(tableName = "track_art_override")
+data class TrackArtOverrideEntity(
+    @PrimaryKey val trackId: Long,
+    val path: String,
+)
+
+/** User-picked album cover keyed by albumNorm; wins over fetched art. */
+@Entity(tableName = "album_art_override")
+data class AlbumArtOverrideEntity(
+    @PrimaryKey val norm: String,
+    val path: String,
+)
+
+/**
+ * User-set artist bio/picture. Either field may be null (falls through to the
+ * cached row per-field); both null is never stored — see LibraryRepository.
+ */
+@Entity(tableName = "artist_override")
+data class ArtistOverrideEntity(
+    @PrimaryKey val name: String,
+    val bio: String?,
+    val imagePath: String?,
+)
+
 @Entity(tableName = "pending_scrobbles")
 data class PendingScrobbleEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,

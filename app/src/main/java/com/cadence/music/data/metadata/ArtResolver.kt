@@ -16,6 +16,9 @@ class ArtResolver(private val library: LibraryRepository) {
     private val mutex = Mutex()
 
     suspend fun urlFor(track: TrackEntity): String? {
+        // User override first: exact track cover, then album cover. File paths
+        // go out as file:// so Coil's FileUriFetcher picks them up.
+        library.artOverrideFor(track)?.let { return "file://$it" }
         if (track.albumName.isBlank()) return null
         // Local tracks: MediaStore's album art provider, instant and offline.
         if (track.sourceId == "local") {
