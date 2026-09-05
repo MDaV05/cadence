@@ -323,7 +323,7 @@ private fun songsTab(
         if (!granted) {
             context.hostActivity()?.let { deniedForever = permanentlyDenied(it, audioPermission()) }
         } else {
-            scope.launch { container.library.syncAll() }
+            container.library.launchSync()
         }
         askNotifications()
     }
