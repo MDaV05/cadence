@@ -48,19 +48,6 @@ class Prefs(context: Context) {
 
     private val sp = context.getSharedPreferences("cadence", Context.MODE_PRIVATE)
 
-    var server: ServerConfig?
-        get() {
-            val url = sp.getString("server_url", null) ?: return null
-            return ServerConfig(url, sp.getString("server_user", "") ?: "", sp.getString("server_pass", "") ?: "")
-        }
-        set(value) {
-            sp.edit()
-                .putString("server_url", value?.url)
-                .putString("server_user", value?.user)
-                .putString("server_pass", value?.password)
-                .apply()
-        }
-
     var servers: List<ServerEntry>
         get() {
             migrateLegacyServer()

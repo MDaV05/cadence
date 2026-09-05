@@ -81,7 +81,9 @@ class MetadataWorker(appContext: Context, params: WorkerParameters) :
     private suspend fun prewarmArt(container: com.cadence.music.AppContainer) {
         val context = applicationContext
         val db = container.database
-        val albums = withContext(Dispatchers.IO) { db.albumDao().bySource("subsonic") }.take(ART_BATCH)
+        val albums = withContext(Dispatchers.IO) {
+            listOf("subsonic", "jellyfin", "emby", "plex").flatMap { db.albumDao().bySource(it) }
+        }.take(ART_BATCH)
         for (album in albums) {
             if (isStopped) return
             val track = withContext(Dispatchers.IO) { db.trackDao().byAlbumKey(album.serverId).firstOrNull() }
