@@ -89,4 +89,130 @@ class TrackQueriesTest {
         val q = TrackQueries.tracksQuery(SongSort.TITLE, true, setOf("local"), includeDownloaded = false)
         assertTrue(!q.sql.contains("path LIKE"))
     }
+
+    @Test
+    fun `tracks null sources with active filter emits WHERE without leading AND`() {
+        val q =
+            TrackQueries.tracksQuery(
+                SongSort.TITLE, true, null, activePrefixes = setOf("e1"),
+            )
+        assertEquals(
+            "SELECT * FROM tracks WHERE (serverId LIKE ?) ORDER BY title COLLATE NOCASE ASC",
+            q.sql,
+        )
+        assertEquals(1, q.argCount)
+    }
+
+    @Test
+    fun `count no filter is byte-identical to unfiltered SQL`() {
+        assertEquals("SELECT COUNT(*) FROM tracks", TrackQueries.countQuery(null).sql)
+        assertEquals(0, TrackQueries.countQuery(null).argCount)
+
+        assertEquals(
+            "SELECT COUNT(*) FROM tracks WHERE sourceId IN (?) " +
+                "OR (? AND sourceId != 'local' AND path LIKE 'file:%')",
+            TrackQueries.countQuery(setOf("local")).sql,
+        )
+        assertEquals(2, TrackQueries.countQuery(setOf("local")).argCount)
+    }
+
+    @Test
+    fun `count null sources with active filter emits WHERE without leading AND`() {
+        val q = TrackQueries.countQuery(null, activePrefixes = setOf("e1"))
+        assertEquals("SELECT COUNT(*) FROM tracks WHERE (serverId LIKE ?)", q.sql)
+        assertEquals(1, q.argCount)
+    }
+
+    @Test
+    fun `count with sources and active filter parenthesizes OR branch`() {
+        val q = TrackQueries.countQuery(setOf("local"), activePrefixes = setOf("e1"))
+        assertEquals(
+            "SELECT COUNT(*) FROM tracks WHERE (sourceId IN (?) " +
+                "OR (? AND sourceId != 'local' AND path LIKE 'file:%')) AND (serverId LIKE ?)",
+            q.sql,
+        )
+        assertEquals(3, q.argCount)
+    }
+
+    @Test
+    fun `artistNames no filter is byte-identical to unfiltered SQL`() {
+        assertEquals(
+            "SELECT DISTINCT artistName FROM tracks WHERE artistName != '' ORDER BY artistName",
+            TrackQueries.artistNamesQuery(null).sql,
+        )
+        assertEquals(
+            "SELECT DISTINCT artistName FROM tracks WHERE artistName != '' AND (sourceId IN (?) " +
+                "OR (? AND sourceId != 'local' AND path LIKE 'file:%')) ORDER BY artistName",
+            TrackQueries.artistNamesQuery(setOf("local")).sql,
+        )
+    }
+
+    @Test
+    fun `artistNames with active filter appends AND clause`() {
+        assertEquals(
+            "SELECT DISTINCT artistName FROM tracks WHERE artistName != '' AND (serverId LIKE ?) " +
+                "ORDER BY artistName",
+            TrackQueries.artistNamesQuery(null, activePrefixes = setOf("e1")).sql,
+        )
+        assertEquals(
+            "SELECT DISTINCT artistName FROM tracks WHERE artistName != '' AND (sourceId IN (?) " +
+                "OR (? AND sourceId != 'local' AND path LIKE 'file:%')) AND (serverId LIKE ?) " +
+                "ORDER BY artistName",
+            TrackQueries.artistNamesQuery(setOf("local"), activePrefixes = setOf("e1")).sql,
+        )
+        assertEquals(1, TrackQueries.artistNamesQuery(null, activePrefixes = setOf("e1")).argCount)
+        assertEquals(3, TrackQueries.artistNamesQuery(setOf("local"), activePrefixes = setOf("e1")).argCount)
+    }
+
+    @Test
+    fun `albumGroups no filter is byte-identical to unfiltered SQL`() {
+        assertEquals(
+            "SELECT albumName AS name, MIN(artistName) AS artistName, COUNT(*) AS trackCount " +
+                "FROM tracks WHERE albumName != '' GROUP BY albumName ORDER BY name COLLATE NOCASE",
+            TrackQueries.albumGroupsQuery(null).sql,
+        )
+        assertEquals(
+            "SELECT albumName AS name, MIN(artistName) AS artistName, COUNT(*) AS trackCount " +
+                "FROM tracks WHERE albumName != '' AND (sourceId IN (?) " +
+                "OR (? AND sourceId != 'local' AND path LIKE 'file:%')) " +
+                "GROUP BY albumName ORDER BY name COLLATE NOCASE",
+            TrackQueries.albumGroupsQuery(setOf("local")).sql,
+        )
+    }
+
+    @Test
+    fun `albumGroups with active filter appends AND clause`() {
+        assertEquals(
+            "SELECT albumName AS name, MIN(artistName) AS artistName, COUNT(*) AS trackCount " +
+                "FROM tracks WHERE albumName != '' AND (serverId LIKE ?) " +
+                "GROUP BY albumName ORDER BY name COLLATE NOCASE",
+            TrackQueries.albumGroupsQuery(null, activePrefixes = setOf("e1")).sql,
+        )
+        assertEquals(
+            "SELECT albumName AS name, MIN(artistName) AS artistName, COUNT(*) AS trackCount " +
+                "FROM tracks WHERE albumName != '' AND (sourceId IN (?) " +
+                "OR (? AND sourceId != 'local' AND path LIKE 'file:%')) AND (serverId LIKE ?) " +
+                "GROUP BY albumName ORDER BY name COLLATE NOCASE",
+            TrackQueries.albumGroupsQuery(setOf("local"), activePrefixes = setOf("e1")).sql,
+        )
+    }
+
+    @Test
+    fun `albumsFor no filter is byte-identical to unfiltered SQL`() {
+        assertEquals(
+            "SELECT * FROM albums WHERE sourceId IN (?) ORDER BY year DESC, title",
+            TrackQueries.albumsForQuery(setOf("local")).sql,
+        )
+        assertEquals(1, TrackQueries.albumsForQuery(setOf("local")).argCount)
+    }
+
+    @Test
+    fun `albumsFor with active filter appends AND clause`() {
+        val q = TrackQueries.albumsForQuery(setOf("local"), setOf("e1"))
+        assertEquals(
+            "SELECT * FROM albums WHERE sourceId IN (?) AND (serverId LIKE ?) ORDER BY year DESC, title",
+            q.sql,
+        )
+        assertEquals(2, q.argCount)
+    }
 }
