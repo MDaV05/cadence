@@ -22,7 +22,10 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             CadenceTheme((applicationContext as CadenceApp).container) {
-                AppNav(initialSettingsTab = if (openAbout) 4 else 0) // 4 = About tab
+                AppNav(
+                    initialSettingsTab = if (openAbout) 4 else 0, // 4 = About tab
+                    onDeepLinkConsumed = { openAbout = false },
+                )
             }
         }
     }
