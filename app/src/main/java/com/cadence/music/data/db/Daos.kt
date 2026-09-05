@@ -65,9 +65,6 @@ interface TrackDao {
     @Query("SELECT * FROM tracks WHERE artistName = :name ORDER BY albumName, trackNumber")
     suspend fun byArtist(name: String): List<TrackEntity>
 
-    @Query("SELECT * FROM tracks WHERE albumName = :name ORDER BY trackNumber")
-    suspend fun byAlbum(name: String): List<TrackEntity>
-
     @Query("SELECT * FROM tracks WHERE albumNorm = :norm ORDER BY trackNumber")
     suspend fun byAlbumNorm(norm: String): List<TrackEntity>
 
