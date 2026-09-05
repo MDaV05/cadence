@@ -60,6 +60,7 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.cadence.music.AppContainer
+import com.cadence.music.data.SyncState
 import com.cadence.music.data.db.CustomThemeEntity
 import com.cadence.music.data.prefs.LibraryMode
 import com.cadence.music.data.prefs.Prefs
@@ -357,15 +358,14 @@ private fun NewThemeDialog(container: AppContainer, onDismiss: () -> Unit) {
 
 @Composable
 private fun ServerTab(container: AppContainer) {
-    val scope = rememberCoroutineScope()
     var servers by remember { mutableStateOf(container.prefs.servers) }
     var showPicker by remember { mutableStateOf(false) }
     var addType by remember { mutableStateOf<ServerType?>(null) }
     var confirmDelete by remember { mutableStateOf<ServerEntry?>(null) }
     var editTarget by remember { mutableStateOf<ServerEntry?>(null) }
     var mode by remember { mutableStateOf(container.prefs.mode) }
-    var status by remember { mutableStateOf("") }
     val syncErrors by container.library.lastSyncError.collectAsStateWithLifecycle()
+    val syncState by container.library.syncState.collectAsStateWithLifecycle()
 
     fun refresh() { servers = container.prefs.servers }
 
@@ -386,7 +386,7 @@ private fun ServerTab(container: AppContainer) {
                                     if (it.id == e.id) it.copy(active = checked) else it
                                 }
                                 refresh()
-                                scope.launch { runCatching { container.library.syncAll() } }
+                                container.library.launchSync()
                             },
                         )
                         IconButton(onClick = { confirmDelete = e }) {
@@ -404,24 +404,35 @@ private fun ServerTab(container: AppContainer) {
         }
         item {
             Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     Button(
-                        onClick = {
-                            status = ""
-                            scope.launch {
-                                runCatching { container.library.syncAll() }
-                                    .onSuccess { status = "Library synced" }
-                                    .onFailure { status = "Sync error: ${it.message}" }
-                            }
-                        },
+                        onClick = { container.library.launchSync() },
+                        enabled = syncState !is SyncState.Running,
                     ) { Text("Rescan") }
+                    if (syncState is SyncState.Running) {
+                        val running = syncState as SyncState.Running
+                        CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                        Text(
+                            "Syncing ${running.doneAlbums}/${running.totalAlbums}…",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
                 }
-                if (status.isNotEmpty()) {
-                    Text(
-                        status,
+                when (val st = syncState) {
+                    is SyncState.Done -> Text(
+                        "Library synced",
                         style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier.padding(top = 8.dp),
                     )
+                    is SyncState.Failed -> Text(
+                        "Sync error: ${st.message}",
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                    else -> {}
                 }
             }
         }
@@ -436,7 +447,7 @@ private fun ServerTab(container: AppContainer) {
                 },
                 trailing = {
                     RadioButton(selected = mode == m, onClick = {
-                        if (m != mode) { mode = m; container.prefs.mode = m; scope.launch { runCatching { container.library.syncAll() } } }
+                        if (m != mode) { mode = m; container.prefs.mode = m; container.library.launchSync() }
                     })
                 },
             )
@@ -477,7 +488,7 @@ private fun ServerTab(container: AppContainer) {
                     container.prefs.servers = container.prefs.servers.filter { it.id != e.id }
                     confirmDelete = null
                     refresh()
-                    scope.launch { runCatching { container.library.syncAll() } }
+                    container.library.launchSync()
                 }) { Text("Remove") }
             },
             dismissButton = { TextButton(onClick = { confirmDelete = null }) { Text("Cancel") } },
@@ -554,7 +565,7 @@ private fun AddServerSheet(
             else cur + entry
         onSaved()
         onDismiss()
-        scope.launch { runCatching { container.library.syncAll() } }
+        container.library.launchSync()
     }
 
     suspend fun saveTyped() {
