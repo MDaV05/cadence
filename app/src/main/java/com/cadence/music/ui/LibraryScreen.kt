@@ -1,8 +1,11 @@
 package com.cadence.music.ui
 
 import android.Manifest
+import android.app.Activity
 import android.os.Build
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -25,11 +28,14 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.Sort
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
@@ -38,10 +44,12 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -67,6 +75,7 @@ import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.itemKey
 import coil.compose.AsyncImage
 import com.cadence.music.AppContainer
+import com.cadence.music.data.WriteConsentRequired
 import com.cadence.music.data.db.TrackEntity
 import kotlinx.coroutines.launch
 
@@ -142,6 +151,87 @@ fun TrackRow(
         value = container.artResolver.urlFor(track)
     }
     var showAddToPlaylist by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var showEdit by remember { mutableStateOf(false) }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+    var pendingEdit by remember { mutableStateOf<Triple<String, String, String>?>(null) }
+    var pendingDelete by remember { mutableStateOf(false) }
+
+    fun toast(msg: String) = Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+
+    val consentLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        scope.launch {
+            if (result.resultCode == Activity.RESULT_OK) {
+                try {
+                    if (pendingDelete) {
+                        val ok = container.library.deleteLocalFile(track)
+                        toast(if (ok) "File deleted" else "Couldn't delete file")
+                        if (ok) showAddToPlaylist = false
+                    } else {
+                        pendingEdit?.let { (t, a, al) ->
+                            val ok = container.library.updateTrackMetadata(track.id, t, a, al)
+                            toast(if (ok) "Metadata updated" else "Couldn't update metadata")
+                            if (ok) {
+                                showEdit = false
+                                showAddToPlaylist = false
+                            }
+                        }
+                    }
+                } catch (e: WriteConsentRequired) {
+                    toast("Couldn't complete — permission denied")
+                } finally {
+                    pendingEdit = null
+                    pendingDelete = false
+                }
+            } else {
+                toast("Not changed — permission denied")
+                pendingEdit = null
+                pendingDelete = false
+            }
+        }
+    }
+
+    fun saveEdit(t: String, a: String, al: String) {
+        scope.launch {
+            try {
+                val ok = container.library.updateTrackMetadata(track.id, t, a, al)
+                toast(if (ok) "Metadata updated" else "Couldn't update metadata")
+                if (ok) {
+                    showEdit = false
+                    showAddToPlaylist = false
+                }
+            } catch (e: WriteConsentRequired) {
+                pendingEdit = Triple(t, a, al)
+                consentLauncher.launch(IntentSenderRequest.Builder(e.intentSender).build())
+            }
+        }
+    }
+
+    fun deleteLocal() {
+        scope.launch {
+            try {
+                val ok = container.library.deleteLocalFile(track)
+                toast(if (ok) "File deleted" else "Couldn't delete file")
+                if (ok) showAddToPlaylist = false
+            } catch (e: WriteConsentRequired) {
+                pendingDelete = true
+                consentLauncher.launch(IntentSenderRequest.Builder(e.intentSender).build())
+            }
+        }
+    }
+
+    fun deleteDownloaded() {
+        scope.launch {
+            val dl = container.database.downloadDao().byTrack(track.sourceId, track.serverId)
+            if (dl != null) container.library.deleteDownload(dl, track)
+            else container.database.trackDao().setPath(track.id, null)
+            toast("Download deleted")
+            showAddToPlaylist = false
+        }
+    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -184,7 +274,6 @@ fun TrackRow(
     if (showAddToPlaylist) {
         val playlists by container.library.playlists()
             .collectAsStateWithLifecycle(initialValue = emptyList())
-        val scope = rememberCoroutineScope()
         var showNew by remember { mutableStateOf(false) }
         ModalBottomSheet(onDismissRequest = { showAddToPlaylist = false }) {
             Text(
@@ -212,6 +301,30 @@ fun TrackRow(
                         modifier = Modifier.clickable {
                             container.library.enqueueDownload(track)
                             showAddToPlaylist = false
+                        },
+                    )
+                }
+                if (track.sourceId == "local") {
+                    ListItem(
+                        headlineContent = { Text("Edit metadata") },
+                        leadingContent = { Icon(Icons.Filled.Edit, null) },
+                        modifier = Modifier.clickable {
+                            showAddToPlaylist = false
+                            showEdit = true
+                        },
+                    )
+                }
+                if (track.sourceId == "local" || track.path != null) {
+                    ListItem(
+                        headlineContent = { Text("Delete file") },
+                        leadingContent = { Icon(Icons.Filled.Delete, null) },
+                        modifier = Modifier.clickable {
+                            if (track.sourceId == "local") {
+                                showAddToPlaylist = false
+                                showDeleteConfirm = true
+                            } else {
+                                deleteDownloaded()
+                            }
                         },
                     )
                 }
@@ -255,6 +368,48 @@ fun TrackRow(
             }
         }
     }
+
+    if (showEdit) {
+        EditMetadataDialog(
+            track = track,
+            onDismiss = { showEdit = false },
+            onSave = { t, a, al -> saveEdit(t, a, al) },
+        )
+    }
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text("Delete from device?") },
+            text = { Text("Removes the file and its library entry.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDeleteConfirm = false
+                    deleteLocal()
+                }) { Text("Delete") }
+            },
+            dismissButton = { TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancel") } },
+        )
+    }
+}
+
+@Composable
+private fun EditMetadataDialog(track: TrackEntity, onDismiss: () -> Unit, onSave: (String, String, String) -> Unit) {
+    var title by remember { mutableStateOf(track.title) }
+    var artist by remember { mutableStateOf(track.artistName) }
+    var album by remember { mutableStateOf(track.albumName) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Edit metadata") },
+        text = {
+            Column {
+                OutlinedTextField(title, { title = it }, label = { Text("Title") }, singleLine = true)
+                OutlinedTextField(artist, { artist = it }, label = { Text("Artist") }, singleLine = true)
+                OutlinedTextField(album, { album = it }, label = { Text("Album") }, singleLine = true)
+            }
+        },
+        confirmButton = { TextButton(onClick = { onSave(title, artist, album) }) { Text("Save") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 @Composable

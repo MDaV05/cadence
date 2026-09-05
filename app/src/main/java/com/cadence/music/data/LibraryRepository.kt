@@ -1,6 +1,11 @@
 package com.cadence.music.data
 
+import android.app.RecoverableSecurityException
 import android.content.ContentUris
+import android.content.ContentValues
+import android.content.IntentSender
+import android.net.Uri
+import android.os.Build
 import android.provider.MediaStore
 import androidx.paging.Pager
 import androidx.paging.PagingConfig
@@ -68,6 +73,9 @@ sealed interface SyncState {
     data class Done(val tracksFetched: Int) : SyncState
     data class Failed(val message: String) : SyncState
 }
+
+/** Thrown when a MediaStore write/delete needs the user's consent (Android 10+). */
+class WriteConsentRequired(val intentSender: IntentSender) : Exception()
 
 class LibraryRepository(
     private val db: AppDatabase,
@@ -645,6 +653,55 @@ class LibraryRepository(
             }
             db.downloadDao().delete(download.trackServerId, download.sourceId)
         }
+    }
+
+    /** Edits a local file's tags via MediaStore, then mirrors them into the DB row. */
+    suspend fun updateTrackMetadata(trackId: Long, title: String, artist: String, album: String): Boolean =
+        withContext(Dispatchers.IO) {
+            val t = title.trim()
+            val aRaw = artist.trim()
+            val al = album.trim()
+            if (t.isBlank() || aRaw.isBlank()) return@withContext false
+            val row = db.trackDao().byId(trackId) ?: return@withContext false
+            val uri = row.path?.let { Uri.parse(it) } ?: return@withContext false
+            val values = ContentValues().apply {
+                put(MediaStore.Audio.Media.TITLE, t)
+                put(MediaStore.Audio.Media.ARTIST, aRaw)
+                put(MediaStore.Audio.Media.ALBUM, al)
+            }
+            try {
+                context.contentResolver.update(uri, values, null, null)
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                // RecoverableSecurityException exists only on Q+; pre-Q this never fires.
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && e is RecoverableSecurityException) {
+                    throw WriteConsentRequired(e.userAction.actionIntent.intentSender)
+                }
+                return@withContext false
+            }
+            val a = primaryArtist(aRaw)
+            db.trackDao().updateMetadata(row.id, t, a, al, albumNormKey(al, aRaw))
+            true
+        }
+
+    /** Deletes a local file via MediaStore, then drops its row + orphan playlist rows. */
+    suspend fun deleteLocalFile(track: TrackEntity): Boolean = withContext(Dispatchers.IO) {
+        val uri = track.path?.let { Uri.parse(it) } ?: return@withContext false
+        try {
+            context.contentResolver.delete(uri, null, null)
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            // RecoverableSecurityException exists only on Q+; pre-Q this never fires.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && e is RecoverableSecurityException) {
+                throw WriteConsentRequired(e.userAction.actionIntent.intentSender)
+            }
+            return@withContext false
+        }
+        db.withTransaction {
+            db.trackDao().delete(track)
+            db.playlistDao().deleteOrphanRows()
+        }
+        true
     }
 
     /** Flips star locally, then syncs the server (fire-and-forget on failure). */

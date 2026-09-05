@@ -56,6 +56,9 @@ interface TrackDao {
     @Query("UPDATE tracks SET path = :path WHERE id = :id")
     suspend fun setPath(id: Long, path: String?)
 
+    @Query("UPDATE tracks SET title = :t, artistName = :a, albumName = :al, albumNorm = :n WHERE id = :id")
+    suspend fun updateMetadata(id: Long, t: String, a: String, al: String, n: String)
+
     @Query("SELECT DISTINCT artistName FROM tracks WHERE artistName != '' ORDER BY artistName")
     fun observeArtistNames(): Flow<List<String>>
 
