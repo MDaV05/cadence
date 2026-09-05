@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.13.4
+
+- Long-press any song to edit its tags or delete it; album and artist names, covers, bios, and lyrics are editable too.
+- Featured artists fold into the main artist and duplicate albums merge into one.
+- Server sync finishes in one tap with live progress.
+- Artist pictures and bios actually load now.
+
 ## 0.13.3
 
 - Long-press works on album songs too, and album/artist names can be renamed from their headers.
