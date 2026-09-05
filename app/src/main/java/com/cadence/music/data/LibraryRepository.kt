@@ -24,6 +24,8 @@ import com.cadence.music.data.source.LocalSource
 import com.cadence.music.data.source.PlexSource
 import com.cadence.music.data.source.SubsonicSource
 import com.cadence.music.data.source.Track
+import com.cadence.music.data.tags.albumNormKey
+import com.cadence.music.data.tags.primaryArtist
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
@@ -226,6 +228,13 @@ class LibraryRepository(
         return list.filter { isIncluded(it.sourceId, it.path, mode) && (active.isEmpty() || isEntryActive(it.sourceId, it.serverId, active)) }
     }
 
+    suspend fun tracksByAlbumNorm(norm: String): List<TrackEntity> {
+        val list = db.trackDao().byAlbumNorm(norm)
+        val mode = prefs.mode
+        val active = activePrefixesSnapshot()
+        return list.filter { isIncluded(it.sourceId, it.path, mode) && (active.isEmpty() || isEntryActive(it.sourceId, it.serverId, active)) }
+    }
+
     /** Per-entry sync failures (entryId → message); cleared on success. */
     val lastSyncError = MutableStateFlow<Map<String, String>>(emptyMap())
 
@@ -294,8 +303,9 @@ class LibraryRepository(
                 sourceId = "local",
                 serverId = t.key,
                 title = t.title,
-                artistName = t.artist,
+                artistName = primaryArtist(t.artist),
                 albumName = t.album,
+                albumNorm = albumNormKey(t.album, t.artist),
                 path = uri.toString(),
                 durationMs = t.durationMs,
                 trackNumber = 0,
@@ -371,8 +381,9 @@ class LibraryRepository(
                     sourceId = sourceId,
                     serverId = nsKey,
                     title = t.title,
-                    artistName = t.artist,
+                    artistName = primaryArtist(t.artist),
                     albumName = t.album,
+                    albumNorm = albumNormKey(t.album, t.artist),
                     albumKey = t.albumKey?.let { namespacedKey(entry.id, it) },
                     // Preserve the downloaded file: REPLACE would otherwise wipe it on re-sync.
                     path = prev?.path,

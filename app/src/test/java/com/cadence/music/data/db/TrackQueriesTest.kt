@@ -167,15 +167,15 @@ class TrackQueriesTest {
     @Test
     fun `albumGroups no filter is byte-identical to unfiltered SQL`() {
         assertEquals(
-            "SELECT albumName AS name, MIN(artistName) AS artistName, COUNT(*) AS trackCount " +
-                "FROM tracks WHERE albumName != '' GROUP BY albumName ORDER BY name COLLATE NOCASE",
+            "SELECT MIN(albumName) AS name, MIN(artistName) AS artistName, albumNorm AS norm, COUNT(*) AS trackCount " +
+                "FROM tracks WHERE albumName != '' GROUP BY albumNorm ORDER BY name COLLATE NOCASE",
             TrackQueries.albumGroupsQuery(null).sql,
         )
         assertEquals(
-            "SELECT albumName AS name, MIN(artistName) AS artistName, COUNT(*) AS trackCount " +
+            "SELECT MIN(albumName) AS name, MIN(artistName) AS artistName, albumNorm AS norm, COUNT(*) AS trackCount " +
                 "FROM tracks WHERE albumName != '' AND (sourceId IN (?) " +
                 "OR (? AND sourceId != 'local' AND path LIKE 'file:%')) " +
-                "GROUP BY albumName ORDER BY name COLLATE NOCASE",
+                "GROUP BY albumNorm ORDER BY name COLLATE NOCASE",
             TrackQueries.albumGroupsQuery(setOf("local")).sql,
         )
     }
@@ -183,16 +183,16 @@ class TrackQueriesTest {
     @Test
     fun `albumGroups with active filter appends AND clause`() {
         assertEquals(
-            "SELECT albumName AS name, MIN(artistName) AS artistName, COUNT(*) AS trackCount " +
+            "SELECT MIN(albumName) AS name, MIN(artistName) AS artistName, albumNorm AS norm, COUNT(*) AS trackCount " +
                 "FROM tracks WHERE albumName != '' AND (serverId LIKE ?) " +
-                "GROUP BY albumName ORDER BY name COLLATE NOCASE",
+                "GROUP BY albumNorm ORDER BY name COLLATE NOCASE",
             TrackQueries.albumGroupsQuery(null, activePrefixes = setOf("e1")).sql,
         )
         assertEquals(
-            "SELECT albumName AS name, MIN(artistName) AS artistName, COUNT(*) AS trackCount " +
+            "SELECT MIN(albumName) AS name, MIN(artistName) AS artistName, albumNorm AS norm, COUNT(*) AS trackCount " +
                 "FROM tracks WHERE albumName != '' AND (sourceId IN (?) " +
                 "OR (? AND sourceId != 'local' AND path LIKE 'file:%')) AND (serverId LIKE ?) " +
-                "GROUP BY albumName ORDER BY name COLLATE NOCASE",
+                "GROUP BY albumNorm ORDER BY name COLLATE NOCASE",
             TrackQueries.albumGroupsQuery(setOf("local"), activePrefixes = setOf("e1")).sql,
         )
     }

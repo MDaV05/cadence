@@ -7,6 +7,8 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.cadence.music.data.legacyPrefixSql
+import com.cadence.music.data.tags.albumNormKey
+import com.cadence.music.data.tags.primaryArtist
 
 @Database(
     entities = [
@@ -20,7 +22,7 @@ import com.cadence.music.data.legacyPrefixSql
         PendingScrobbleEntity::class,
         CustomThemeEntity::class,
     ],
-    version = 9,
+    version = 10,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -120,9 +122,31 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Merge key for deluxe/edition variants; backfilled in place so
+                // play stats, ids, and playlist references survive.
+                db.execSQL("ALTER TABLE tracks ADD COLUMN albumNorm TEXT NOT NULL DEFAULT ''")
+                db.query("SELECT id, artistName, albumName FROM tracks").use { c ->
+                    val idIdx = c.getColumnIndexOrThrow("id")
+                    val artistIdx = c.getColumnIndexOrThrow("artistName")
+                    val albumIdx = c.getColumnIndexOrThrow("albumName")
+                    while (c.moveToNext()) {
+                        val id = c.getLong(idIdx)
+                        val artist = c.getString(artistIdx).orEmpty()
+                        val album = c.getString(albumIdx).orEmpty()
+                        db.execSQL(
+                            "UPDATE tracks SET artistName = ?, albumNorm = ? WHERE id = ?",
+                            arrayOf(primaryArtist(artist), albumNormKey(album, artist), id),
+                        )
+                    }
+                }
+            }
+        }
+
         fun build(context: Context): AppDatabase =
             Room.databaseBuilder(context, AppDatabase::class.java, "cadence.db")
-                .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
+                .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
                 // No paths exist from schema 1/2 (they predate exported schemas);
                 // those dev-only installs rebuild destructively instead of crashing.
                 // ponytail: downgrade-only — a missing v9 migration must crash loudly, never wipe.

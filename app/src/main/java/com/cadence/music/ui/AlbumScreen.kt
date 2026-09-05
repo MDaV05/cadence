@@ -37,7 +37,7 @@ import coil.compose.AsyncImage
 import com.cadence.music.AppContainer
 
 @Composable
-fun AlbumScreen(container: AppContainer, albumName: String) {
+fun AlbumScreen(container: AppContainer, albumNorm: String) {
     val player = container.player
     val context = androidx.compose.ui.platform.LocalContext.current
     var tracks by remember { mutableStateOf<List<com.cadence.music.data.db.TrackEntity>>(emptyList()) }
@@ -50,10 +50,10 @@ fun AlbumScreen(container: AppContainer, albumName: String) {
             .forEach { com.cadence.music.data.downloads.DownloadWorker.enqueue(context, it.id) }
     }
 
-    LaunchedEffect(albumName) {
+    LaunchedEffect(albumNorm) {
         loading = true; error = false
         try {
-            tracks = container.library.tracksByAlbum(albumName)
+            tracks = container.library.tracksByAlbumNorm(albumNorm)
             art = tracks.firstOrNull()?.let { container.artResolver.urlFor(it) }
         } catch (_: Exception) {
             error = true
@@ -90,7 +90,10 @@ fun AlbumScreen(container: AppContainer, albumName: String) {
                         modifier = Modifier.size(96.dp).clip(RoundedCornerShape(12.dp)),
                     )
                     Column(Modifier.weight(1f)) {
-                        Text(albumName, style = MaterialTheme.typography.titleLarge)
+                        Text(
+                            tracks.firstOrNull()?.albumName?.takeIf { it.isNotBlank() } ?: albumNorm,
+                            style = MaterialTheme.typography.titleLarge,
+                        )
                         Text(
                             "${tracks.size} tracks",
                             style = MaterialTheme.typography.bodySmall,

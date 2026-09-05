@@ -68,9 +68,12 @@ interface TrackDao {
     @Query("SELECT * FROM tracks WHERE albumName = :name ORDER BY trackNumber")
     suspend fun byAlbum(name: String): List<TrackEntity>
 
+    @Query("SELECT * FROM tracks WHERE albumNorm = :norm ORDER BY trackNumber")
+    suspend fun byAlbumNorm(norm: String): List<TrackEntity>
+
     @Query(
-        "SELECT albumName AS name, MIN(artistName) AS artistName, COUNT(*) AS trackCount " +
-        "FROM tracks WHERE albumName != '' GROUP BY albumName ORDER BY name COLLATE NOCASE"
+        "SELECT MIN(albumName) AS name, MIN(artistName) AS artistName, albumNorm AS norm, COUNT(*) AS trackCount " +
+        "FROM tracks WHERE albumName != '' GROUP BY albumNorm ORDER BY name COLLATE NOCASE"
     )
     fun observeAlbumGroups(): Flow<List<AlbumGroup>>
 

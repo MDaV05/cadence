@@ -82,7 +82,7 @@ fun ArtistScreen(container: AppContainer, artistName: String, onAlbumClick: (Str
 
     val albums = remember(tracks) {
         // byArtist is ordered by albumName; groupBy preserves first-seen order.
-        tracks.groupBy { it.albumKey ?: it.albumName }
+        tracks.groupBy { it.albumNorm }
     }
 
     Scaffold { padding ->
@@ -149,8 +149,13 @@ fun ArtistScreen(container: AppContainer, artistName: String, onAlbumClick: (Str
                 item(span = { GridItemSpan(maxLineSpan) }) {
                     Text("Albums", style = MaterialTheme.typography.titleMedium)
                 }
-                items(albums.entries.toList(), key = { "album:${it.key}" }) { (_, albumTracks) ->
-                    AlbumCell(container, albumName = albumTracks.first().albumName, tracks = albumTracks) {
+                items(albums.entries.toList(), key = { "album:${it.key}" }) { (norm, albumTracks) ->
+                    AlbumCell(
+                        container,
+                        albumNorm = norm,
+                        displayName = albumTracks.first().albumName,
+                        tracks = albumTracks,
+                    ) {
                         if (it.isNotBlank()) onAlbumClick(it)
                     }
                 }
@@ -179,17 +184,18 @@ fun ArtistScreen(container: AppContainer, artistName: String, onAlbumClick: (Str
 @Composable
 private fun AlbumCell(
     container: AppContainer,
-    albumName: String,
+    albumNorm: String,
+    displayName: String,
     tracks: List<TrackEntity>,
     onClick: (String) -> Unit,
 ) {
-    val art by produceState<String?>(null, albumName) {
+    val art by produceState<String?>(null, albumNorm) {
         value = tracks.firstOrNull()?.let { container.artResolver.urlFor(it) }
     }
-    Column(Modifier.clickable { onClick(albumName) }) {
+    Column(Modifier.clickable { onClick(albumNorm) }) {
         AsyncImage(
             model = art,
-            contentDescription = albumName,
+            contentDescription = displayName,
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(1f)
@@ -197,7 +203,7 @@ private fun AlbumCell(
                 .background(MaterialTheme.colorScheme.surfaceVariant),
         )
         Text(
-            albumName,
+            displayName,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(top = 6.dp),

@@ -143,23 +143,23 @@ object TrackQueries {
         if (sources == null) {
             if (activeSql.isEmpty()) {
                 return SimpleSQLiteQuery(
-                    "SELECT albumName AS name, MIN(artistName) AS artistName, COUNT(*) AS trackCount " +
-                        "FROM tracks WHERE albumName != '' GROUP BY albumName ORDER BY name COLLATE NOCASE"
+                    "SELECT MIN(albumName) AS name, MIN(artistName) AS artistName, albumNorm AS norm, COUNT(*) AS trackCount " +
+                        "FROM tracks WHERE albumName != '' GROUP BY albumNorm ORDER BY name COLLATE NOCASE"
                 )
             }
             return SimpleSQLiteQuery(
-                "SELECT albumName AS name, MIN(artistName) AS artistName, COUNT(*) AS trackCount " +
-                    "FROM tracks WHERE albumName != ''$activeSql GROUP BY albumName ORDER BY name COLLATE NOCASE",
+                "SELECT MIN(albumName) AS name, MIN(artistName) AS artistName, albumNorm AS norm, COUNT(*) AS trackCount " +
+                    "FROM tracks WHERE albumName != ''$activeSql GROUP BY albumNorm ORDER BY name COLLATE NOCASE",
                 activeArgs,
             )
         }
         val sorted = sources.sorted()
         val placeholders = sorted.joinToString(", ") { "?" }
         return SimpleSQLiteQuery(
-            "SELECT albumName AS name, MIN(artistName) AS artistName, COUNT(*) AS trackCount " +
+            "SELECT MIN(albumName) AS name, MIN(artistName) AS artistName, albumNorm AS norm, COUNT(*) AS trackCount " +
                 "FROM tracks WHERE albumName != '' AND (sourceId IN ($placeholders) " +
                 "OR (? AND sourceId != 'local' AND path LIKE 'file:%'))$activeSql " +
-                "GROUP BY albumName ORDER BY name COLLATE NOCASE",
+                "GROUP BY albumNorm ORDER BY name COLLATE NOCASE",
             arrayOf(*sorted.toTypedArray(), if (includeDownloaded) 1 else 0, *activeArgs),
         )
     }
