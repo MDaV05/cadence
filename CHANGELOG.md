@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.13.3
+
+- Long-press works on album songs too, and album/artist names can be renamed from their headers.
+- New versions now pop up a notification that jumps straight to About and downloads in one tap.
+
 ## 0.13.2
 
 - Featured artists collapse into the first-mentioned artist, and album variants (deluxe, case differences) merge into one entry.
