@@ -213,4 +213,9 @@ class Prefs(context: Context) {
     var artistRepairDone: Boolean
         get() = sp.getBoolean("artist_repair_v1", false)
         set(value) = sp.edit().putBoolean("artist_repair_v1", value).apply()
+
+    /** Last update tag a heads-up notification was posted for; "" = none yet. */
+    var lastNotifiedTag: String
+        get() = sp.getString("update_notified_tag", null) ?: ""
+        set(value) = sp.edit().putString("update_notified_tag", value).apply()
 }

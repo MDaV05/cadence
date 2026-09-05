@@ -48,6 +48,10 @@
         </service>
 
         <receiver
+            android:name=".data.update.UpdateDownloadReceiver"
+            android:exported="false" />
+
+        <receiver
             android:name=".playback.PlayerWidget"
             android:exported="false">
             <intent-filter>

@@ -138,7 +138,6 @@ fun LibraryScreen(
 
 @OptIn(
     androidx.compose.foundation.ExperimentalFoundationApi::class,
-    androidx.compose.material3.ExperimentalMaterial3Api::class,
 )
 @Composable
 fun TrackRow(
@@ -150,92 +149,12 @@ fun TrackRow(
     val art by produceState<String?>(null, track.id) {
         value = container.artResolver.urlFor(track)
     }
-    var showAddToPlaylist by remember { mutableStateOf(false) }
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var showEdit by remember { mutableStateOf(false) }
-    var showDeleteConfirm by remember { mutableStateOf(false) }
-    var pendingEdit by remember { mutableStateOf<Triple<String, String, String>?>(null) }
-    var pendingDelete by remember { mutableStateOf(false) }
+    var showSheet by remember { mutableStateOf(false) }
 
-    fun toast(msg: String) = Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
-
-    val consentLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.StartIntentSenderForResult()
-    ) { result ->
-        scope.launch {
-            if (result.resultCode == Activity.RESULT_OK) {
-                try {
-                    if (pendingDelete) {
-                        val ok = container.library.deleteLocalFile(track)
-                        toast(if (ok) "File deleted" else "Couldn't delete file")
-                        if (ok) showAddToPlaylist = false
-                    } else {
-                        pendingEdit?.let { (t, a, al) ->
-                            val ok = container.library.updateTrackMetadata(track.id, t, a, al)
-                            toast(if (ok) "Metadata updated" else "Couldn't update metadata")
-                            if (ok) {
-                                showEdit = false
-                                showAddToPlaylist = false
-                            }
-                        }
-                    }
-                } catch (e: WriteConsentRequired) {
-                    toast("Couldn't complete — permission denied")
-                } finally {
-                    pendingEdit = null
-                    pendingDelete = false
-                }
-            } else {
-                toast("Not changed — permission denied")
-                pendingEdit = null
-                pendingDelete = false
-            }
-        }
-    }
-
-    fun saveEdit(t: String, a: String, al: String) {
-        scope.launch {
-            try {
-                val ok = container.library.updateTrackMetadata(track.id, t, a, al)
-                toast(if (ok) "Metadata updated" else "Couldn't update metadata")
-                if (ok) {
-                    showEdit = false
-                    showAddToPlaylist = false
-                }
-            } catch (e: WriteConsentRequired) {
-                pendingEdit = Triple(t, a, al)
-                consentLauncher.launch(IntentSenderRequest.Builder(e.intentSender).build())
-            }
-        }
-    }
-
-    fun deleteLocal() {
-        scope.launch {
-            try {
-                val ok = container.library.deleteLocalFile(track)
-                toast(if (ok) "File deleted" else "Couldn't delete file")
-                if (ok) showAddToPlaylist = false
-            } catch (e: WriteConsentRequired) {
-                pendingDelete = true
-                consentLauncher.launch(IntentSenderRequest.Builder(e.intentSender).build())
-            }
-        }
-    }
-
-    fun deleteDownloaded() {
-        scope.launch {
-            val dl = container.database.downloadDao().byTrack(track.sourceId, track.serverId)
-            if (dl != null) container.library.deleteDownload(dl, track)
-            else container.database.trackDao().setPath(track.id, null)
-            toast("Download deleted")
-            showAddToPlaylist = false
-        }
-    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .combinedClickable(onClick = onClick, onLongClick = { showAddToPlaylist = true })
+            .combinedClickable(onClick = onClick, onLongClick = { showSheet = true })
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -271,11 +190,116 @@ fun TrackRow(
         )
     }
 
-    if (showAddToPlaylist) {
+    if (showSheet) {
+        TrackActionsSheet(
+            container = container,
+            track = track,
+            onArtistClick = onArtistClick,
+            onDismiss = { showSheet = false },
+        )
+    }
+}
+
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+fun TrackActionsSheet(
+    container: AppContainer,
+    track: TrackEntity,
+    onArtistClick: (String) -> Unit = {},
+    onDismiss: () -> Unit,
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var showEdit by remember { mutableStateOf(false) }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+    var sheetVisible by remember { mutableStateOf(true) }
+    var pendingEdit by remember { mutableStateOf<Triple<String, String, String>?>(null) }
+    var pendingDelete by remember { mutableStateOf(false) }
+
+    fun toast(msg: String) = Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+    fun close() {
+        sheetVisible = false
+        onDismiss()
+    }
+
+    val consentLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        scope.launch {
+            if (result.resultCode == Activity.RESULT_OK) {
+                try {
+                    if (pendingDelete) {
+                        val ok = container.library.deleteLocalFile(track)
+                        toast(if (ok) "File deleted" else "Couldn't delete file")
+                        if (ok) close()
+                    } else {
+                        pendingEdit?.let { (t, a, al) ->
+                            val ok = container.library.updateTrackMetadata(track.id, t, a, al)
+                            toast(if (ok) "Metadata updated" else "Couldn't update metadata")
+                            if (ok) {
+                                showEdit = false
+                                close()
+                            }
+                        }
+                    }
+                } catch (e: WriteConsentRequired) {
+                    toast("Couldn't complete — permission denied")
+                } finally {
+                    pendingEdit = null
+                    pendingDelete = false
+                }
+            } else {
+                toast("Not changed — permission denied")
+                pendingEdit = null
+                pendingDelete = false
+            }
+        }
+    }
+
+    fun saveEdit(t: String, a: String, al: String) {
+        scope.launch {
+            try {
+                val ok = container.library.updateTrackMetadata(track.id, t, a, al)
+                toast(if (ok) "Metadata updated" else "Couldn't update metadata")
+                if (ok) {
+                    showEdit = false
+                    close()
+                }
+            } catch (e: WriteConsentRequired) {
+                pendingEdit = Triple(t, a, al)
+                consentLauncher.launch(IntentSenderRequest.Builder(e.intentSender).build())
+            }
+        }
+    }
+
+    fun deleteLocal() {
+        scope.launch {
+            try {
+                val ok = container.library.deleteLocalFile(track)
+                toast(if (ok) "File deleted" else "Couldn't delete file")
+                if (ok) close()
+            } catch (e: WriteConsentRequired) {
+                pendingDelete = true
+                consentLauncher.launch(IntentSenderRequest.Builder(e.intentSender).build())
+            }
+        }
+    }
+
+    fun deleteDownloaded() {
+        scope.launch {
+            val dl = container.database.downloadDao().byTrack(track.sourceId, track.serverId)
+            if (dl != null) container.library.deleteDownload(dl, track)
+            else container.database.trackDao().setPath(track.id, null)
+            toast("Download deleted")
+            close()
+        }
+    }
+
+    if (sheetVisible) {
         val playlists by container.library.playlists()
             .collectAsStateWithLifecycle(initialValue = emptyList())
         var showNew by remember { mutableStateOf(false) }
-        ModalBottomSheet(onDismissRequest = { showAddToPlaylist = false }) {
+        ModalBottomSheet(onDismissRequest = { close() }) {
             Text(
                 "Add to playlist",
                 style = MaterialTheme.typography.titleMedium,
@@ -288,7 +312,7 @@ fun TrackRow(
                         scope.launch {
                             val id = container.library.createPlaylist(name)
                             if (id > 0) container.library.addToPlaylist(id, track.id)
-                            showAddToPlaylist = false
+                            close()
                         }
                     },
                     onDismiss = { showNew = false },
@@ -300,7 +324,7 @@ fun TrackRow(
                         leadingContent = { Icon(Icons.Filled.Download, null) },
                         modifier = Modifier.clickable {
                             container.library.enqueueDownload(track)
-                            showAddToPlaylist = false
+                            close()
                         },
                     )
                 }
@@ -309,7 +333,7 @@ fun TrackRow(
                         headlineContent = { Text("Edit metadata") },
                         leadingContent = { Icon(Icons.Filled.Edit, null) },
                         modifier = Modifier.clickable {
-                            showAddToPlaylist = false
+                            sheetVisible = false
                             showEdit = true
                         },
                     )
@@ -320,7 +344,7 @@ fun TrackRow(
                         leadingContent = { Icon(Icons.Filled.Delete, null) },
                         modifier = Modifier.clickable {
                             if (track.sourceId == "local") {
-                                showAddToPlaylist = false
+                                sheetVisible = false
                                 showDeleteConfirm = true
                             } else {
                                 deleteDownloaded()
@@ -331,18 +355,18 @@ fun TrackRow(
                 ListItem(
                     headlineContent = { Text("Play next") },
                     leadingContent = { Icon(Icons.Filled.SkipNext, null) },
-                    modifier = Modifier.clickable {
-                        container.player.playNext(track.toTrack())
-                        showAddToPlaylist = false
-                    },
+                        modifier = Modifier.clickable {
+                            container.player.playNext(track.toTrack())
+                            close()
+                        },
                 )
                 ListItem(
                     headlineContent = { Text("Add to queue") },
                     leadingContent = { Icon(Icons.Filled.PlaylistAdd, null) },
-                    modifier = Modifier.clickable {
-                        container.player.addToQueue(track.toTrack())
-                        showAddToPlaylist = false
-                    },
+                        modifier = Modifier.clickable {
+                            container.player.addToQueue(track.toTrack())
+                            close()
+                        },
                 )
                 ListItem(
                     headlineContent = { Text("New playlist…") },
@@ -359,7 +383,7 @@ fun TrackRow(
                             modifier = Modifier.clickable {
                                 scope.launch {
                                     container.library.addToPlaylist(p.id, track.id)
-                                    showAddToPlaylist = false
+                                    close()
                                 }
                             },
                         )
@@ -372,13 +396,13 @@ fun TrackRow(
     if (showEdit) {
         EditMetadataDialog(
             track = track,
-            onDismiss = { showEdit = false },
+            onDismiss = { showEdit = false; onDismiss() },
             onSave = { t, a, al -> saveEdit(t, a, al) },
         )
     }
     if (showDeleteConfirm) {
         AlertDialog(
-            onDismissRequest = { showDeleteConfirm = false },
+            onDismissRequest = { showDeleteConfirm = false; onDismiss() },
             title = { Text("Delete from device?") },
             text = { Text("Removes the file and its library entry.") },
             confirmButton = {
@@ -387,7 +411,7 @@ fun TrackRow(
                     deleteLocal()
                 }) { Text("Delete") }
             },
-            dismissButton = { TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { showDeleteConfirm = false; onDismiss() }) { Text("Cancel") } },
         )
     }
 }

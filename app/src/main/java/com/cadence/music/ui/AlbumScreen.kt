@@ -1,6 +1,12 @@
 package com.cadence.music.ui
 
-import androidx.compose.foundation.clickable
+import android.app.Activity
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -10,50 +16,108 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Shuffle
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.cadence.music.AppContainer
+import com.cadence.music.data.WriteConsentRequired
+import com.cadence.music.data.db.TrackEntity
+import com.cadence.music.data.tags.albumNormKey
+import kotlinx.coroutines.launch
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun AlbumScreen(container: AppContainer, albumNorm: String) {
     val player = container.player
-    val context = androidx.compose.ui.platform.LocalContext.current
-    var tracks by remember { mutableStateOf<List<com.cadence.music.data.db.TrackEntity>>(emptyList()) }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var currentNorm by remember(albumNorm) { mutableStateOf(albumNorm) }
+    var tracks by remember { mutableStateOf<List<TrackEntity>>(emptyList()) }
     var art by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf(false) }
+    var sheetTrack by remember { mutableStateOf<TrackEntity?>(null) }
+    var showRename by remember { mutableStateOf(false) }
+    var renameValue by remember { mutableStateOf("") }
+    var pendingRename by remember { mutableStateOf<String?>(null) }
+
+    fun toast(msg: String) = Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
 
     fun downloadAll() {
         tracks.filter { it.sourceId != "local" && it.path == null }
             .forEach { com.cadence.music.data.downloads.DownloadWorker.enqueue(context, it.id) }
     }
 
-    LaunchedEffect(albumNorm) {
+    val consentLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        scope.launch {
+            if (result.resultCode == Activity.RESULT_OK) {
+                pendingRename?.let { name ->
+                    try {
+                        val ok = container.library.renameAlbumTracks(currentNorm, name)
+                        toast(if (ok) "Metadata updated" else "Couldn't update metadata")
+                        if (ok) {
+                            showRename = false
+                            currentNorm = albumNormKey(name.trim(), tracks.firstOrNull()?.artistName.orEmpty())
+                        }
+                    } catch (e: WriteConsentRequired) {
+                        toast("Couldn't complete — permission denied")
+                    }
+                }
+            } else {
+                toast("Not changed — permission denied")
+            }
+            pendingRename = null
+        }
+    }
+
+    fun doRename(name: String) {
+        scope.launch {
+            try {
+                val ok = container.library.renameAlbumTracks(currentNorm, name)
+                toast(if (ok) "Metadata updated" else "Couldn't update metadata")
+                if (ok) {
+                    showRename = false
+                    currentNorm = albumNormKey(name.trim(), tracks.firstOrNull()?.artistName.orEmpty())
+                }
+            } catch (e: WriteConsentRequired) {
+                pendingRename = name
+                consentLauncher.launch(IntentSenderRequest.Builder(e.intentSender).build())
+            }
+        }
+    }
+
+    LaunchedEffect(currentNorm) {
         loading = true; error = false
         try {
-            tracks = container.library.tracksByAlbumNorm(albumNorm)
+            tracks = container.library.tracksByAlbumNorm(currentNorm)
             art = tracks.firstOrNull()?.let { container.artResolver.urlFor(it) }
         } catch (_: Exception) {
             error = true
@@ -61,6 +125,8 @@ fun AlbumScreen(container: AppContainer, albumNorm: String) {
             loading = false
         }
     }
+
+    val allLocal = tracks.isNotEmpty() && tracks.all { it.sourceId == "local" }
 
     Scaffold { padding ->
         when {
@@ -91,7 +157,7 @@ fun AlbumScreen(container: AppContainer, albumNorm: String) {
                     )
                     Column(Modifier.weight(1f)) {
                         Text(
-                            tracks.firstOrNull()?.albumName?.takeIf { it.isNotBlank() } ?: albumNorm,
+                            tracks.firstOrNull()?.albumName?.takeIf { it.isNotBlank() } ?: currentNorm,
                             style = MaterialTheme.typography.titleLarge,
                         )
                         Text(
@@ -110,6 +176,14 @@ fun AlbumScreen(container: AppContainer, albumNorm: String) {
                         IconButton(onClick = { downloadAll() }) {
                             Icon(Icons.Filled.Download, "Download album")
                         }
+                        if (allLocal) {
+                            IconButton(onClick = {
+                                renameValue = tracks.firstOrNull()?.albumName.orEmpty()
+                                showRename = true
+                            }) {
+                                Icon(Icons.Filled.Edit, "Rename album")
+                            }
+                        }
                     }
                 }
             }
@@ -117,7 +191,10 @@ fun AlbumScreen(container: AppContainer, albumNorm: String) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { player.playNow(tracks.map { it.toTrack() }, index) }
+                        .combinedClickable(
+                            onClick = { player.playNow(tracks.map { it.toTrack() }, index) },
+                            onLongClick = { sheetTrack = track },
+                        )
                         .padding(horizontal = 16.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -137,5 +214,25 @@ fun AlbumScreen(container: AppContainer, albumNorm: String) {
             }
             }
         }
+    }
+
+    sheetTrack?.let { track ->
+        TrackActionsSheet(
+            container = container,
+            track = track,
+            onDismiss = { sheetTrack = null },
+        )
+    }
+
+    if (showRename) {
+        AlertDialog(
+            onDismissRequest = { showRename = false },
+            title = { Text("Rename album") },
+            text = {
+                OutlinedTextField(renameValue, { renameValue = it }, label = { Text("Title") }, singleLine = true)
+            },
+            confirmButton = { TextButton(onClick = { doRename(renameValue) }) { Text("Save") } },
+            dismissButton = { TextButton(onClick = { showRename = false }) { Text("Cancel") } },
+        )
     }
 }

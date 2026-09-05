@@ -69,8 +69,16 @@ class CadenceApp : Application(), coil.ImageLoaderFactory {
         }
         appScope.launch { container.loadCustomThemes() }
         // Update check: tiny JSON, any network, never blocks startup, never dialogs.
+        // A new Available tag posts one heads-up notification (About stays the fallback).
         if (container.prefs.updateAutoCheck) {
-            appScope.launch { runCatching { container.refreshUpdateStatus() } }
+            appScope.launch {
+                runCatching { container.refreshUpdateStatus() }
+                val status = container.updateStatus.value
+                if (status is Available && status.tag != container.prefs.lastNotifiedTag) {
+                    runCatching { postUpdateNotification(status.tag, status.assetUrl) }
+                    container.prefs.lastNotifiedTag = status.tag
+                }
+            }
         }
     }
 
@@ -90,6 +98,39 @@ class CadenceApp : Application(), coil.ImageLoaderFactory {
         val permission = if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_AUDIO
         else Manifest.permission.READ_EXTERNAL_STORAGE
         return checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
+    }
+
+    /** Heads-up "update available": tap lands on About, Download enqueues the APK. */
+    private fun postUpdateNotification(tag: String, assetUrl: String) {
+        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+        nm.createNotificationChannel(
+            android.app.NotificationChannel("updates", "Updates", android.app.NotificationManager.IMPORTANCE_HIGH)
+        )
+        val openAbout = android.app.PendingIntent.getActivity(
+            this, 0,
+            Intent(this, MainActivity::class.java)
+                .putExtra("open_about", true)
+                .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE,
+        )
+        val download = android.app.PendingIntent.getBroadcast(
+            this, tag.hashCode(),
+            Intent(this, com.cadence.music.data.update.UpdateDownloadReceiver::class.java)
+                .putExtra("tag", tag)
+                .putExtra("assetUrl", assetUrl),
+            android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE,
+        )
+        nm.notify(
+            "update".hashCode(),
+            android.app.Notification.Builder(this, "updates")
+                .setContentTitle("Cadence $tag available")
+                .setContentText("Tap to see what's new, or download directly.")
+                .setSmallIcon(android.R.drawable.stat_sys_download_done)
+                .setContentIntent(openAbout)
+                .setAutoCancel(true)
+                .addAction(android.R.drawable.stat_sys_download, "Download", download)
+                .build(),
+        )
     }
 
     private fun schedulePeriodicSync() {
