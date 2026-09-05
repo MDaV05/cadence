@@ -31,7 +31,7 @@ object TrackQueries {
         if (sources == null) return SimpleSQLiteQuery("SELECT * FROM tracks ORDER BY $order")
         val sorted = sources.sorted()
         val placeholders = sorted.joinToString(", ") { "?" }
-        val downloaded = if (includeDownloaded) " OR (sourceId = 'subsonic' AND path LIKE 'file:%')" else ""
+        val downloaded = if (includeDownloaded) " OR (sourceId != 'local' AND path LIKE 'file:%')" else ""
         return SimpleSQLiteQuery(
             "SELECT * FROM tracks WHERE (sourceId IN ($placeholders)$downloaded) ORDER BY $order",
             sorted.toTypedArray(),
@@ -54,7 +54,7 @@ object TrackQueries {
         }
         val sorted = sources.sorted()
         val placeholders = sorted.joinToString(", ") { "?" }
-        val downloaded = if (includeDownloaded) " OR (sourceId = 'subsonic' AND path LIKE 'file:%')" else ""
+        val downloaded = if (includeDownloaded) " OR (sourceId != 'local' AND path LIKE 'file:%')" else ""
         return SimpleSQLiteQuery(
             "SELECT * FROM tracks WHERE ($match) AND (sourceId IN ($placeholders)$downloaded) " +
                 "ORDER BY title COLLATE NOCASE",

@@ -21,8 +21,8 @@ class SyncWorker(appContext: Context, params: WorkerParameters) :
             applicationContext.checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE) ==
                 PackageManager.PERMISSION_GRANTED
         }
-        // Nothing to do without either a readable media store or a server.
-        if (!hasAudioPermission && container.prefs.server == null) return Result.success()
+        // Nothing to do without either a readable media store or an active server.
+        if (!hasAudioPermission && container.prefs.servers.none { it.active }) return Result.success()
         return try {
             container.library.syncAll()
             container.flushPendingScrobbles()

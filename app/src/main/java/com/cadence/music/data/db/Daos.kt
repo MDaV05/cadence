@@ -40,7 +40,7 @@ interface TrackDao {
 
     @Query(
         "SELECT COUNT(*) FROM tracks WHERE sourceId IN (:sources) " +
-            "OR (:includeDownloaded AND sourceId = 'subsonic' AND path LIKE 'file:%')"
+            "OR (:includeDownloaded AND sourceId != 'local' AND path LIKE 'file:%')"
     )
     fun observeCountFor(sources: Set<String>, includeDownloaded: Boolean = false): Flow<Int>
 
@@ -64,7 +64,7 @@ interface TrackDao {
 
     @Query(
         "SELECT DISTINCT artistName FROM tracks WHERE artistName != '' AND (sourceId IN (:sources) " +
-            "OR (:includeDownloaded AND sourceId = 'subsonic' AND path LIKE 'file:%')) ORDER BY artistName"
+            "OR (:includeDownloaded AND sourceId != 'local' AND path LIKE 'file:%')) ORDER BY artistName"
     )
     fun observeArtistNamesFor(sources: Set<String>, includeDownloaded: Boolean = false): Flow<List<String>>
 
@@ -83,7 +83,7 @@ interface TrackDao {
     @Query(
         "SELECT albumName AS name, MIN(artistName) AS artistName, COUNT(*) AS trackCount " +
             "FROM tracks WHERE albumName != '' AND (sourceId IN (:sources) " +
-            "OR (:includeDownloaded AND sourceId = 'subsonic' AND path LIKE 'file:%')) " +
+            "OR (:includeDownloaded AND sourceId != 'local' AND path LIKE 'file:%')) " +
             "GROUP BY albumName ORDER BY name COLLATE NOCASE"
     )
     fun observeAlbumGroupsFor(sources: Set<String>, includeDownloaded: Boolean = false): Flow<List<AlbumGroup>>

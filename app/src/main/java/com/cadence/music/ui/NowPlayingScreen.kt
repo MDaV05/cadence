@@ -272,7 +272,8 @@ fun NowPlayingScreen(container: AppContainer) {
                         withContext(Dispatchers.IO) { container.database.trackDao().byServerId(mid2) }
                     }
                 }
-                if (currentTrack?.sourceId == "subsonic") {
+                // Stars route to subsonic/jellyfin/emby only; plex starring unsupported v1.
+                if (currentTrack?.sourceId.let { it != null && it != "local" && it != "plex" } == true) {
                     val starred = currentTrack?.starred == true
                     IconButton(onClick = {
                         val t = currentTrack ?: return@IconButton

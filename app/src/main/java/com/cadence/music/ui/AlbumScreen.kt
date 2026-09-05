@@ -46,7 +46,7 @@ fun AlbumScreen(container: AppContainer, albumName: String) {
     var error by remember { mutableStateOf(false) }
 
     fun downloadAll() {
-        tracks.filter { it.sourceId == "subsonic" && it.path == null }
+        tracks.filter { it.sourceId != "local" && it.path == null }
             .forEach { com.cadence.music.data.downloads.DownloadWorker.enqueue(context, it.id) }
     }
 

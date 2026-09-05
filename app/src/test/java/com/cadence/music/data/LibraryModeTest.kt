@@ -15,8 +15,8 @@ class LibraryModeTest {
     }
 
     @Test
-    fun `api only maps to subsonic source`() {
-        assertEquals(setOf("subsonic"), sourcesFor(LibraryMode.API_ONLY))
+    fun `api only maps to all server sources`() {
+        assertEquals(setOf("subsonic", "jellyfin", "emby", "plex"), sourcesFor(LibraryMode.API_ONLY))
     }
 
     @Test
@@ -25,11 +25,16 @@ class LibraryModeTest {
     }
 
     @Test
-    fun `downloaded means subsonic with local file`() {
+    fun `downloaded means non-local with local file`() {
         assertTrue(isDownloaded("subsonic", "file:///data/a.audio"))
+        assertTrue(isDownloaded("jellyfin", "file:///data/b.audio"))
+        assertTrue(isDownloaded("emby", "file:///data/c.audio"))
+        assertTrue(isDownloaded("plex", "file:///data/d.audio"))
         assertFalse(isDownloaded("subsonic", null))
         assertFalse(isDownloaded("subsonic", "https://server/stream?id=1"))
+        assertFalse(isDownloaded("jellyfin", null))
         assertFalse(isDownloaded("local", "content://media/1"))
+        assertFalse(isDownloaded("local", "file:///data/e.audio"))
     }
 
     @Test
@@ -37,7 +42,10 @@ class LibraryModeTest {
         val m = LibraryMode.LOCAL_ONLY
         assertTrue(isIncluded("local", "content://media/1", m))
         assertTrue(isIncluded("subsonic", "file:///data/a.audio", m))
+        assertTrue(isIncluded("jellyfin", "file:///data/b.audio", m))
+        assertTrue(isIncluded("plex", "file:///data/d.audio", m))
         assertFalse(isIncluded("subsonic", null, m))
+        assertFalse(isIncluded("jellyfin", null, m))
     }
 
     @Test
@@ -45,6 +53,9 @@ class LibraryModeTest {
         val m = LibraryMode.API_ONLY
         assertTrue(isIncluded("subsonic", null, m))
         assertTrue(isIncluded("subsonic", "file:///data/a.audio", m))
+        assertTrue(isIncluded("jellyfin", null, m))
+        assertTrue(isIncluded("emby", null, m))
+        assertTrue(isIncluded("plex", null, m))
         assertFalse(isIncluded("local", "content://media/1", m))
     }
 
@@ -53,5 +64,7 @@ class LibraryModeTest {
         val m = LibraryMode.HYBRID
         assertTrue(isIncluded("local", "content://media/1", m))
         assertTrue(isIncluded("subsonic", null, m))
+        assertTrue(isIncluded("jellyfin", null, m))
+        assertTrue(isIncluded("plex", null, m))
     }
 }
