@@ -113,7 +113,7 @@ class PlexSource(private val entry: ServerEntry, private val deviceId: String) :
         val musicKeys = (0 until sections.length()).mapNotNull { i ->
             val d = sections.getJSONObject(i)
             val type = d.optString("type", "")
-            if (type == "music" || type == "artist") d.getString("key") else null
+            if (type == "music" || type == "artist") d.optString("key", "").ifBlank { null } else null
         }
         val out = mutableListOf<Track>()
         for (section in musicKeys) {
