@@ -14,7 +14,6 @@ A light, fast, native Android music player for your own library — local files,
 - **Rich metadata** — synced lyrics (LRCLIB), artist bios and images (Wikipedia), MusicBrainz-backed art
 - **Scrobbling** — ListenBrainz with offline queue
 - **Personal** — playlists with custom covers, themes (incl. custom + Apple Music / Spotify looks), sleep timer, widget, Android Auto
-- **Self-updating** — checks GitHub releases on launch, downloads and installs from the About tab
 
 ## Quick Start
 
