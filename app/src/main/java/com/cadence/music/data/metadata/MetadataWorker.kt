@@ -69,6 +69,9 @@ class MetadataWorker(appContext: Context, params: WorkerParameters) :
         for (name in names) {
             if (isStopped) return
             val info = runCatching { Wikipedia.artistInfoBlocking(name) }.getOrNull()
+            // No-miss-cache: an all-null lookup is a miss, not data — skip it so
+            // the artist retries on the next visit/run instead of poisoning for 30 days.
+            if (info?.bio == null && info?.imageUrl == null) continue
             withContext(Dispatchers.IO) {
                 db.artistInfoDao().upsert(
                     ArtistInfoEntity(name = name, bio = info?.bio, imageUrl = info?.imageUrl),

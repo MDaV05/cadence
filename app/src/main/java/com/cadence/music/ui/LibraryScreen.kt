@@ -28,6 +28,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Edit
@@ -77,7 +78,9 @@ import coil.compose.AsyncImage
 import com.cadence.music.AppContainer
 import com.cadence.music.data.WriteConsentRequired
 import com.cadence.music.data.db.TrackEntity
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 fun LibraryScreen(
@@ -213,13 +216,24 @@ fun TrackActionsSheet(
     var showEdit by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var sheetVisible by remember { mutableStateOf(true) }
-    var pendingEdit by remember { mutableStateOf<Triple<String, String, String>?>(null) }
+    var pendingEdit by remember { mutableStateOf<PendingEdit?>(null) }
     var pendingDelete by remember { mutableStateOf(false) }
 
     fun toast(msg: String) = Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
     fun close() {
         sheetVisible = false
         onDismiss()
+    }
+
+    val coverPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val ok = container.library.setTrackCover(track.id, uri)
+            toast(if (ok) "Cover updated" else "Couldn't set cover")
+            if (ok) close()
+        }
     }
 
     val consentLauncher = rememberLauncherForActivityResult(
@@ -233,8 +247,8 @@ fun TrackActionsSheet(
                         toast(if (ok) "File deleted" else "Couldn't delete file")
                         if (ok) close()
                     } else {
-                        pendingEdit?.let { (t, a, al) ->
-                            val ok = container.library.updateTrackMetadata(track.id, t, a, al)
+                        pendingEdit?.let { e ->
+                            val ok = container.library.updateTrackMetadata(track.id, e.title, e.artist, e.album, e.genre)
                             toast(if (ok) "Metadata updated" else "Couldn't update metadata")
                             if (ok) {
                                 showEdit = false
@@ -256,17 +270,17 @@ fun TrackActionsSheet(
         }
     }
 
-    fun saveEdit(t: String, a: String, al: String) {
+    fun saveEdit(t: String, a: String, al: String, g: String) {
         scope.launch {
             try {
-                val ok = container.library.updateTrackMetadata(track.id, t, a, al)
+                val ok = container.library.updateTrackMetadata(track.id, t, a, al, g)
                 toast(if (ok) "Metadata updated" else "Couldn't update metadata")
                 if (ok) {
                     showEdit = false
                     close()
                 }
             } catch (e: WriteConsentRequired) {
-                pendingEdit = Triple(t, a, al)
+                pendingEdit = PendingEdit(t, a, al, g)
                 consentLauncher.launch(IntentSenderRequest.Builder(e.intentSender).build())
             }
         }
@@ -338,6 +352,11 @@ fun TrackActionsSheet(
                         },
                     )
                 }
+                ListItem(
+                    headlineContent = { Text("Set custom cover") },
+                    leadingContent = { Icon(Icons.Filled.AddPhotoAlternate, null) },
+                    modifier = Modifier.clickable { coverPicker.launch("image/*") },
+                )
                 if (track.sourceId == "local" || track.path != null) {
                     ListItem(
                         headlineContent = { Text("Delete file") },
@@ -395,9 +414,10 @@ fun TrackActionsSheet(
 
     if (showEdit) {
         EditMetadataDialog(
+            container = container,
             track = track,
             onDismiss = { showEdit = false; onDismiss() },
-            onSave = { t, a, al -> saveEdit(t, a, al) },
+            onSave = { t, a, al, g -> saveEdit(t, a, al, g) },
         )
     }
     if (showDeleteConfirm) {
@@ -416,11 +436,29 @@ fun TrackActionsSheet(
     }
 }
 
+private data class PendingEdit(val title: String, val artist: String, val album: String, val genre: String)
+
 @Composable
-private fun EditMetadataDialog(track: TrackEntity, onDismiss: () -> Unit, onSave: (String, String, String) -> Unit) {
+private fun EditMetadataDialog(
+    container: AppContainer,
+    track: TrackEntity,
+    onDismiss: () -> Unit,
+    onSave: (String, String, String, String) -> Unit,
+) {
     var title by remember { mutableStateOf(track.title) }
     var artist by remember { mutableStateOf(track.artistName) }
     var album by remember { mutableStateOf(track.albumName) }
+    var genre by remember { mutableStateOf("") }
+    var showLyrics by remember { mutableStateOf(false) }
+    // Genre lives only in the file (no DB column); read the current value once.
+    LaunchedEffect(track.id) {
+        genre = withContext(Dispatchers.IO) {
+            runCatching {
+                val uri = track.path?.let { android.net.Uri.parse(it) } ?: return@runCatching ""
+                container.library.readFileGenre(uri)
+            }.getOrDefault("")
+        }
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Edit metadata") },
@@ -429,9 +467,54 @@ private fun EditMetadataDialog(track: TrackEntity, onDismiss: () -> Unit, onSave
                 OutlinedTextField(title, { title = it }, label = { Text("Title") }, singleLine = true)
                 OutlinedTextField(artist, { artist = it }, label = { Text("Artist") }, singleLine = true)
                 OutlinedTextField(album, { album = it }, label = { Text("Album") }, singleLine = true)
+                OutlinedTextField(genre, { genre = it }, label = { Text("Genre") }, singleLine = true)
+                TextButton(onClick = { showLyrics = true }) { Text("Edit lyrics") }
             }
         },
-        confirmButton = { TextButton(onClick = { onSave(title, artist, album) }) { Text("Save") } },
+        confirmButton = { TextButton(onClick = { onSave(title, artist, album, genre) }) { Text("Save") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+    if (showLyrics) {
+        LyricsEditorDialog(
+            container = container,
+            track = track,
+            onDismiss = { showLyrics = false },
+        )
+    }
+}
+
+@Composable
+private fun LyricsEditorDialog(container: AppContainer, track: TrackEntity, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var text by remember { mutableStateOf("") }
+    var loaded by remember { mutableStateOf(false) }
+    LaunchedEffect(track.id) {
+        text = withContext(Dispatchers.IO) {
+            container.database.lyricsDao().byTrackId(track.id)?.syncedLrc.orEmpty()
+        }
+        loaded = true
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Lyrics") },
+        text = {
+            OutlinedTextField(
+                text, { text = it },
+                label = { Text(if (loaded) "Plain text" else "Loading…") },
+                enabled = loaded,
+                minLines = 6,
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                scope.launch {
+                    container.library.saveUserLyrics(track.id, text)
+                    Toast.makeText(context, "Lyrics saved", Toast.LENGTH_SHORT).show()
+                    onDismiss()
+                }
+            }) { Text("Save") }
+        },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }

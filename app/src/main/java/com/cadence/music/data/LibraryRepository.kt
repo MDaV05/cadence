@@ -12,10 +12,15 @@ import androidx.paging.PagingConfig
 import androidx.paging.PagingData
 import androidx.room.withTransaction
 import com.cadence.music.data.db.AlbumEntity
+import com.cadence.music.data.db.AlbumArtOverrideEntity
 import com.cadence.music.data.db.AppDatabase
+import com.cadence.music.data.db.ArtistOverrideEntity
 import com.cadence.music.data.db.DownloadEntity
+import com.cadence.music.data.db.LyricsEntity
+import com.cadence.music.data.db.TrackArtOverrideEntity
 import com.cadence.music.data.db.TrackEntity
 import com.cadence.music.data.db.TrackQueries
+import com.cadence.music.data.metadata.ArtistInfo
 import com.cadence.music.data.prefs.LibraryMode
 import com.cadence.music.data.prefs.Prefs
 import com.cadence.music.data.prefs.Prefs.SongSort
@@ -656,7 +661,7 @@ class LibraryRepository(
     }
 
     /** Edits a local file's tags via MediaStore, then mirrors them into the DB row. */
-    suspend fun updateTrackMetadata(trackId: Long, title: String, artist: String, album: String): Boolean =
+    suspend fun updateTrackMetadata(trackId: Long, title: String, artist: String, album: String, genre: String = ""): Boolean =
         withContext(Dispatchers.IO) {
             val t = title.trim()
             val aRaw = artist.trim()
@@ -668,6 +673,8 @@ class LibraryRepository(
                 put(MediaStore.Audio.Media.TITLE, t)
                 put(MediaStore.Audio.Media.ARTIST, aRaw)
                 put(MediaStore.Audio.Media.ALBUM, al)
+                // Blank = leave the file's genre untouched (no genre column in the DB).
+                if (genre.isNotBlank()) put(MediaStore.Audio.Media.GENRE, genre.trim())
             }
             try {
                 if (context.contentResolver.update(uri, values, null, null) <= 0) return@withContext false
@@ -683,6 +690,15 @@ class LibraryRepository(
             db.trackDao().updateMetadata(row.id, t, a, al, albumNormKey(al, aRaw))
             true
         }
+
+    /** Genre tag of a local file (file-only; no DB column). Blank when unset. */
+    suspend fun readFileGenre(uri: Uri): String = withContext(Dispatchers.IO) {
+        runCatching {
+            context.contentResolver.query(uri, arrayOf(MediaStore.Audio.Media.GENRE), null, null, null)?.use { c ->
+                if (c.moveToFirst()) c.getString(0).orEmpty() else ""
+            }.orEmpty()
+        }.getOrDefault("")
+    }
 
     /** Renames every local track in the album (single consent for the whole batch). */
     suspend fun renameAlbumTracks(norm: String, newTitle: String): Boolean =
@@ -767,6 +783,91 @@ class LibraryRepository(
         }
         true
     }
+
+    /** User-typed lyrics win over fetched ones; raw text (no timestamps) shows as-is. */
+    suspend fun saveUserLyrics(trackId: Long, text: String) =
+        withContext(Dispatchers.IO) {
+            db.lyricsDao().upsert(LyricsEntity(trackId, syncedLrc = text))
+        }
+
+    /**
+     * Cover override for a track: track row first, then album norm. Absolute file
+     * path, or null when unset (or the file is gone). Survives resync — row ids
+     * are preserved by serverId matching.
+     */
+    suspend fun artOverrideFor(track: TrackEntity): String? = withContext(Dispatchers.IO) {
+        val dao = db.overrideDao()
+        val path = dao.trackArt(track.id)?.path
+            ?: track.albumNorm.takeIf { it.isNotBlank() }?.let { dao.albumArt(it)?.path }
+            ?: return@withContext null
+        if (java.io.File(path).exists()) path else null
+    }
+
+    /** Copies a picked image into filesDir/covers; null when the stream can't be read. */
+    private suspend fun copyCoverTo(src: Uri, fileName: String): String? = withContext(Dispatchers.IO) {
+        runCatching {
+            val dst = java.io.File(java.io.File(context.filesDir, "covers").apply { mkdirs() }, fileName)
+            context.contentResolver.openInputStream(src)?.use { ins ->
+                dst.outputStream().use { ins.copyTo(it) }
+            } ?: return@runCatching null
+            dst.absolutePath
+        }.getOrNull()
+    }
+
+    suspend fun setTrackCover(trackId: Long, src: Uri): Boolean {
+        val path = copyCoverTo(src, "track-$trackId.jpg") ?: return false
+        withContext(Dispatchers.IO) {
+            db.overrideDao().upsertTrackArt(TrackArtOverrideEntity(trackId, path))
+        }
+        return true
+    }
+
+    suspend fun setAlbumCover(norm: String, src: Uri): Boolean {
+        val hash = (norm.hashCode().toLong() and 0xffffffffL).toString(16)
+        val path = copyCoverTo(src, "album-$hash.jpg") ?: return false
+        withContext(Dispatchers.IO) {
+            db.overrideDao().upsertAlbumArt(AlbumArtOverrideEntity(norm, path))
+        }
+        return true
+    }
+
+    /** User bio text; keeps any custom picture. Blank clears back to the fetched bio. */
+    suspend fun setArtistBio(name: String, bio: String?) {
+        withContext(Dispatchers.IO) {
+            val dao = db.overrideDao()
+            val prev = dao.artist(name)
+            val b = bio?.trim()?.ifBlank { null }
+            // Never store an all-null row — that's a miss, not an override.
+            if (b == null && prev?.imagePath == null) return@withContext
+            dao.upsertArtist(ArtistOverrideEntity(name, b, prev?.imagePath))
+        }
+    }
+
+    suspend fun setArtistPicture(name: String, src: Uri): Boolean {
+        val hash = (name.hashCode().toLong() and 0xffffffffL).toString(16)
+        val path = copyCoverTo(src, "artist-$hash.jpg") ?: return false
+        withContext(Dispatchers.IO) {
+            val prev = db.overrideDao().artist(name)
+            db.overrideDao().upsertArtist(ArtistOverrideEntity(name, prev?.bio, path))
+        }
+        return true
+    }
+
+    /**
+     * Artist header info: override first, falling through per-field to the cached
+     * fetched row when the override field is null.
+     */
+    suspend fun artistDisplayInfo(name: String): ArtistInfo? =
+        withContext(Dispatchers.IO) {
+            val cached = db.artistInfoDao().byName(name)
+            val o = db.overrideDao().artist(name) ?: return@withContext cached?.let {
+                ArtistInfo(it.bio, it.imageUrl)
+            }
+            val bio = o.bio ?: cached?.bio
+            val img = o.imagePath?.let { "file://$it" } ?: cached?.imageUrl
+            if (bio == null && img == null) null
+            else ArtistInfo(bio, img)
+        }
 
     /** Flips star locally, then syncs the server (fire-and-forget on failure). */
     suspend fun toggleStar(track: TrackEntity) {

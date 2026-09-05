@@ -100,6 +100,7 @@ fun NowPlayingScreen(container: AppContainer) {
     val queueIdx by player.queueIndexFlow.collectAsStateWithLifecycle()
     var showSleepDialog by remember { mutableStateOf(false) }
     var lyrics by remember { mutableStateOf<List<SyncedLine>>(emptyList()) }
+    var unsynced by remember { mutableStateOf<String?>(null) }
     var currentLine by remember { mutableIntStateOf(-1) }
     var showQueue by remember { mutableStateOf(false) }
     var showFullLyrics by remember { mutableStateOf(false) }
@@ -143,37 +144,43 @@ fun NowPlayingScreen(container: AppContainer) {
     }
 
     LaunchedEffect(state.title, state.artist) {
-        lyrics = emptyList(); currentLine = -1
+        lyrics = emptyList(); unsynced = null; currentLine = -1
         if (state.title.isBlank() && state.artist.isBlank()) return@LaunchedEffect
         // Read controller state here on the main thread — MediaController is
         // main-thread-only and the DB work below hops to IO.
         val mid = player.controller?.currentMediaItem?.mediaId
         val durSec = player.controller?.duration
             ?.takeIf { it != C.TIME_UNSET && it > 0 }?.div(1000) ?: 0L
-        lyrics = withContext(Dispatchers.IO) {
+        val (fetched, raw) = withContext(Dispatchers.IO) {
             // Cached lyrics first; only hit LRCLIB on an unchecked track.
             val entity = mid?.let { container.database.trackDao().byServerId(mid) }
             val cached = entity?.let { container.database.lyricsDao().byTrackId(it.id) }
             when {
-                cached != null && cached.syncedLrc.isNotEmpty() ->
-                    com.cadence.music.data.metadata.LrcLib.parse(cached.syncedLrc)
-                cached != null -> emptyList() // checked previously: none available
+                cached != null && cached.syncedLrc.isNotEmpty() -> {
+                    // Plain-text lyrics (user-typed or tag-less LRC) parse to
+                    // nothing — keep the raw text for the static display path.
+                    val parsed = com.cadence.music.data.metadata.LrcLib.parse(cached.syncedLrc)
+                    if (parsed.isNotEmpty()) parsed to null
+                    else emptyList<SyncedLine>() to cached.syncedLrc
+                }
+                cached != null -> emptyList<SyncedLine>() to null // checked previously: none available
                 else -> {
-                    val fetched = com.cadence.music.data.metadata.LrcLib.fetchBlocking(
+                    val f = com.cadence.music.data.metadata.LrcLib.fetchBlocking(
                         state.artist, state.title, durSec,
                     )
                     if (entity != null) {
                         container.database.lyricsDao().upsert(
                             com.cadence.music.data.db.LyricsEntity(
                                 trackId = entity.id,
-                                syncedLrc = com.cadence.music.data.metadata.LrcLib.toLrcText(fetched),
+                                syncedLrc = com.cadence.music.data.metadata.LrcLib.toLrcText(f),
                             )
                         )
                     }
-                    fetched
+                    f to null
                 }
             }
         }
+        lyrics = fetched; unsynced = raw
     }
 
     if (lyrics.isNotEmpty()) {
@@ -371,7 +378,7 @@ fun NowPlayingScreen(container: AppContainer) {
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.Center,
             ) {
-                if (lyrics.isNotEmpty()) {
+                if (lyrics.isNotEmpty() || unsynced != null) {
                     TextButton(onClick = { showQueue = false }) { Text("Lyrics") }
                 }
                 TextButton(onClick = { showQueue = true }) {
@@ -382,6 +389,7 @@ fun NowPlayingScreen(container: AppContainer) {
             }
 
             // Current lyric line preview under transport
+            val unsyncedText = unsynced
             if (!showQueue && lyrics.isNotEmpty() && currentLine >= 0) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -393,6 +401,26 @@ fun NowPlayingScreen(container: AppContainer) {
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.primary,
                         textAlign = TextAlign.Center,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    TextButton(onClick = { showFullLyrics = true }) {
+                        Text("Full screen", style = MaterialTheme.typography.labelMedium)
+                    }
+                }
+            } else if (!showQueue && unsyncedText != null) {
+                // Unsynced static block: no per-line timing, plain styling.
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        unsyncedText,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        maxLines = 2,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f, fill = false),
                     )
                     TextButton(onClick = { showFullLyrics = true }) {
@@ -501,7 +529,7 @@ fun NowPlayingScreen(container: AppContainer) {
         }
     }
 
-    if (showFullLyrics && lyrics.isNotEmpty()) {
+    if (showFullLyrics && (lyrics.isNotEmpty() || unsynced != null)) {
         val listState = androidx.compose.foundation.lazy.rememberLazyListState()
         LaunchedEffect(currentLine) {
             if (currentLine >= 0) listState.animateScrollToItem(currentLine)
@@ -534,6 +562,18 @@ fun NowPlayingScreen(container: AppContainer) {
                 ),
                 verticalArrangement = Arrangement.spacedBy(18.dp),
             ) {
+                if (lyrics.isEmpty()) {
+                    unsynced?.let { raw ->
+                        item {
+                            Text(
+                                raw,
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                    }
+                }
                 itemsIndexed(lyrics) { i, line ->
                     Text(
                         line.text,

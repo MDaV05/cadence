@@ -22,6 +22,8 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AddPhotoAlternate
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material3.AlertDialog
@@ -68,8 +70,21 @@ fun ArtistScreen(container: AppContainer, artistName: String, onAlbumClick: (Str
     var showRename by remember { mutableStateOf(false) }
     var renameValue by remember { mutableStateOf("") }
     var pendingRename by remember { mutableStateOf<String?>(null) }
+    var showBioEdit by remember { mutableStateOf(false) }
+    var bioValue by remember { mutableStateOf("") }
 
     fun toast(msg: String) = Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+
+    val picturePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val ok = container.library.setArtistPicture(currentName, uri)
+            toast(if (ok) "Picture updated" else "Couldn't set picture")
+            if (ok) info = container.library.artistDisplayInfo(currentName)
+        }
+    }
 
     val consentLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartIntentSenderForResult()
@@ -116,23 +131,19 @@ fun ArtistScreen(container: AppContainer, artistName: String, onAlbumClick: (Str
         try {
             tracks = container.library.tracksByArtist(currentName)
             info = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                // Cache-first: the background worker pre-fills this table; a miss
-                // fetches once and is stored so later visits are instant.
-                val dao = container.database.artistInfoDao()
-                val cached = dao.byName(currentName)
-                when {
-                    cached != null ->
-                        com.cadence.music.data.metadata.ArtistInfo(cached.bio, cached.imageUrl)
-                    else -> {
-                        val fetched =
-                            com.cadence.music.data.metadata.Wikipedia.artistInfoBlocking(currentName)
-                        dao.upsert(
+                // Override-aware read; a fetch miss stores nothing so the next
+                // visit retries instead of serving a poisoned all-null row.
+                container.library.artistDisplayInfo(currentName) ?: run {
+                    val fetched =
+                        com.cadence.music.data.metadata.Wikipedia.artistInfoBlocking(currentName)
+                    if (fetched?.bio != null || fetched?.imageUrl != null) {
+                        container.database.artistInfoDao().upsert(
                             com.cadence.music.data.db.ArtistInfoEntity(
                                 name = currentName, bio = fetched?.bio, imageUrl = fetched?.imageUrl,
                             )
                         )
-                        fetched
                     }
+                    fetched
                 }
             }
         } catch (_: Exception) {
@@ -199,6 +210,15 @@ fun ArtistScreen(container: AppContainer, artistName: String, onAlbumClick: (Str
                             Icon(Icons.Filled.Edit, "Rename artist")
                         }
                     }
+                    IconButton(onClick = {
+                        bioValue = info?.bio.orEmpty()
+                        showBioEdit = true
+                    }) {
+                        Icon(Icons.Filled.Description, "Edit bio")
+                    }
+                    IconButton(onClick = { picturePicker.launch("image/*") }) {
+                        Icon(Icons.Filled.AddPhotoAlternate, "Set picture")
+                    }
                     IconButton(onClick = { player.shuffleAll(tracks.map { it.toTrack() }) }) {
                         Icon(Icons.Filled.Shuffle, "Shuffle artist", tint = MaterialTheme.colorScheme.primary)
                     }
@@ -261,6 +281,26 @@ fun ArtistScreen(container: AppContainer, artistName: String, onAlbumClick: (Str
             },
             confirmButton = { TextButton(onClick = { doRename(renameValue) }) { Text("Save") } },
             dismissButton = { TextButton(onClick = { showRename = false }) { Text("Cancel") } },
+        )
+    }
+
+    if (showBioEdit) {
+        AlertDialog(
+            onDismissRequest = { showBioEdit = false },
+            title = { Text("Edit bio") },
+            text = {
+                OutlinedTextField(bioValue, { bioValue = it }, label = { Text("Bio") }, minLines = 3)
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    scope.launch {
+                        container.library.setArtistBio(currentName, bioValue)
+                        info = container.library.artistDisplayInfo(currentName)
+                        showBioEdit = false
+                    }
+                }) { Text("Save") }
+            },
+            dismissButton = { TextButton(onClick = { showBioEdit = false }) { Text("Cancel") } },
         )
     }
 }

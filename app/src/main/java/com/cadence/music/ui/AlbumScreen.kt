@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PlayArrow
@@ -68,6 +69,27 @@ fun AlbumScreen(container: AppContainer, albumNorm: String) {
     var pendingRename by remember { mutableStateOf<String?>(null) }
 
     fun toast(msg: String) = Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+
+    fun refreshArt() {
+        scope.launch {
+            art = tracks.firstOrNull()?.let {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    container.artResolver.urlFor(it)
+                }
+            }
+        }
+    }
+
+    val coverPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val ok = container.library.setAlbumCover(currentNorm, uri)
+            toast(if (ok) "Cover updated" else "Couldn't set cover")
+            if (ok) refreshArt()
+        }
+    }
 
     fun downloadAll() {
         tracks.filter { it.sourceId != "local" && it.path == null }
@@ -175,6 +197,9 @@ fun AlbumScreen(container: AppContainer, albumNorm: String) {
                         }
                         IconButton(onClick = { downloadAll() }) {
                             Icon(Icons.Filled.Download, "Download album")
+                        }
+                        IconButton(onClick = { coverPicker.launch("image/*") }) {
+                            Icon(Icons.Filled.AddPhotoAlternate, "Change cover")
                         }
                         if (allLocal) {
                             IconButton(onClick = {

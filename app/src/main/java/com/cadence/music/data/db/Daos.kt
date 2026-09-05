@@ -139,6 +139,27 @@ interface ArtistInfoDao {
 }
 
 @Dao
+interface OverrideDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertTrackArt(row: TrackArtOverrideEntity)
+
+    @Query("SELECT * FROM track_art_override WHERE trackId = :id")
+    suspend fun trackArt(id: Long): TrackArtOverrideEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAlbumArt(row: AlbumArtOverrideEntity)
+
+    @Query("SELECT * FROM album_art_override WHERE norm = :norm")
+    suspend fun albumArt(norm: String): AlbumArtOverrideEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertArtist(row: ArtistOverrideEntity)
+
+    @Query("SELECT * FROM artist_override WHERE name = :name")
+    suspend fun artist(name: String): ArtistOverrideEntity?
+}
+
+@Dao
 interface DownloadDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(download: DownloadEntity)
