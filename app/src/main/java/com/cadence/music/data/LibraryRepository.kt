@@ -670,7 +670,7 @@ class LibraryRepository(
                 put(MediaStore.Audio.Media.ALBUM, al)
             }
             try {
-                context.contentResolver.update(uri, values, null, null)
+                if (context.contentResolver.update(uri, values, null, null) <= 0) return@withContext false
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
                 // RecoverableSecurityException exists only on Q+; pre-Q this never fires.
@@ -688,7 +688,7 @@ class LibraryRepository(
     suspend fun deleteLocalFile(track: TrackEntity): Boolean = withContext(Dispatchers.IO) {
         val uri = track.path?.let { Uri.parse(it) } ?: return@withContext false
         try {
-            context.contentResolver.delete(uri, null, null)
+            if (context.contentResolver.delete(uri, null, null) <= 0) return@withContext false
         } catch (e: Exception) {
             if (e is CancellationException) throw e
             // RecoverableSecurityException exists only on Q+; pre-Q this never fires.
