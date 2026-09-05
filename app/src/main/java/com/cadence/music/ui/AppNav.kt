@@ -44,12 +44,16 @@ import com.cadence.music.AppContainer
 import com.cadence.music.CadenceApp
 
 @Composable
-fun AppNav() {
+fun AppNav(initialSettingsTab: Int = 0) {
     val navController = rememberNavController()
     val backStack by navController.currentBackStackEntryAsState()
     val current = backStack?.destination?.route
 
     val container = (LocalContext.current.applicationContext as CadenceApp).container
+
+    androidx.compose.runtime.LaunchedEffect(initialSettingsTab) {
+        if (initialSettingsTab != 0) navController.navigate("settings") { launchSingleTop = true }
+    }
 
     Scaffold(
         bottomBar = {
@@ -177,7 +181,7 @@ fun AppNav() {
             composable("search") { SearchScreen(container, onArtistClick = { name ->
                 navController.navigate("artist/${Uri.encode(name)}")
             }) }
-            composable("settings") { SettingsScreen(container, onOpenEqualizer = {
+            composable("settings") { SettingsScreen(container, initialTab = initialSettingsTab, onOpenEqualizer = {
                 navController.navigate("equalizer")
             }, onOpenDownloads = {
                 navController.navigate("downloads")

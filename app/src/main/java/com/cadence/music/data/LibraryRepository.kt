@@ -684,6 +684,70 @@ class LibraryRepository(
             true
         }
 
+    /** Renames every local track in the album (single consent for the whole batch). */
+    suspend fun renameAlbumTracks(norm: String, newTitle: String): Boolean =
+        withContext(Dispatchers.IO) {
+            val t = newTitle.trim()
+            if (t.isBlank()) return@withContext false
+            val rows = db.trackDao().byAlbumNorm(norm).filter { it.sourceId == "local" }
+            if (rows.isEmpty()) return@withContext false
+            renameBatch(
+                rows,
+                valuesFor = { ContentValues().apply { put(MediaStore.Audio.Media.ALBUM, t) } },
+                mirror = { row -> db.trackDao().updateMetadata(row.id, row.title, row.artistName, t, albumNormKey(t, row.artistName)) },
+            )
+        }
+
+    /** Renames every local track of the artist (single consent for the whole batch). */
+    suspend fun renameArtistTracks(oldName: String, newName: String): Boolean =
+        withContext(Dispatchers.IO) {
+            val raw = newName.trim()
+            if (raw.isBlank()) return@withContext false
+            val rows = db.trackDao().byArtist(oldName).filter { it.sourceId == "local" }
+            if (rows.isEmpty()) return@withContext false
+            val primary = primaryArtist(raw)
+            if (primary.isBlank()) return@withContext false
+            renameBatch(
+                rows,
+                valuesFor = { ContentValues().apply { put(MediaStore.Audio.Media.ARTIST, raw) } },
+                mirror = { row -> db.trackDao().updateMetadata(row.id, row.title, primary, row.albumName, albumNormKey(row.albumName, raw)) },
+            )
+        }
+
+    /**
+     * MediaStore writes first (collecting consent denials), DB mirrors after: a consent
+     * throw leaves the DB untouched so the UI retry re-runs the whole batch idempotently.
+     */
+    private suspend fun renameBatch(
+        rows: List<TrackEntity>,
+        valuesFor: (TrackEntity) -> ContentValues,
+        mirror: suspend (TrackEntity) -> Unit,
+    ): Boolean {
+        val denied = mutableListOf<Uri>()
+        val written = mutableListOf<TrackEntity>()
+        for (row in rows) {
+            val uri = row.path?.let { Uri.parse(it) } ?: return false
+            try {
+                if (context.contentResolver.update(uri, valuesFor(row), null, null) <= 0) return false
+                written.add(row)
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && e is RecoverableSecurityException) {
+                    denied.add(uri)
+                } else {
+                    return false
+                }
+            }
+        }
+        if (denied.isNotEmpty()) {
+            throw WriteConsentRequired(
+                MediaStore.createWriteRequest(context.contentResolver, denied).intentSender
+            )
+        }
+        written.forEach { mirror(it) }
+        return true
+    }
+
     /** Deletes a local file via MediaStore, then drops its row + orphan playlist rows. */
     suspend fun deleteLocalFile(track: TrackEntity): Boolean = withContext(Dispatchers.IO) {
         val uri = track.path?.let { Uri.parse(it) } ?: return@withContext false

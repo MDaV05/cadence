@@ -130,10 +130,11 @@ private fun SettingRow(
 @Composable
 fun SettingsScreen(
     container: AppContainer,
+    initialTab: Int = 0,
     onOpenEqualizer: () -> Unit = {},
     onOpenDownloads: () -> Unit = {},
 ) {
-    var tab by remember { mutableIntStateOf(0) }
+    var tab by remember(initialTab) { mutableIntStateOf(initialTab) }
     val tabs = listOf("Appearance", "Server", "Storage", "Playback", "About")
 
     Column(Modifier.fillMaxSize()) {
