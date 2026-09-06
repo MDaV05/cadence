@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.14.0
+
+- New versions pop up right when you open the app — changelog included, with Download and Install buttons.
+- Artist names keep their punctuation: "Simon & Garfunkel", "Earth, Wind & Fire" and friends are no longer chopped at the &.
+- Artist pages no longer crash on names containing %, and names with + resolve correctly.
+- Fixed the artist header rendering the name one letter per line.
+- Jellyfin/Emby/Plex syncs pick up new, changed, and deleted tracks inside albums you already have (they were silently skipped).
+
 ## 0.13.4
 
 - Long-press any song to edit its tags or delete it; album and artist names, covers, bios, and lyrics are editable too.
