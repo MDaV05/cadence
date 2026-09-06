@@ -409,7 +409,9 @@ class LibraryRepository(
 
     /**
      * Incremental: lists albums (cheap, 1 request per 500) and only re-fetches
-     * tracks for albums that are new or whose server-side `created` changed.
+     * tracks for albums that are new or whose server-side change token changed.
+     * Subsonic provides `created`; Emby/Jellyfin/Plex provide none, so their
+     * albums re-fetch every sync.
      */
     suspend fun syncServerEntry(entry: ServerEntry): SyncResult = syncEntry(entry, null)
 
@@ -446,7 +448,7 @@ class LibraryRepository(
         for (album in remoteAlbums) {
             val nsAlbumKey = namespacedKey(entry.id, album.key)
             val existing = known[nsAlbumKey]
-            if (existing != null && existing.remoteCreated == album.remoteCreated) {
+            if (albumUnchanged(existing, album.remoteCreated)) {
                 done++
                 onProgress?.invoke(done, remoteAlbums.size)
                 continue
@@ -879,3 +881,12 @@ class LibraryRepository(
 data class DownloadStatusRow(val download: DownloadEntity, val track: TrackEntity?)
 
 data class SyncResult(val albumsFetched: Int, val tracksFetched: Int)
+
+/** Skippable only when seen before AND the server proves it unchanged. A null
+ *  token (Emby/Jellyfin/Plex give none) must never compare equal, or their
+ *  albums would be skipped forever.
+ *  ponytail: re-fetches every album per sync on those servers; add real tokens
+ *  (Plex updatedAt, Jellyfin DateCreated) once verified against a live server
+ *  that they bump when tracks inside the album change. */
+internal fun albumUnchanged(existing: AlbumEntity?, remoteToken: String?): Boolean =
+    existing != null && remoteToken != null && existing.remoteCreated == remoteToken
