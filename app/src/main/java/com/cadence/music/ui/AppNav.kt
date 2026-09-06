@@ -7,8 +7,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.automirrored.outlined.QueueMusic
@@ -22,6 +25,7 @@ import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.LibraryMusic
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -29,9 +33,11 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -45,6 +51,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.cadence.music.AppContainer
 import com.cadence.music.CadenceApp
+import com.cadence.music.data.update.UpdateStatus
 
 @Composable
 fun AppNav(initialSettingsTab: Int = 0, onDeepLinkConsumed: () -> Unit = {}) {
@@ -53,6 +60,8 @@ fun AppNav(initialSettingsTab: Int = 0, onDeepLinkConsumed: () -> Unit = {}) {
     val current = backStack?.destination?.route
 
     val container = (LocalContext.current.applicationContext as CadenceApp).container
+
+    UpdatePopup(container)
 
     // Sticky: MainActivity clears its flag via onDeepLinkConsumed, which would flip
     // SettingsScreen's keyed remember(initialTab) back to 0 mid-visit. Holding the
@@ -209,10 +218,12 @@ fun AppNav(initialSettingsTab: Int = 0, onDeepLinkConsumed: () -> Unit = {}) {
             }
             composable("nowplaying") { NowPlayingScreen(container) }
             composable("artist/{name}") { entry ->
+                // NavController already decoded the arg; a second decode turns
+                // "+" into a space and crashes on a trailing "%".
                 val name = entry.arguments?.getString("name") ?: return@composable
                 ArtistScreen(
                     container,
-                    java.net.URLDecoder.decode(name, "UTF-8"),
+                    name,
                     onAlbumClick = { album ->
                         navController.navigate("album/${Uri.encode(album)}")
                     },
@@ -220,8 +231,61 @@ fun AppNav(initialSettingsTab: Int = 0, onDeepLinkConsumed: () -> Unit = {}) {
             }
             composable("album/{name}") { entry ->
                 val name = entry.arguments?.getString("name") ?: return@composable
-                AlbumScreen(container, java.net.URLDecoder.decode(name, "UTF-8"))
+                AlbumScreen(container, name)
             }
         }
     }
+}
+
+/**
+ * Launch update popup: when the startup check finds a newer release, offer the
+ * changelog plus download/install. Once per tag — every close path (Later,
+ * outside tap, Download) marks the tag seen.
+ */
+@Composable
+private fun UpdatePopup(container: AppContainer) {
+    val context = LocalContext.current
+    val status by container.updateStatus.collectAsStateWithLifecycle()
+    var dismissed by remember { mutableStateOf(false) }
+    val avail = status as? UpdateStatus.Available ?: return
+    if (dismissed || avail.tag == container.prefs.seenUpdateTag) return
+    val install = remember(avail.tag) { container.installIntent(avail.tag) }
+
+    fun close() {
+        dismissed = true
+        container.prefs.seenUpdateTag = avail.tag
+    }
+
+    AlertDialog(
+        onDismissRequest = { close() },
+        title = { Text("Cadence ${avail.tag} available") },
+        text = {
+            Column(
+                Modifier
+                    .heightIn(max = 320.dp)
+                    .verticalScroll(rememberScrollState())
+            ) {
+                Text(
+                    avail.changelog?.replace("**", "")?.takeIf { it.isNotBlank() }
+                        ?: "No changelog in this release."
+                )
+            }
+        },
+        confirmButton = {
+            if (install != null) {
+                TextButton(onClick = {
+                    runCatching { context.startActivity(install) }
+                    close()
+                }) { Text("Install") }
+            } else {
+                TextButton(onClick = {
+                    container.downloadUpdate(avail.tag, avail.assetUrl)
+                    close()
+                }) { Text("Download") }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = { close() }) { Text("Later") }
+        },
+    )
 }

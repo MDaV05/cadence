@@ -7,13 +7,18 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 data class ReleaseAsset(val name: String, val url: String)
-data class ReleaseInfo(val tag: String, val htmlUrl: String?, val assets: List<ReleaseAsset>)
+data class ReleaseInfo(val tag: String, val htmlUrl: String?, val body: String?, val assets: List<ReleaseAsset>)
 
 sealed interface UpdateStatus {
     data object Idle : UpdateStatus
     data object Checking : UpdateStatus
     data class UpToDate(val checkedAt: Long = System.currentTimeMillis()) : UpdateStatus
-    data class Available(val tag: String, val assetUrl: String, val notesUrl: String?) : UpdateStatus
+    data class Available(
+        val tag: String,
+        val assetUrl: String,
+        val notesUrl: String?,
+        val changelog: String? = null,
+    ) : UpdateStatus
     data class Failed(val checkedAt: Long = System.currentTimeMillis()) : UpdateStatus
 }
 
@@ -53,7 +58,7 @@ suspend fun fetchLatest(): ReleaseInfo? = withContext(Dispatchers.IO) {
                 val o = arr.getJSONObject(i)
                 ReleaseAsset(o.optString("name"), o.optString("browser_download_url"))
             }
-            ReleaseInfo(root.getString("tag_name"), root.optString("html_url", null), assets)
+            ReleaseInfo(root.getString("tag_name"), root.optString("html_url", null), root.optString("body", null), assets)
         } finally {
             conn.disconnect()
         }

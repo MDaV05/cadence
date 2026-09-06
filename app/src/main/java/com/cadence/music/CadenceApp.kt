@@ -184,7 +184,7 @@ class AppContainer(app: Application) {
             if (rel == null) Failed() else UpToDate()
         } else {
             val asset = pickApkAsset(rel.assets, rel.tag)
-            if (asset == null) Failed() else Available(rel.tag, asset.url, rel.htmlUrl)
+            if (asset == null) Failed() else Available(rel.tag, asset.url, rel.htmlUrl, rel.body)
         }
         _updateStatus.value = status
     }

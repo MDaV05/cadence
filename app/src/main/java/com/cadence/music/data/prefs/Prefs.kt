@@ -218,4 +218,9 @@ class Prefs(context: Context) {
     var lastNotifiedTag: String
         get() = sp.getString("update_notified_tag", null) ?: ""
         set(value) = sp.edit().putString("update_notified_tag", value).apply()
+
+    /** Last update tag the user dismissed (or started) from the launch popup; "" = none yet. */
+    var seenUpdateTag: String
+        get() = sp.getString("update_seen_tag", null) ?: ""
+        set(value) = sp.edit().putString("update_seen_tag", value).apply()
 }
