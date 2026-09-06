@@ -1,18 +1,16 @@
 package com.cadence.music.data.tags
 
 private val FEAT = Regex("""\s+(feat\.?|ft\.?|featuring)\b.*""", RegexOption.IGNORE_CASE)
-private val SPLIT = Regex("""\s*(?:&|\band\b|/|,|;|\bwith\b|×)\s*""", RegexOption.IGNORE_CASE)
 private val TRAILING_PAREN = Regex("""\s*\([^()]*\)\s*$""")
 private val ARTICLES = Regex("""^(a|an|the)\s+""", RegexOption.IGNORE_CASE)
 
-/** First-mentioned artist wins: "Future and Drake" → "Future". Trims parens + whitespace. */
+/** Drops a "feat. ..." clause and a trailing "(...)" edition tag.
+ *  Never splits on separators — "Simon & Garfunkel" and "Earth, Wind & Fire" are
+ *  single artists and no heuristic can tell them from a collab ("A & B"). */
 fun primaryArtist(raw: String): String {
-    var s = raw.trim().replace(TRAILING_PAREN, "").trim()
-    s = FEAT.replace(s, "")
-    // No whitespace = one token ("AC/DC"); splitting it mangles real band names.
-    if (s.none { it.isWhitespace() }) return s.ifEmpty { raw.trim() }
-    val first = SPLIT.split(s).firstOrNull()?.trim().orEmpty()
-    return first.ifEmpty { raw.trim() }
+    val s = raw.trim().replace(TRAILING_PAREN, "").trim()
+    val stripped = FEAT.replace(s, "").trim()
+    return stripped.ifEmpty { raw.trim() }
 }
 
 /** Grouping key: lowercase, collapsed spaces, no leading article, no trailing (...) edition tag. */

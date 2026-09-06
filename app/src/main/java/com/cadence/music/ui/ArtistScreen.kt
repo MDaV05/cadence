@@ -202,25 +202,33 @@ fun ArtistScreen(container: AppContainer, artistName: String, onAlbumClick: (Str
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    if (allLocal) {
-                        IconButton(onClick = {
-                            renameValue = currentName
-                            showRename = true
-                        }) {
-                            Icon(Icons.Filled.Edit, "Rename artist")
+                    // Four 48dp buttons in one row would leave the weighted name
+                    // column ~40dp on a phone — a one-letter-per-line tower. 2×2.
+                    Column(horizontalAlignment = Alignment.End) {
+                        Row {
+                            if (allLocal) {
+                                IconButton(onClick = {
+                                    renameValue = currentName
+                                    showRename = true
+                                }) {
+                                    Icon(Icons.Filled.Edit, "Rename artist")
+                                }
+                            }
+                            IconButton(onClick = {
+                                bioValue = info?.bio.orEmpty()
+                                showBioEdit = true
+                            }) {
+                                Icon(Icons.Filled.Description, "Edit bio")
+                            }
                         }
-                    }
-                    IconButton(onClick = {
-                        bioValue = info?.bio.orEmpty()
-                        showBioEdit = true
-                    }) {
-                        Icon(Icons.Filled.Description, "Edit bio")
-                    }
-                    IconButton(onClick = { picturePicker.launch("image/*") }) {
-                        Icon(Icons.Filled.AddPhotoAlternate, "Set picture")
-                    }
-                    IconButton(onClick = { player.shuffleAll(tracks.map { it.toTrack() }) }) {
-                        Icon(Icons.Filled.Shuffle, "Shuffle artist", tint = MaterialTheme.colorScheme.primary)
+                        Row {
+                            IconButton(onClick = { picturePicker.launch("image/*") }) {
+                                Icon(Icons.Filled.AddPhotoAlternate, "Set picture")
+                            }
+                            IconButton(onClick = { player.shuffleAll(tracks.map { it.toTrack() }) }) {
+                                Icon(Icons.Filled.Shuffle, "Shuffle artist", tint = MaterialTheme.colorScheme.primary)
+                            }
+                        }
                     }
                 }
             }

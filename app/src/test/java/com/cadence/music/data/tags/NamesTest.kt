@@ -7,17 +7,17 @@ import org.junit.Test
 class NamesTest {
 
     @Test
-    fun `first artist wins on and`() {
-        assertEquals("Future", primaryArtist("Future and Drake"))
+    fun `collab names stay whole`() {
+        // No heuristic can tell "A and B" (two artists) from "Simon & Garfunkel"
+        // (one) — real names must survive, so nothing is ever split.
+        assertEquals("Future and Drake", primaryArtist("Future and Drake"))
+        assertEquals("Beta & Friends", primaryArtist("Beta & Friends"))
+        assertEquals("Earth, Wind & Fire", primaryArtist("Earth, Wind & Fire"))
+        assertEquals("21 Savage/Doja Cat", primaryArtist("21 Savage/Doja Cat"))
     }
 
     @Test
-    fun `slash splits without spaces`() {
-        assertEquals("21 Savage", primaryArtist("21 Savage/Doja Cat"))
-    }
-
-    @Test
-    fun `feat clause stripped before split`() {
+    fun `feat clause stripped`() {
         assertEquals("A", primaryArtist("A feat. B & C"))
     }
 
