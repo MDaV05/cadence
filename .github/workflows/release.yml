@@ -46,7 +46,7 @@ jobs:
           SIGNING_KEYSTORE_PASSWORD: ${{ secrets.SIGNING_KEYSTORE_PASSWORD }}
           SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
           SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
-        run: ./gradlew assembleDebug assembleRelease --stacktrace
+        run: ./gradlew assembleGithubDebug assembleGithubRelease --stacktrace
 
       - name: Rename APKs
         run: |
@@ -54,8 +54,8 @@ jobs:
           if [ "${{ github.ref_type }}" != "tag" ]; then
             TAG="dev-${GITHUB_RUN_NUMBER}"
           fi
-          cp app/build/outputs/apk/debug/app-debug.apk "cadence-${TAG}-debug.apk"
-          cp app/build/outputs/apk/release/app-release.apk "cadence-${TAG}-release.apk"
+          cp app/build/outputs/apk/github/debug/app-github-debug.apk "cadence-${TAG}-debug.apk"
+          cp app/build/outputs/apk/github/release/app-github-release.apk "cadence-${TAG}-release.apk"
           ls -lh *.apk
 
       - name: Create GitHub Release
