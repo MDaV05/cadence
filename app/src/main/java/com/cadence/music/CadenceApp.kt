@@ -70,7 +70,7 @@ class CadenceApp : Application(), coil.ImageLoaderFactory {
         appScope.launch { container.loadCustomThemes() }
         // Update check: tiny JSON, any network, never blocks startup, never dialogs.
         // A new Available tag posts one heads-up notification (About stays the fallback).
-        if (container.prefs.updateAutoCheck) {
+        if (BuildConfig.ENABLE_UPDATER && container.prefs.updateAutoCheck) {
             appScope.launch {
                 runCatching { container.refreshUpdateStatus() }
                 val status = container.updateStatus.value

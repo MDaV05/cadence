@@ -61,7 +61,9 @@ fun AppNav(initialSettingsTab: Int = 0, onDeepLinkConsumed: () -> Unit = {}) {
 
     val container = (LocalContext.current.applicationContext as CadenceApp).container
 
-    UpdatePopup(container)
+    if (com.cadence.music.BuildConfig.ENABLE_UPDATER) {
+        UpdatePopup(container)
+    }
 
     // Sticky: MainActivity clears its flag via onDeepLinkConsumed, which would flip
     // SettingsScreen's keyed remember(initialTab) back to 0 mid-visit. Holding the

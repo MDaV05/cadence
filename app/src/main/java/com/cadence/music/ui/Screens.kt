@@ -1589,55 +1589,64 @@ private fun AboutTab(container: AppContainer) {
                 subtitle = "v${container.installedVersion()}",
             )
         }
-        item {
-            SettingRow(
-                title = "Check for updates",
-                subtitle = statusText(),
-                trailing = {
-                    if (update is Checking) CircularProgressIndicator(Modifier.size(24.dp))
-                    else TextButton(onClick = { enqueuedTag = null; scope.launch { container.refreshUpdateStatus() } }) {
-                        Text("Check now")
-                    }
-                },
-                onClick = {
-                    val u = update
-                    if (u is Available) {
-                        lastTapAvailable = u
-                        if (enqueuedTag != u.tag) {
-                            enqueuedTag = u.tag
-                            runCatching { container.downloadUpdate(u.tag, u.assetUrl) }.onFailure {
-                                enqueuedTag = null
-                                Toast.makeText(context, "Couldn't start download", Toast.LENGTH_SHORT).show()
-                            }
-                        }
-                    } else {
-                        enqueuedTag = null
-                        scope.launch { container.refreshUpdateStatus() }
-                    }
-                },
-            )
-        }
-        if (pendingInstall != null) {
+        if (com.cadence.music.BuildConfig.ENABLE_UPDATER) {
             item {
                 SettingRow(
-                    title = "Install ${pendingInstall.tag}",
-                    subtitle = "Download finished — tap to install",
+                    title = "Check for updates",
+                    subtitle = statusText(),
+                    trailing = {
+                        if (update is Checking) CircularProgressIndicator(Modifier.size(24.dp))
+                        else TextButton(onClick = { enqueuedTag = null; scope.launch { container.refreshUpdateStatus() } }) {
+                            Text("Check now")
+                        }
+                    },
                     onClick = {
-                        container.installIntent(pendingInstall.tag)?.let { context.startActivity(it) }
+                        val u = update
+                        if (u is Available) {
+                            lastTapAvailable = u
+                            if (enqueuedTag != u.tag) {
+                                enqueuedTag = u.tag
+                                runCatching { container.downloadUpdate(u.tag, u.assetUrl) }.onFailure {
+                                    enqueuedTag = null
+                                    Toast.makeText(context, "Couldn't start download", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        } else {
+                            enqueuedTag = null
+                            scope.launch { container.refreshUpdateStatus() }
+                        }
                     },
                 )
             }
-        }
-        item {
-            SettingRow(
-                title = "Auto-check on launch",
-                trailing = {
-                    Switch(
-                        checked = autoCheck,
-                        onCheckedChange = { autoCheck = it; container.prefs.updateAutoCheck = it },
+            if (pendingInstall != null) {
+                item {
+                    SettingRow(
+                        title = "Install ${pendingInstall.tag}",
+                        subtitle = "Download finished — tap to install",
+                        onClick = {
+                            container.installIntent(pendingInstall.tag)?.let { context.startActivity(it) }
+                        },
                     )
-                },
-            )
+                }
+            }
+            item {
+                SettingRow(
+                    title = "Auto-check on launch",
+                    trailing = {
+                        Switch(
+                            checked = autoCheck,
+                            onCheckedChange = { autoCheck = it; container.prefs.updateAutoCheck = it },
+                        )
+                    },
+                )
+            }
+        } else {
+            item {
+                SettingRow(
+                    title = "Updates",
+                    subtitle = "Managed by F-Droid",
+                )
+            }
         }
         val notesUrl = (update as? Available)?.notesUrl
         if (notesUrl != null) {
