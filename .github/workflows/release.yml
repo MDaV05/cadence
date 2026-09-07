@@ -41,20 +41,19 @@ jobs:
           fi
           echo "SIGNING_KEYSTORE_PATH=$RUNNER_TEMP/cadence-release.jks" >> "$GITHUB_ENV"
 
-      - name: Build APKs
+      - name: Build Release APK
         env:
           SIGNING_KEYSTORE_PASSWORD: ${{ secrets.SIGNING_KEYSTORE_PASSWORD }}
           SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
           SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
-        run: ./gradlew assembleGithubDebug assembleGithubRelease --stacktrace
+        run: ./gradlew assembleGithubRelease --stacktrace
 
-      - name: Rename APKs
+      - name: Rename APK
         run: |
           TAG="${GITHUB_REF_NAME}"
           if [ "${{ github.ref_type }}" != "tag" ]; then
             TAG="dev-${GITHUB_RUN_NUMBER}"
           fi
-          cp app/build/outputs/apk/github/debug/app-github-debug.apk "cadence-${TAG}-debug.apk"
           cp app/build/outputs/apk/github/release/app-github-release.apk "cadence-${TAG}-release.apk"
           ls -lh *.apk
 
@@ -66,6 +65,6 @@ jobs:
           prerelease: ${{ github.ref_type != 'tag' }}
           generate_release_notes: true
           files: |
-            cadence-*.apk
+            cadence-*-release.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

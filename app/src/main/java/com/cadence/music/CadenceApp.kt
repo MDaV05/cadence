@@ -234,6 +234,8 @@ class AppContainer(app: Application) {
 
     /** Enqueues the APK in DownloadManager; progress/completion UI is the system's. */
     fun downloadUpdate(tag: String, assetUrl: String) {
+        val file = File(appContext.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "cadence-$tag.apk")
+        if (file.exists()) file.delete()
         val req = DownloadManager.Request(Uri.parse(assetUrl))
             .setTitle("Cadence $tag")
             .setDescription("App update")
