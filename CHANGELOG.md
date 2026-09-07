@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.14.4
+
+- Wikipedia Artist Bio & Photo Integration: Fixed URL path encoding issue where multi-word artist names produced HTTP 404s.
+- Music-Aware Disambiguation: Added direct-first article matching and intelligent resolution for artists with ambiguous names (e.g. Nirvana, Justice, Drake, Queen) using qualifier matching and OpenSearch.
+- Wikimedia Commons Image Loading: Configured Coil with custom User-Agent to resolve HTTP 403 Forbidden errors when loading Wikipedia artist photos.
+- Stale Cache Auto-Cleanup: Automatically purges previously failed/empty artist info cache entries on startup and background sync.
+
 ## 0.14.3
 
 - Library Sync & Featured Artist Normalization: Tracks with featured artists (`feat.`, `ft.`, `featuring`, `with`, `w/`, `[feat. ...]`, `(feat. ...)`) and collaborations (`&`, `,`, `/`, `;`, `x`, `vs.`, `and`) cleanly fold under the primary artist instead of creating separate artist entries.
