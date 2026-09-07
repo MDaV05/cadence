@@ -509,6 +509,7 @@ private fun ServerTypePicker(onPick: (ServerType) -> Unit, onDismiss: () -> Unit
                     ServerType.JELLYFIN to "Jellyfin servers",
                     ServerType.EMBY to "Emby servers",
                     ServerType.PLEX to "plex.tv login",
+                    ServerType.TELEGRAM to "Cloud music in chats/channels",
                 ).forEach { (t, subtitle) ->
                     SettingRow(
                         title = t.name.lowercase().replaceFirstChar { it.uppercase() },
@@ -558,6 +559,16 @@ private fun AddServerSheet(
     var plexOptions by remember { mutableStateOf(emptyList<Pair<String, String>>()) }
     var plexPolling by remember { mutableStateOf(false) }
 
+    var tgAuthMethod by remember { mutableStateOf(if (existing?.token != null) 1 else 0) }
+    var tgPhone by remember { mutableStateOf("") }
+    var tgCode by remember { mutableStateOf("") }
+    var tgPassword by remember { mutableStateOf("") }
+    var tgBotToken by remember { mutableStateOf(existing?.token ?: "") }
+    var tgChatTarget by remember { mutableStateOf(existing?.url ?: "me") }
+    var tgDisplayName by remember { mutableStateOf(existing?.user ?: "Telegram Music") }
+    val tgManager = remember { com.cadence.music.data.source.telegram.TelegramManager.get(context) }
+    val tgState by tgManager.authState.collectAsStateWithLifecycle()
+
     fun saveAndSync(entry: ServerEntry) {
         // Same id = update in place, never a duplicate row.
         val cur = container.prefs.servers
@@ -593,6 +604,7 @@ private fun AddServerSheet(
                 }
             }
             ServerType.PLEX -> error = "Couldn't connect — check URL and credentials."
+            ServerType.TELEGRAM -> saveAndSync(candidate)
         }
     }
 
@@ -662,6 +674,153 @@ private fun AddServerSheet(
                             )
                         }
                     }
+                } else if (type == ServerType.TELEGRAM) {
+                    Text("Sync and stream audio directly from Telegram without saving files on your device.", style = MaterialTheme.typography.bodyMedium)
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(
+                            selected = tgAuthMethod == 0,
+                            onClick = { tgAuthMethod = 0 },
+                            label = { Text("Account Login") },
+                        )
+                        FilterChip(
+                            selected = tgAuthMethod == 1,
+                            onClick = { tgAuthMethod = 1 },
+                            label = { Text("Bot Token") },
+                        )
+                    }
+
+                    if (tgAuthMethod == 0) {
+                        when (val st = tgState) {
+                            is com.cadence.music.data.source.telegram.TelegramAuthState.Ready -> {
+                                Text("✓ Connected to Telegram", color = MaterialTheme.colorScheme.primary)
+                                OutlinedTextField(
+                                    value = tgChatTarget,
+                                    onValueChange = { tgChatTarget = it },
+                                    label = { Text("Chat / Channel ID (or 'me' for Saved Messages)") },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    singleLine = true,
+                                )
+                                OutlinedTextField(
+                                    value = tgDisplayName,
+                                    onValueChange = { tgDisplayName = it },
+                                    label = { Text("Display Name") },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    singleLine = true,
+                                )
+                            }
+                            is com.cadence.music.data.source.telegram.TelegramAuthState.WaitCode -> {
+                                Text("Enter the code sent to your Telegram app:")
+                                OutlinedTextField(
+                                    value = tgCode,
+                                    onValueChange = { tgCode = it },
+                                    label = { Text("Login Code") },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    singleLine = true,
+                                )
+                                Button(
+                                    onClick = {
+                                        busy = true; error = ""
+                                        scope.launch {
+                                            try {
+                                                tgManager.sendAuthCode(tgCode)
+                                            } catch (e: Exception) {
+                                                error = e.message ?: "Failed to verify code"
+                                            }
+                                            busy = false
+                                        }
+                                    },
+                                    enabled = !busy && tgCode.isNotBlank(),
+                                ) { Text("Verify Code") }
+                            }
+                            is com.cadence.music.data.source.telegram.TelegramAuthState.WaitPassword -> {
+                                Text("Enter your 2FA Cloud Password" + (st.hint?.let { " (Hint: $it)" } ?: "") + ":")
+                                OutlinedTextField(
+                                    value = tgPassword,
+                                    onValueChange = { tgPassword = it },
+                                    label = { Text("2FA Password") },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    singleLine = true,
+                                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                                )
+                                Button(
+                                    onClick = {
+                                        busy = true; error = ""
+                                        scope.launch {
+                                            try {
+                                                tgManager.sendPassword(tgPassword)
+                                            } catch (e: Exception) {
+                                                error = e.message ?: "Incorrect 2FA password"
+                                            }
+                                            busy = false
+                                        }
+                                    },
+                                    enabled = !busy && tgPassword.isNotBlank(),
+                                ) { Text("Submit Password") }
+                            }
+                            else -> {
+                                OutlinedTextField(
+                                    value = tgPhone,
+                                    onValueChange = { tgPhone = it },
+                                    label = { Text("Phone number (e.g. +1234567890)") },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    singleLine = true,
+                                )
+                                Button(
+                                    onClick = {
+                                        busy = true; error = ""
+                                        scope.launch {
+                                            try {
+                                                tgManager.start()
+                                                tgManager.sendPhoneNumber(tgPhone)
+                                            } catch (e: Exception) {
+                                                error = e.message ?: "Failed to send code"
+                                            }
+                                            busy = false
+                                        }
+                                    },
+                                    enabled = !busy && tgPhone.isNotBlank(),
+                                ) { Text("Send Login Code") }
+                            }
+                        }
+                    } else {
+                        OutlinedTextField(
+                            value = tgBotToken,
+                            onValueChange = { tgBotToken = it },
+                            label = { Text("Bot Token (from @BotFather)") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                        )
+                        OutlinedTextField(
+                            value = tgChatTarget,
+                            onValueChange = { tgChatTarget = it },
+                            label = { Text("Channel / Chat ID (e.g. -100... or @channel)") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                        )
+                        OutlinedTextField(
+                            value = tgDisplayName,
+                            onValueChange = { tgDisplayName = it },
+                            label = { Text("Display Name") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                        )
+                        Button(
+                            onClick = {
+                                busy = true; error = ""
+                                scope.launch {
+                                    try {
+                                        tgManager.start()
+                                        tgManager.sendBotToken(tgBotToken)
+                                    } catch (e: Exception) {
+                                        error = e.message ?: "Failed to connect bot"
+                                    }
+                                    busy = false
+                                }
+                            },
+                            enabled = !busy && tgBotToken.isNotBlank(),
+                        ) { Text("Connect Bot") }
+                    }
                 } else {
                     OutlinedTextField(url, { url = it }, label = { Text("URL") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
                     OutlinedTextField(user, { user = it }, label = { Text("Username") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
@@ -681,6 +840,19 @@ private fun AddServerSheet(
         },
         confirmButton = {
             when {
+                type == ServerType.TELEGRAM -> TextButton(
+                    enabled = !busy && tgChatTarget.isNotBlank(),
+                    onClick = {
+                        val candidate = ServerEntry(
+                            id = existing?.id ?: newServerId(),
+                            type = ServerType.TELEGRAM,
+                            url = tgChatTarget.trim().ifBlank { "me" },
+                            user = tgDisplayName.trim().ifBlank { "Telegram Music" },
+                            token = if (tgAuthMethod == 1) tgBotToken.trim() else null,
+                        )
+                        saveAndSync(candidate)
+                    },
+                ) { Text("Save & sync") }
                 type != ServerType.PLEX -> TextButton(
                     enabled = !busy && url.isNotBlank() && user.isNotBlank(),
                     onClick = {

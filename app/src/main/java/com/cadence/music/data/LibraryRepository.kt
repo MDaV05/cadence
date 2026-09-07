@@ -54,7 +54,7 @@ import kotlinx.coroutines.withContext
 
 fun sourcesFor(mode: LibraryMode): Set<String>? = when (mode) {
     LibraryMode.LOCAL_ONLY -> setOf("local")
-    LibraryMode.API_ONLY -> setOf("subsonic", "jellyfin", "emby", "plex")
+    LibraryMode.API_ONLY -> setOf("subsonic", "jellyfin", "emby", "plex", "telegram")
     LibraryMode.HYBRID -> null // null = all sources (future-proof; never enumerate)
 }
 
@@ -97,6 +97,7 @@ class LibraryRepository(
         ServerType.JELLYFIN -> JellyfinSource(entry, deviceId)
         ServerType.EMBY -> EmbySource(entry, deviceId)
         ServerType.PLEX -> PlexSource(entry, deviceId)
+        ServerType.TELEGRAM -> com.cadence.music.data.source.telegram.TelegramSource(context, entry)
     }
 
     /** Entry id is the segment before the FIRST ':'; null when absent or unknown. */
@@ -405,6 +406,7 @@ class LibraryRepository(
             ServerType.JELLYFIN -> "jellyfin"
             ServerType.EMBY -> "emby"
             ServerType.PLEX -> "plex"
+            ServerType.TELEGRAM -> "telegram"
         }
         val s = sourceFor(entry)
         val remoteAlbums = s.listAlbums()

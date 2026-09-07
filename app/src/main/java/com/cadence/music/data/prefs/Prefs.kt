@@ -14,7 +14,7 @@ data class ServerConfig(
     val password: String,
 )
 
-enum class ServerType { SUBSONIC, JELLYFIN, EMBY, PLEX }
+enum class ServerType { SUBSONIC, JELLYFIN, EMBY, PLEX, TELEGRAM }
 
 data class ServerEntry(
     val id: String,

@@ -16,7 +16,7 @@ class LibraryModeTest {
 
     @Test
     fun `api only maps to all server sources`() {
-        assertEquals(setOf("subsonic", "jellyfin", "emby", "plex"), sourcesFor(LibraryMode.API_ONLY))
+        assertEquals(setOf("subsonic", "jellyfin", "emby", "plex", "telegram"), sourcesFor(LibraryMode.API_ONLY))
     }
 
     @Test
