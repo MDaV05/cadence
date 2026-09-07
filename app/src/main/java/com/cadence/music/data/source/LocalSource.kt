@@ -14,15 +14,29 @@ class LocalSource(private val context: Context) : MusicSource {
     ) {
         val tracks = mutableListOf<Track>()
         val collection = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
-        val projection = arrayOf(
-            MediaStore.Audio.Media._ID,
-            MediaStore.Audio.Media.TITLE,
-            MediaStore.Audio.Media.ARTIST,
-            MediaStore.Audio.Media.ALBUM,
-            MediaStore.Audio.Media.ALBUM_ID,
-            MediaStore.Audio.Media.DURATION,
-            MediaStore.Audio.Media.DATA,
-        )
+        val isRPlus = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R
+        val projection = if (isRPlus) {
+            arrayOf(
+                MediaStore.Audio.Media._ID,
+                MediaStore.Audio.Media.TITLE,
+                MediaStore.Audio.Media.ARTIST,
+                MediaStore.Audio.Media.ALBUM,
+                MediaStore.Audio.Media.ALBUM_ID,
+                MediaStore.Audio.Media.DURATION,
+                MediaStore.Audio.Media.DATA,
+                "album_artist",
+            )
+        } else {
+            arrayOf(
+                MediaStore.Audio.Media._ID,
+                MediaStore.Audio.Media.TITLE,
+                MediaStore.Audio.Media.ARTIST,
+                MediaStore.Audio.Media.ALBUM,
+                MediaStore.Audio.Media.ALBUM_ID,
+                MediaStore.Audio.Media.DURATION,
+                MediaStore.Audio.Media.DATA,
+            )
+        }
         val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0"
         context.contentResolver.query(collection, projection, selection, null, null)?.use { c ->
             val idC = c.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
@@ -32,8 +46,10 @@ class LocalSource(private val context: Context) : MusicSource {
             val albumIdC = c.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID)
             val durC = c.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
             val dataC = c.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA)
+            val albumArtistC = if (isRPlus) c.getColumnIndex("album_artist") else -1
             while (c.moveToNext()) {
                 val uri = ContentUris.withAppendedId(collection, c.getLong(idC))
+                val albumArtist = if (albumArtistC >= 0) c.getString(albumArtistC)?.takeIf { it.isNotBlank() } else null
                 tracks += Track(
                     key = "local:${c.getLong(idC)}",
                     sourceId = id,
@@ -43,6 +59,7 @@ class LocalSource(private val context: Context) : MusicSource {
                     durationMs = c.getLong(durC),
                     localPath = uri.toString(),
                     albumMediaId = c.getLong(albumIdC),
+                    albumArtist = albumArtist,
                 )
             }
         }

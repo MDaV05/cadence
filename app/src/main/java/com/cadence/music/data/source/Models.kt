@@ -14,6 +14,7 @@ data class Track(
     val albumMediaId: Long? = null,
     // Server-side starred/favorite state (Subsonic only).
     val starred: Boolean = false,
+    val albumArtist: String? = null,
 )
 
 data class Album(

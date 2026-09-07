@@ -402,33 +402,57 @@ class LibraryRepository(
         // Preserve previously-read values (tag parsing is file I/O; only parse once per track).
         val known = db.trackDao().observeAll().first().associateBy { it.serverId }
 
+        val scanned = local.scan()
+        val tracksByAlbum = scanned.groupBy { t ->
+            t.albumMediaId?.takeIf { it > 0 }?.toString()
+                ?: "${t.album.trim().lowercase()}::${primaryArtist(t.artist).lowercase()}"
+        }
+
         // Upsert with the existing row id so play stats and playlist
         // references survive; REPLACE with a fresh id would orphan both.
-        val entities = local.scan().map { t ->
-            val mediaId = t.key.removePrefix("local:").toLong()
-            val uri = ContentUris.withAppendedId(
-                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, mediaId
-            )
-            val prev = known[t.key]
-            val replayGainDb = prev?.replayGainDb
-                ?: com.cadence.music.data.tags.ReplayGainReader.read(context, uri)
-            TrackEntity(
-                id = prev?.id ?: 0,
-                sourceId = "local",
-                serverId = t.key,
-                title = t.title,
-                artistName = primaryArtist(t.artist),
-                albumName = t.album,
-                albumNorm = albumNormKey(t.album, t.artist),
-                path = uri.toString(),
-                durationMs = t.durationMs,
-                trackNumber = 0,
-                replayGainDb = replayGainDb,
-                albumMediaId = t.albumMediaId,
-                playCount = prev?.playCount ?: 0,
-                lastPlayed = prev?.lastPlayed,
-                starred = prev?.starred ?: false,
-            )
+        val entities = tracksByAlbum.values.flatMap { albumTracks ->
+            val explicitAlbumArtist = albumTracks.firstNotNullOfOrNull { it.albumArtist?.takeIf { a -> a.isNotBlank() } }
+            val resolvedAlbumArtist = if (explicitAlbumArtist != null) {
+                primaryArtist(explicitAlbumArtist)
+            } else {
+                albumTracks.map { primaryArtist(it.artist) }
+                    .filter { it.isNotBlank() }
+                    .groupingBy { it }
+                    .eachCount()
+                    .maxByOrNull { it.value }
+                    ?.key ?: primaryArtist(albumTracks.firstOrNull()?.artist.orEmpty())
+            }
+
+            val albumTitle = albumTracks.firstOrNull { it.album.isNotBlank() }?.album ?: "Unknown"
+            val albumNorm = albumNormKey(albumTitle, resolvedAlbumArtist)
+
+            albumTracks.map { t ->
+                val mediaId = t.key.removePrefix("local:").toLong()
+                val uri = ContentUris.withAppendedId(
+                    MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, mediaId
+                )
+                val prev = known[t.key]
+                val replayGainDb = prev?.replayGainDb
+                    ?: com.cadence.music.data.tags.ReplayGainReader.read(context, uri)
+                val trackArtist = primaryArtist(t.artist)
+                TrackEntity(
+                    id = prev?.id ?: 0,
+                    sourceId = "local",
+                    serverId = t.key,
+                    title = t.title,
+                    artistName = trackArtist.ifBlank { resolvedAlbumArtist },
+                    albumName = t.album.ifBlank { albumTitle },
+                    albumNorm = albumNorm,
+                    path = uri.toString(),
+                    durationMs = t.durationMs,
+                    trackNumber = 0,
+                    replayGainDb = replayGainDb,
+                    albumMediaId = t.albumMediaId,
+                    playCount = prev?.playCount ?: 0,
+                    lastPlayed = prev?.lastPlayed,
+                    starred = prev?.starred ?: false,
+                )
+            }
         }
         // Remove rows for files that vanished from MediaStore — atomically,
         // so a crash between insert and orphan-cleanup can't leave orphans.
@@ -548,17 +572,32 @@ class LibraryRepository(
     ): SyncResult {
         val nsAlbumKey = namespacedKey(entry.id, album.key)
         val existingTracks = db.trackDao().byAlbumKey(nsAlbumKey).associateBy { it.serverId }
+
+        val resolvedAlbumArtist = primaryArtist(
+            album.artist.ifBlank {
+                tracks.map { primaryArtist(it.artist) }
+                    .filter { it.isNotBlank() }
+                    .groupingBy { it }
+                    .eachCount()
+                    .maxByOrNull { it.value }
+                    ?.key ?: tracks.firstOrNull()?.artist.orEmpty()
+            }
+        )
+        val albumTitle = album.title.ifBlank { tracks.firstOrNull()?.album.orEmpty() }
+        val albumNorm = albumNormKey(albumTitle, resolvedAlbumArtist)
+
         val entities = tracks.map { t ->
             val nsKey = namespacedKey(entry.id, t.key)
             val prev = existingTracks[nsKey]
+            val trackArtist = primaryArtist(t.artist)
             TrackEntity(
                 id = prev?.id ?: 0,
                 sourceId = sourceId,
                 serverId = nsKey,
                 title = t.title,
-                artistName = primaryArtist(t.artist),
-                albumName = t.album,
-                albumNorm = albumNormKey(t.album, t.artist),
+                artistName = trackArtist.ifBlank { resolvedAlbumArtist },
+                albumName = t.album.ifBlank { albumTitle },
+                albumNorm = albumNorm,
                 albumKey = t.albumKey?.let { namespacedKey(entry.id, it) },
                 // Preserve the downloaded file: REPLACE would otherwise wipe it on re-sync.
                 path = prev?.path,
@@ -579,8 +618,8 @@ class LibraryRepository(
                     id = existing?.id ?: 0,
                     sourceId = sourceId,
                     serverId = nsAlbumKey,
-                    title = album.title,
-                    artistName = album.artist,
+                    title = albumTitle.ifBlank { "Unknown" },
+                    artistName = resolvedAlbumArtist.ifBlank { album.artist },
                     year = album.year,
                     remoteCreated = album.remoteCreated,
                 )
