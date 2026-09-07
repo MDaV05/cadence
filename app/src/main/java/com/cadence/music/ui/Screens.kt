@@ -10,17 +10,21 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -51,6 +55,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -568,6 +573,31 @@ private fun AddServerSheet(
     var tgDisplayName by remember { mutableStateOf(existing?.user ?: "Telegram Music") }
     val tgManager = remember { com.cadence.music.data.source.telegram.TelegramManager.get(context) }
     val tgState by tgManager.authState.collectAsStateWithLifecycle()
+    var tgChats by remember { mutableStateOf<List<com.cadence.music.data.source.telegram.TelegramChatItem>>(emptyList()) }
+    var tgChatsLoading by remember { mutableStateOf(false) }
+    var tgSelectedChatIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
+    var tgChatSearchQuery by remember { mutableStateOf("") }
+    var tgManualChatMode by remember { mutableStateOf(false) }
+
+    LaunchedEffect(tgState) {
+        if (tgState is com.cadence.music.data.source.telegram.TelegramAuthState.Ready) {
+            tgChatsLoading = true
+            try {
+                val loaded = tgManager.getAvailableMusicChats()
+                tgChats = loaded
+                if (existing != null && existing.type == ServerType.TELEGRAM) {
+                    val parsed = com.cadence.music.data.source.telegram.parseTelegramChatIds(existing.url, tgManager.getMyUserId())
+                    tgSelectedChatIds = parsed.toSet()
+                } else if (tgSelectedChatIds.isEmpty()) {
+                    val saved = loaded.firstOrNull { it.isSavedMessages }
+                    if (saved != null) {
+                        tgSelectedChatIds = setOf(saved.id)
+                    }
+                }
+            } catch (_: Exception) {}
+            tgChatsLoading = false
+        }
+    }
 
     fun saveAndSync(entry: ServerEntry) {
         // Same id = update in place, never a duplicate row.
@@ -693,14 +723,148 @@ private fun AddServerSheet(
                     if (tgAuthMethod == 0) {
                         when (val st = tgState) {
                             is com.cadence.music.data.source.telegram.TelegramAuthState.Ready -> {
-                                Text("✓ Connected to Telegram", color = MaterialTheme.colorScheme.primary)
-                                OutlinedTextField(
-                                    value = tgChatTarget,
-                                    onValueChange = { tgChatTarget = it },
-                                    label = { Text("Chat / Channel ID (or 'me' for Saved Messages)") },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    singleLine = true,
-                                )
+                                Row(
+                                    Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text("✓ Connected to Telegram", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.titleSmall)
+                                    TextButton(onClick = {
+                                        scope.launch {
+                                            tgManager.logOut()
+                                            tgChats = emptyList()
+                                            tgSelectedChatIds = emptySet()
+                                        }
+                                    }) {
+                                        Text("Log out", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelSmall)
+                                    }
+                                }
+
+                                if (tgChatsLoading) {
+                                    Row(
+                                        Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                                        horizontalArrangement = Arrangement.Center,
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                                        Spacer(Modifier.size(8.dp))
+                                        Text("Loading chats...", style = MaterialTheme.typography.bodySmall)
+                                    }
+                                } else if (tgChats.isNotEmpty() && !tgManualChatMode) {
+                                    Text(
+                                        "Select chats/channels to sync into your library:",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+
+                                    OutlinedTextField(
+                                        value = tgChatSearchQuery,
+                                        onValueChange = { tgChatSearchQuery = it },
+                                        placeholder = { Text("Search chats...") },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        singleLine = true,
+                                    )
+
+                                    val filteredChats = if (tgChatSearchQuery.isBlank()) tgChats else tgChats.filter {
+                                        it.title.contains(tgChatSearchQuery, ignoreCase = true) || it.typeName.contains(tgChatSearchQuery, ignoreCase = true)
+                                    }
+
+                                    Row(
+                                        Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Text(
+                                            "${tgSelectedChatIds.size} of ${tgChats.size} selected",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.primary,
+                                        )
+                                        Row {
+                                            TextButton(onClick = {
+                                                tgSelectedChatIds = filteredChats.map { it.id }.toSet()
+                                            }) {
+                                                Text("Select all", style = MaterialTheme.typography.labelSmall)
+                                            }
+                                            TextButton(onClick = { tgSelectedChatIds = emptySet() }) {
+                                                Text("Clear", style = MaterialTheme.typography.labelSmall)
+                                            }
+                                        }
+                                    }
+
+                                    Column(
+                                        Modifier
+                                            .fillMaxWidth()
+                                            .heightIn(max = 180.dp)
+                                            .verticalScroll(rememberScrollState()),
+                                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                                    ) {
+                                        for (chat in filteredChats) {
+                                            val isChecked = tgSelectedChatIds.contains(chat.id)
+                                            Row(
+                                                Modifier
+                                                    .fillMaxWidth()
+                                                    .clip(RoundedCornerShape(8.dp))
+                                                    .clickable {
+                                                        tgSelectedChatIds = if (isChecked) {
+                                                            tgSelectedChatIds - chat.id
+                                                        } else {
+                                                            tgSelectedChatIds + chat.id
+                                                        }
+                                                    }
+                                                    .padding(horizontal = 4.dp, vertical = 4.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                            ) {
+                                                Checkbox(
+                                                    checked = isChecked,
+                                                    onCheckedChange = { checked ->
+                                                        tgSelectedChatIds = if (checked) {
+                                                            tgSelectedChatIds + chat.id
+                                                        } else {
+                                                            tgSelectedChatIds - chat.id
+                                                        }
+                                                    },
+                                                )
+                                                Spacer(Modifier.size(4.dp))
+                                                Column(Modifier.weight(1f)) {
+                                                    Text(
+                                                        chat.title,
+                                                        style = MaterialTheme.typography.bodyMedium,
+                                                        fontWeight = FontWeight.Medium,
+                                                    )
+                                                    Text(
+                                                        chat.typeName,
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    TextButton(
+                                        onClick = { tgManualChatMode = true },
+                                        modifier = Modifier.align(Alignment.End),
+                                    ) {
+                                        Text("Manual chat ID", style = MaterialTheme.typography.labelSmall)
+                                    }
+                                } else {
+                                    OutlinedTextField(
+                                        value = tgChatTarget,
+                                        onValueChange = { tgChatTarget = it },
+                                        label = { Text("Chat IDs (comma-separated or 'me')") },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        singleLine = true,
+                                    )
+                                    if (tgChats.isNotEmpty()) {
+                                        TextButton(
+                                            onClick = { tgManualChatMode = false },
+                                            modifier = Modifier.align(Alignment.End),
+                                        ) {
+                                            Text("Show chat list", style = MaterialTheme.typography.labelSmall)
+                                        }
+                                    }
+                                }
+
                                 OutlinedTextField(
                                     value = tgDisplayName,
                                     onValueChange = { tgDisplayName = it },
@@ -841,14 +1005,32 @@ private fun AddServerSheet(
         confirmButton = {
             when {
                 type == ServerType.TELEGRAM -> TextButton(
-                    enabled = !busy && tgChatTarget.isNotBlank(),
+                    enabled = !busy && (
+                        (tgAuthMethod == 0 && (tgSelectedChatIds.isNotEmpty() || tgChatTarget.isNotBlank())) ||
+                        (tgAuthMethod == 1 && tgChatTarget.isNotBlank() && tgBotToken.isNotBlank())
+                    ),
                     onClick = {
+                        val targetUrl = if (tgAuthMethod == 0 && tgSelectedChatIds.isNotEmpty() && !tgManualChatMode) {
+                            tgSelectedChatIds.joinToString(",")
+                        } else {
+                            tgChatTarget.trim().ifBlank { "me" }
+                        }
+                        val defaultName = if (tgAuthMethod == 0 && !tgManualChatMode && tgSelectedChatIds.isNotEmpty()) {
+                            if (tgSelectedChatIds.size == 1) {
+                                tgChats.find { it.id == tgSelectedChatIds.first() }?.title ?: "Telegram Music"
+                            } else {
+                                "Telegram Music (${tgSelectedChatIds.size} chats)"
+                            }
+                        } else {
+                            "Telegram Music"
+                        }
                         val candidate = ServerEntry(
                             id = existing?.id ?: newServerId(),
                             type = ServerType.TELEGRAM,
-                            url = tgChatTarget.trim().ifBlank { "me" },
-                            user = tgDisplayName.trim().ifBlank { "Telegram Music" },
+                            url = targetUrl,
+                            user = tgDisplayName.trim().ifBlank { defaultName },
                             token = if (tgAuthMethod == 1) tgBotToken.trim() else null,
+                            userId = tgManager.myUserId?.toString(),
                         )
                         saveAndSync(candidate)
                     },

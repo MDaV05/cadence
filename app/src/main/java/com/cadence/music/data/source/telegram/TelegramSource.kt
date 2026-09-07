@@ -8,6 +8,27 @@ import com.cadence.music.data.source.Track
 import org.drinkless.tdlib.TdApi
 import java.util.concurrent.ConcurrentHashMap
 
+/**
+ * Parses comma- or semicolon-separated chat IDs or 'me' into distinct Long chat IDs.
+ */
+fun parseTelegramChatIds(rawUrl: String, myUserId: Long?): List<Long> {
+    val raw = rawUrl.trim()
+    if (raw.isBlank() || raw.equals("me", ignoreCase = true) || raw.equals("saved", ignoreCase = true)) {
+        return if (myUserId != null && myUserId != 0L) listOf(myUserId) else emptyList()
+    }
+    return raw.split(',', ';')
+        .map { it.trim() }
+        .filter { it.isNotBlank() }
+        .mapNotNull { token ->
+            if (token.equals("me", ignoreCase = true) || token.equals("saved", ignoreCase = true)) {
+                if (myUserId != null && myUserId != 0L) myUserId else null
+            } else {
+                token.toLongOrNull()
+            }
+        }
+        .distinct()
+}
+
 class TelegramSource(
     private val context: Context,
     private val entry: ServerEntry,
@@ -21,13 +42,9 @@ class TelegramSource(
     // Cache of fetched audio messages by album key
     private val albumCache = ConcurrentHashMap<String, List<Track>>()
 
-    private fun targetChatId(): Long {
-        val trimmed = entry.url.trim()
-        if (trimmed.isBlank() || trimmed.equals("me", ignoreCase = true) || trimmed.equals("saved", ignoreCase = true)) {
-            // "me" / Saved Messages: in Telegram, user's own chat id equals their user id
-            return entry.userId?.toLongOrNull() ?: 0L
-        }
-        return trimmed.toLongOrNull() ?: 0L
+    private suspend fun targetChatIds(): List<Long> {
+        val myUserId = entry.userId?.toLongOrNull() ?: manager.getMyUserId()
+        return parseTelegramChatIds(entry.url, myUserId)
     }
 
     override suspend fun ping(): Boolean {
@@ -37,59 +54,89 @@ class TelegramSource(
     override suspend fun listAlbums(): List<Album> {
         if (!manager.isReady()) return emptyList()
 
-        val chatId = targetChatId()
-        val messages = manager.getAudioMessages(chatId, maxCount = 1000)
+        val chatIds = targetChatIds()
+        if (chatIds.isEmpty()) return emptyList()
         albumCache.clear()
 
-        val grouped = mutableMapOf<String, MutableList<Track>>()
-
-        for (msg in messages) {
-            val content = msg.content
-            if (content !is TdApi.MessageAudio) continue
-            val audio = content.audio
-            val remoteId = audio.audio?.remote?.id ?: continue
-
-            val title = audio.title.ifBlank {
-                audio.fileName.ifBlank { "Track ${msg.id}" }.substringBeforeLast('.')
-            }
-            val artist = audio.performer.ifBlank { "Telegram Cloud" }
-            val albumName = entry.user.ifBlank { "Telegram Music" }
-            val albumKey = "tg:chat:$chatId"
-
-            val track = Track(
-                key = "tg:$remoteId",
-                sourceId = id,
-                title = title,
-                artist = artist,
-                album = albumName,
-                albumKey = albumKey,
-                durationMs = audio.duration * 1000L,
-                localPath = null,
-                streamUrl = proxy.streamUrl(remoteId),
-            )
-
-            grouped.getOrPut(albumKey) { mutableListOf() }.add(track)
-        }
-
         val albums = mutableListOf<Album>()
-        for ((key, tracks) in grouped) {
-            albumCache[key] = tracks
-            albums += Album(
-                key = key,
-                sourceId = id,
-                title = entry.user.ifBlank { "Telegram Music" },
-                artist = "Various Artists",
-                year = null,
-                remoteCreated = null,
-            )
+
+        for (chatId in chatIds) {
+            val chatTitle = manager.getChatTitle(chatId) ?: if (chatId == entry.userId?.toLongOrNull()) "Saved Messages" else "Chat $chatId"
+            val messages = manager.getAudioMessages(chatId, maxCount = 1000)
+            val tracks = mutableListOf<Track>()
+
+            for (msg in messages) {
+                val content = msg.content
+                if (content !is TdApi.MessageAudio) continue
+                val audio = content.audio
+                val remoteId = audio.audio?.remote?.id ?: continue
+
+                val title = audio.title.ifBlank {
+                    audio.fileName.ifBlank { "Track ${msg.id}" }.substringBeforeLast('.')
+                }
+                val artist = audio.performer.ifBlank { chatTitle }
+                val albumKey = "tg:chat:$chatId"
+
+                val track = Track(
+                    key = "tg:$remoteId",
+                    sourceId = id,
+                    title = title,
+                    artist = artist,
+                    album = chatTitle,
+                    albumKey = albumKey,
+                    durationMs = audio.duration * 1000L,
+                    localPath = null,
+                    streamUrl = proxy.streamUrl(remoteId),
+                )
+                tracks += track
+            }
+
+            if (tracks.isNotEmpty()) {
+                val albumKey = "tg:chat:$chatId"
+                albumCache[albumKey] = tracks
+                albums += Album(
+                    key = albumKey,
+                    sourceId = id,
+                    title = chatTitle,
+                    artist = "Telegram ($chatTitle)",
+                    year = null,
+                    remoteCreated = null,
+                )
+            }
         }
         return albums
     }
 
     override suspend fun albumTracksByKey(albumKey: String): List<Track> {
         albumCache[albumKey]?.let { return it }
-        listAlbums()
-        return albumCache[albumKey] ?: emptyList()
+        val chatId = albumKey.removePrefix("tg:chat:").toLongOrNull()
+        if (chatId != null && manager.isReady()) {
+            val chatTitle = manager.getChatTitle(chatId) ?: "Chat $chatId"
+            val messages = manager.getAudioMessages(chatId, maxCount = 1000)
+            val tracks = messages.mapNotNull { msg ->
+                val content = msg.content as? TdApi.MessageAudio ?: return@mapNotNull null
+                val audio = content.audio
+                val remoteId = audio.audio?.remote?.id ?: return@mapNotNull null
+                val title = audio.title.ifBlank {
+                    audio.fileName.ifBlank { "Track ${msg.id}" }.substringBeforeLast('.')
+                }
+                val artist = audio.performer.ifBlank { chatTitle }
+                Track(
+                    key = "tg:$remoteId",
+                    sourceId = id,
+                    title = title,
+                    artist = artist,
+                    album = chatTitle,
+                    albumKey = albumKey,
+                    durationMs = audio.duration * 1000L,
+                    localPath = null,
+                    streamUrl = proxy.streamUrl(remoteId),
+                )
+            }
+            albumCache[albumKey] = tracks
+            return tracks
+        }
+        return emptyList()
     }
 
     override suspend fun streamUrl(track: Track): String? {

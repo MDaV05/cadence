@@ -30,6 +30,13 @@ sealed interface TelegramAuthState {
     data class Error(val message: String) : TelegramAuthState
 }
 
+data class TelegramChatItem(
+    val id: Long,
+    val title: String,
+    val typeName: String,
+    val isSavedMessages: Boolean = false,
+)
+
 class TelegramManager private constructor(private val appContext: Context) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -39,6 +46,8 @@ class TelegramManager private constructor(private val appContext: Context) {
     @Volatile private var client: Client? = null
     private val started = AtomicBoolean(false)
     private var pendingPhone: String = ""
+    @Volatile private var cachedUserId: Long? = null
+    val myUserId: Long? get() = cachedUserId
 
     // In-memory cache of resolved files and thumbnails
     private val remoteFileMap = ConcurrentHashMap<String, Int>()
@@ -129,6 +138,10 @@ class TelegramManager private constructor(private val appContext: Context) {
                 _authState.value = TelegramAuthState.WaitPassword(state.passwordHint)
             }
             is TdApi.AuthorizationStateReady -> {
+                scope.launch {
+                    val me = runCatching { send(TdApi.GetMe()) }.getOrNull()
+                    cachedUserId = me?.id
+                }
                 _authState.value = TelegramAuthState.Ready
             }
             is TdApi.AuthorizationStateLoggingOut -> {
@@ -177,7 +190,31 @@ class TelegramManager private constructor(private val appContext: Context) {
         send(TdApi.CheckAuthenticationBotToken(token.trim()))
     }
 
+    private val chatTitleCache = ConcurrentHashMap<Long, String>()
+
+    suspend fun getMe(): TdApi.User? {
+        val me = runCatching { send(TdApi.GetMe()) }.getOrNull()
+        if (me != null) cachedUserId = me.id
+        return me
+    }
+
+    suspend fun getMyUserId(): Long? = cachedUserId ?: getMe()?.id
+
+    suspend fun getChatTitle(chatId: Long): String? {
+        chatTitleCache[chatId]?.let { return it }
+        val chat = runCatching { send(TdApi.GetChat(chatId)) }.getOrNull()
+        if (chat != null) {
+            val title = chat.title.ifBlank { "Chat $chatId" }
+            chatTitleCache[chatId] = title
+            return title
+        }
+        return null
+    }
+
     suspend fun logOut() {
+        cachedUserId = null
+        chatTitleCache.clear()
+        remoteFileMap.clear()
         runCatching { send(TdApi.LogOut()) }
     }
 
@@ -198,6 +235,45 @@ class TelegramManager private constructor(private val appContext: Context) {
             }.getOrNull()?.let { chats += it }
         }
         return chats
+    }
+
+    /** Returns chats formatted for user selection in the UI. */
+    suspend fun getAvailableMusicChats(limit: Int = 100): List<TelegramChatItem> {
+        if (!isReady()) return emptyList()
+        val me = getMe()
+        val rawChats = getChats(limit)
+        val result = mutableListOf<TelegramChatItem>()
+
+        if (me != null) {
+            val savedTitle = runCatching { send(TdApi.GetChat(me.id)) }.getOrNull()?.title?.ifBlank { "Saved Messages" } ?: "Saved Messages"
+            chatTitleCache[me.id] = savedTitle
+            result += TelegramChatItem(
+                id = me.id,
+                title = savedTitle,
+                typeName = "Saved Messages",
+                isSavedMessages = true,
+            )
+        }
+
+        for (chat in rawChats) {
+            if (me != null && chat.id == me.id) continue
+            val typeName = when (val t = chat.type) {
+                is TdApi.ChatTypeSupergroup -> if (t.isChannel) "Channel" else "Supergroup"
+                is TdApi.ChatTypeBasicGroup -> "Group"
+                is TdApi.ChatTypePrivate -> "Private Chat"
+                is TdApi.ChatTypeSecret -> "Secret Chat"
+                else -> "Chat"
+            }
+            val title = chat.title.ifBlank { "Chat ${chat.id}" }
+            chatTitleCache[chat.id] = title
+            result += TelegramChatItem(
+                id = chat.id,
+                title = title,
+                typeName = typeName,
+                isSavedMessages = false,
+            )
+        }
+        return result
     }
 
     /** Searches and paginates all audio messages in the given chat. */

@@ -77,4 +77,25 @@ class TelegramSourceTest {
         assertEquals("Queen", track.artist)
         assertEquals("Bohemian Rhapsody", track.title)
     }
+
+    @Test
+    fun `parseTelegramChatIds parses single me and numeric ids`() {
+        val meOnly = com.cadence.music.data.source.telegram.parseTelegramChatIds("me", 98765L)
+        assertEquals(listOf(98765L), meOnly)
+
+        val savedOnly = com.cadence.music.data.source.telegram.parseTelegramChatIds("saved", 98765L)
+        assertEquals(listOf(98765L), savedOnly)
+
+        val numericOnly = com.cadence.music.data.source.telegram.parseTelegramChatIds("-1001234567890", 98765L)
+        assertEquals(listOf(-1001234567890L), numericOnly)
+    }
+
+    @Test
+    fun `parseTelegramChatIds parses multiple comma and semicolon separated ids`() {
+        val multiple = com.cadence.music.data.source.telegram.parseTelegramChatIds("me, -1001234567890; 11223344", 98765L)
+        assertEquals(listOf(98765L, -1001234567890L, 11223344L), multiple)
+
+        val duplicates = com.cadence.music.data.source.telegram.parseTelegramChatIds("112233, 112233, me, saved", 98765L)
+        assertEquals(listOf(112233L, 98765L), duplicates)
+    }
 }
