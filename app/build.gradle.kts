@@ -1,3 +1,6 @@
+import java.net.URI
+import java.net.HttpURLConnection
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -97,4 +100,43 @@ dependencies {
     testImplementation(libs.junit)
     // JVM real org.json so unit tests can exercise toJson/fromJson (android.jar stubs throw).
     testImplementation(libs.json)
+
+    implementation(files("libs/tdlib-0.1.0.aar"))
 }
+
+val ensureTdlib by tasks.registering {
+    val aar = file("libs/tdlib-0.1.0.aar")
+    outputs.file(aar)
+    doLast {
+        if (!aar.exists()) {
+            aar.parentFile.mkdirs()
+            logger.lifecycle("Downloading TDLib AAR...")
+            val url = URI("https://github.com/AkashPriyadarshii/tdlib-android/releases/download/v0.1.0/core-release.aar").toURL()
+            var conn = url.openConnection() as HttpURLConnection
+            conn.instanceFollowRedirects = true
+            var stream = conn.inputStream
+            var redirectCount = 0
+            while (conn.responseCode in 300..399 && redirectCount < 5) {
+                val loc = conn.getHeaderField("Location")
+                conn.disconnect()
+                val nextUrl = URI(loc).toURL()
+                conn = nextUrl.openConnection() as HttpURLConnection
+                stream = conn.inputStream
+                redirectCount++
+            }
+            val tmp = file("libs/tdlib-0.1.0.aar.tmp")
+            stream.use { input ->
+                tmp.outputStream().use { output ->
+                    input.copyTo(output)
+                }
+            }
+            tmp.renameTo(aar)
+            logger.lifecycle("TDLib AAR downloaded (${aar.length()} bytes)")
+        }
+    }
+}
+
+tasks.matching { it.name.startsWith("compile") || it.name.startsWith("ksp") || it.name == "preBuild" }.configureEach {
+    dependsOn(ensureTdlib)
+}
+

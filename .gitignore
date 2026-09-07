@@ -4,8 +4,10 @@ local.properties
 .idea/
 *.iml
 .DS_Store
-captures/
+.captures/
 .kotlin/
+app/libs/*.aar
+app/libs/*.aar.tmp
 
 # agent tooling / caches
 .agents/
