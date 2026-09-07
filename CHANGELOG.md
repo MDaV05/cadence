@@ -1,5 +1,13 @@
 # Changelog
 
+## 14.0.1
+
+- Telegram Music Source: Connect Telegram chats, channels, or Saved Messages directly to Cadence.
+- Zero-Disk Streaming: Stream audio on the fly directly from Telegram cloud storage without permanently downloading files, backed by Media3/ExoPlayer's transient cache.
+- Offline Downloads: Download any Telegram song on demand to local storage using the unified download manager.
+- Modular Plugin Architecture: Unified `MusicSource` interface cleanly decoupling Subsonic, Jellyfin, Emby, Plex, and Telegram sources.
+- Safe dynamic TDLib loading with automated Gradle dependency caching.
+
 ## 0.14.0
 
 - New versions pop up right when you open the app — changelog included, with Download and Install buttons.
