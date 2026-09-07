@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.14.3
+## 0.14.2
 
 - Stream Tag Server Attribution & Nicknames: Track subtitles display the active server type (e.g. `Stream (jellyfin)`, `Stream (telegram)`). Added option to set custom server nicknames and toggle custom attribution (e.g. `Stream (dav/jellyfin)`).
 - Telegram Artwork Integration: Embedded cover art and chat photos from Telegram are automatically extracted, cached, and rendered across all screens (library, now playing, albums, artists).
