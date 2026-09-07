@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.14.2
+## 0.14.1
 
 - Telegram Music Source: Connect Telegram chats, channels, groups, bots, or Saved Messages directly to Cadence.
 - Interactive Chat Picker: Multi-select exactly which chats and channels to integrate with search filtering, chat type badges, and select all/clear controls.
@@ -8,6 +8,7 @@
 - Discrete Album Grouping: Each selected chat or channel cleanly maps to its own album in the library with on-demand track fetching.
 - Offline Downloads: Download individual Telegram songs on demand for offline playback using the unified download manager.
 - Modular Plugin Architecture: Unified `MusicSource` interface cleanly decoupling Subsonic, Jellyfin, Emby, Plex, and Telegram sources.
+- Lightweight Native Packaging: Filtered to mobile ARM architectures and enabled compressed native packaging, shrinking the release APK from 90MB back down to 21MB.
 - Safe dynamic TDLib loading with automated Gradle dependency caching.
 
 ## 0.14.0

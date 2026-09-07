@@ -28,6 +28,15 @@ android {
         // Tag builds (v1.2.3) take the version name from the tag; local builds get the default.
         val ciTag = System.getenv("GITHUB_REF_NAME")?.takeIf { it.matches(Regex("v\\d+\\.\\d+.*")) }
         versionName = ciTag?.removePrefix("v") ?: "0.2.0"
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+        }
+    }
+
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
     }
 
     signingConfigs {
