@@ -83,8 +83,18 @@ class CadenceApp : Application(), coil.ImageLoaderFactory {
     }
 
     /** Coil loader sized by the metadata-cache setting; AsyncImage picks this up globally. */
-    override fun newImageLoader(): coil.ImageLoader =
-        coil.ImageLoader.Builder(this)
+    override fun newImageLoader(): coil.ImageLoader {
+        val okHttpClient = okhttp3.OkHttpClient.Builder()
+            .addInterceptor { chain ->
+                val request = chain.request().newBuilder()
+                    .header("User-Agent", "Cadence/0.1 ( https://github.com/MDaV05/cadence )")
+                    .build()
+                chain.proceed(request)
+            }
+            .build()
+
+        return coil.ImageLoader.Builder(this)
+            .okHttpClient(okHttpClient)
             .diskCache {
                 coil.disk.DiskCache.Builder()
                     .directory(cacheDir.resolve("metadata_images"))
@@ -93,6 +103,7 @@ class CadenceApp : Application(), coil.ImageLoaderFactory {
             }
             .crossfade(true)
             .build()
+    }
 
     private fun hasAudioPermission(): Boolean {
         val permission = if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_AUDIO

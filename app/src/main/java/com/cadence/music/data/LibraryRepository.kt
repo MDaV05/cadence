@@ -363,12 +363,8 @@ class LibraryRepository(
      * (Task F) — any remaining null row is stale by definition. Genuinely unknown artists simply
      * re-enter the missing queue and retry on the worker schedule (batch-capped).
      */
-    suspend fun repairArtistInfo(): Int {
-        if (prefs.artistRepairDone) return 0
-        val dropped = withContext(Dispatchers.IO) { db.artistInfoDao().deleteNullRows() }
-        prefs.artistRepairDone = true
-        return dropped
-    }
+    suspend fun repairArtistInfo(): Int =
+        withContext(Dispatchers.IO) { db.artistInfoDao().deleteNullRows() }
 
     /**
      * Drops rows for entries no longer configured (deleted servers).
@@ -936,11 +932,9 @@ class LibraryRepository(
     suspend fun artistDisplayInfo(name: String): ArtistInfo? =
         withContext(Dispatchers.IO) {
             val cached = db.artistInfoDao().byName(name)
-            val o = db.overrideDao().artist(name) ?: return@withContext cached?.let {
-                ArtistInfo(it.bio, it.imageUrl)
-            }
-            val bio = o.bio ?: cached?.bio
-            val img = o.imagePath?.let { "file://$it" } ?: cached?.imageUrl
+            val o = db.overrideDao().artist(name)
+            val bio = o?.bio ?: cached?.bio
+            val img = o?.imagePath?.let { "file://$it" } ?: cached?.imageUrl
             if (bio == null && img == null) null
             else ArtistInfo(bio, img)
         }

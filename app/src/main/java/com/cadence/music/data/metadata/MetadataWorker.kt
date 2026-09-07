@@ -61,6 +61,7 @@ class MetadataWorker(appContext: Context, params: WorkerParameters) :
     }
 
     private suspend fun fetchArtistInfo(db: com.cadence.music.data.db.AppDatabase) {
+        withContext(Dispatchers.IO) { db.artistInfoDao().deleteNullRows() }
         val staleBefore = System.currentTimeMillis() - STALE_AFTER_MS
         val names = (
             withContext(Dispatchers.IO) { db.artistInfoDao().missingArtistNames() } +
@@ -76,6 +77,14 @@ class MetadataWorker(appContext: Context, params: WorkerParameters) :
                 db.artistInfoDao().upsert(
                     ArtistInfoEntity(name = name, bio = info?.bio, imageUrl = info?.imageUrl),
                 )
+            }
+            if (info?.imageUrl != null) {
+                val request = ImageRequest.Builder(applicationContext)
+                    .data(info.imageUrl)
+                    .memoryCachePolicy(CachePolicy.DISABLED)
+                    .diskCachePolicy(CachePolicy.ENABLED)
+                    .build()
+                runCatching { applicationContext.imageLoader.execute(request) }
             }
             delay(250)
         }

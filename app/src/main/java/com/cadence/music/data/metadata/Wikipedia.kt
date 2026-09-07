@@ -1,5 +1,6 @@
 package com.cadence.music.data.metadata
 
+import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
@@ -10,21 +11,48 @@ data class ArtistInfo(val bio: String?, val imageUrl: String?)
 object Wikipedia {
 
     private const val BASE = "https://en.wikipedia.org/api/rest_v1"
+    private const val USER_AGENT = "Cadence/0.1 ( https://github.com/MDaV05/cadence )"
 
-    fun summaryBlocking(title: String): ArtistInfo? {
+    private val MUSIC_KEYWORDS = setOf(
+        "band", "musician", "singer", "rapper", "music", "composer", "group",
+        "orchestra", "dj", "duo", "trio", "quartet", "record", "album", "vocalist",
+        "producer", "song", "disc jockey", "rock", "pop", "metal", "jazz", "hip hop",
+        "soundtrack", "guitarist", "drummer", "bassist", "pianist", "songwriter",
+    )
+
+    private fun encodePath(title: String): String =
+        URLEncoder.encode(title.trim().replace(' ', '_'), "UTF-8").replace("+", "%20")
+
+    private data class PageSummary(
+        val title: String,
+        val bio: String?,
+        val imageUrl: String?,
+        val isMusic: Boolean,
+    )
+
+    private fun fetchPageSummary(title: String): PageSummary? {
+        if (title.isBlank()) return null
         return try {
-            val conn = URL("$BASE/page/summary/${URLEncoder.encode(title, "UTF-8")}").openConnection()
-                    as HttpURLConnection
-            conn.setRequestProperty("User-Agent", "Cadence/0.1 ( https://github.com/MDaV05/cadence )")
+            val enc = encodePath(title)
+            val conn = URL("$BASE/page/summary/$enc").openConnection() as HttpURLConnection
+            conn.setRequestProperty("User-Agent", USER_AGENT)
             conn.connectTimeout = 10_000
             conn.readTimeout = 15_000
             try {
                 if (conn.responseCode != 200) return null
                 val json = JSONObject(conn.inputStream.bufferedReader().readText())
                 if (json.optString("type") != "standard") return null
-                ArtistInfo(
-                    bio = json.optString("extract").ifBlank { null },
-                    imageUrl = json.optJSONObject("thumbnail")?.optString("source"),
+                val desc = json.optString("description", "")
+                val extract = json.optString("extract", "").ifBlank { null }
+                val img = json.optJSONObject("thumbnail")?.optString("source")
+                    ?: json.optJSONObject("originalimage")?.optString("source")
+                val text = "$desc ${extract.orEmpty()}".lowercase()
+                val isMusic = MUSIC_KEYWORDS.any { it in text }
+                PageSummary(
+                    title = json.optString("title", title),
+                    bio = extract,
+                    imageUrl = img,
+                    isMusic = isMusic,
                 )
             } finally {
                 conn.disconnect()
@@ -32,22 +60,72 @@ object Wikipedia {
         } catch (_: Exception) { null }
     }
 
-    /** Search Wikipedia for the best-matching article title, then summarize it. */
-    fun artistInfoBlocking(name: String): ArtistInfo? = try {
-        val q = URLEncoder.encode("$name musician band", "UTF-8")
-        val conn = URL("https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=$q&srlimit=1&format=json")
-            .openConnection() as HttpURLConnection
-        conn.setRequestProperty("User-Agent", "Cadence/0.1 ( https://github.com/MDaV05/cadence )")
-        conn.connectTimeout = 10_000
-        conn.readTimeout = 15_000
-        val title = try {
-            if (conn.responseCode != 200) null
-            else JSONObject(conn.inputStream.bufferedReader().readText())
-                .optJSONObject("query")?.optJSONArray("search")?.optJSONObject(0)
-                ?.optString("title")
-        } finally {
-            conn.disconnect()
+    fun summaryBlocking(title: String): ArtistInfo? {
+        val summary = fetchPageSummary(title) ?: return null
+        return ArtistInfo(bio = summary.bio, imageUrl = summary.imageUrl)
+    }
+
+    /** Search Wikipedia for the best-matching artist page, then summarize it. */
+    fun artistInfoBlocking(name: String): ArtistInfo? {
+        val clean = name.trim()
+        if (clean.isBlank()) return null
+
+        // 1. Try direct title lookup. If clearly music-related, we're done.
+        val direct = fetchPageSummary(clean)
+        if (direct != null && direct.isMusic) {
+            return ArtistInfo(bio = direct.bio, imageUrl = direct.imageUrl)
         }
-        title?.let { summaryBlocking(it) }
-    } catch (_: Exception) { null }
+
+        // 2. Try common disambiguation qualifiers for musical artists.
+        val qualifiers = listOf(
+            "$clean (band)",
+            "$clean (musician)",
+            "$clean (singer)",
+            "$clean (rapper)",
+            "$clean (music group)",
+            "$clean (duo)",
+        )
+        for (q in qualifiers) {
+            val cand = fetchPageSummary(q)
+            if (cand != null && cand.isMusic) {
+                return ArtistInfo(bio = cand.bio, imageUrl = cand.imageUrl)
+            }
+        }
+
+        // 3. Fallback to OpenSearch prefix suggestions.
+        try {
+            val q = URLEncoder.encode(clean, "UTF-8")
+            val conn = URL("https://en.wikipedia.org/w/api.php?action=opensearch&search=$q&limit=5&namespace=0&format=json")
+                .openConnection() as HttpURLConnection
+            conn.setRequestProperty("User-Agent", USER_AGENT)
+            conn.connectTimeout = 10_000
+            conn.readTimeout = 15_000
+            val titles = try {
+                if (conn.responseCode == 200) {
+                    val arr = JSONArray(conn.inputStream.bufferedReader().readText())
+                    val list = arr.optJSONArray(1)
+                    if (list != null) {
+                        (0 until list.length()).mapNotNull { list.optString(it) }
+                    } else emptyList()
+                } else emptyList()
+            } finally {
+                conn.disconnect()
+            }
+
+            for (t in titles) {
+                if (t.equals(clean, ignoreCase = true)) continue
+                val cand = fetchPageSummary(t)
+                if (cand != null && cand.isMusic) {
+                    return ArtistInfo(bio = cand.bio, imageUrl = cand.imageUrl)
+                }
+            }
+        } catch (_: Exception) { }
+
+        // 4. Fallback to direct match if it exists, even if music keywords didn't trigger
+        if (direct != null && (direct.bio != null || direct.imageUrl != null)) {
+            return ArtistInfo(bio = direct.bio, imageUrl = direct.imageUrl)
+        }
+
+        return null
+    }
 }

@@ -131,9 +131,10 @@ fun ArtistScreen(container: AppContainer, artistName: String, onAlbumClick: (Str
         try {
             tracks = container.library.tracksByArtist(currentName)
             info = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                // Override-aware read; a fetch miss stores nothing so the next
-                // visit retries instead of serving a poisoned all-null row.
-                container.library.artistDisplayInfo(currentName) ?: run {
+                val existing = container.library.artistDisplayInfo(currentName)
+                if (existing?.bio != null || existing?.imageUrl != null) {
+                    existing
+                } else {
                     val fetched =
                         com.cadence.music.data.metadata.Wikipedia.artistInfoBlocking(currentName)
                     if (fetched?.bio != null || fetched?.imageUrl != null) {
@@ -142,8 +143,10 @@ fun ArtistScreen(container: AppContainer, artistName: String, onAlbumClick: (Str
                                 name = currentName, bio = fetched?.bio, imageUrl = fetched?.imageUrl,
                             )
                         )
+                        container.library.artistDisplayInfo(currentName) ?: fetched
+                    } else {
+                        existing
                     }
-                    fetched
                 }
             }
         } catch (_: Exception) {
