@@ -29,4 +29,31 @@ class ServersTest {
         assertEquals(ServerType.PLEX, ServerType.valueOf("PLEX"))
         assertNull(runCatching { ServerType.valueOf("plex") }.getOrNull())
     }
+
+    @Test
+    fun `customName and secondaryUrl round-trip properly`() {
+        val e = ServerEntry(
+            id = "s1", type = ServerType.SUBSONIC, url = "https://lan:4533",
+            user = "alice", password = "secret", customName = "Home Subsonic",
+            secondaryUrl = "https://wan.example.com",
+        )
+        val parsed = ServerEntry.fromJson(e.toJson())
+        assertEquals("Home Subsonic", parsed.customName)
+        assertEquals("https://wan.example.com", parsed.secondaryUrl)
+        assertEquals(e, parsed)
+    }
+
+    @Test
+    fun `blank customName and secondaryUrl normalize to null`() {
+        val json = org.json.JSONObject()
+            .put("id", "s2")
+            .put("type", "SUBSONIC")
+            .put("url", "https://lan:4533")
+            .put("user", "bob")
+            .put("customName", "  ")
+            .put("secondaryUrl", "   ")
+        val parsed = ServerEntry.fromJson(json)
+        assertNull(parsed.customName)
+        assertNull(parsed.secondaryUrl)
+    }
 }

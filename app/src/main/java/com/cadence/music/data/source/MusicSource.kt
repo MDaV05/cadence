@@ -7,6 +7,7 @@ interface MusicSource {
     suspend fun albumTracksByKey(albumKey: String): List<Track> = emptyList()
     suspend fun streamUrl(track: Track): String?
     suspend fun coverArtUrl(albumKey: String): String? = null
+    suspend fun trackCoverArtUrl(remoteTrackKey: String): String? = null
     fun downloadUrl(songId: String, format: String = "", bitrate: Int = 0): String? = null
     suspend fun setStarred(songId: String, starred: Boolean) {}
     suspend fun ping(): Boolean = true

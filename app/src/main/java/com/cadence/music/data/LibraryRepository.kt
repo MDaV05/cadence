@@ -92,12 +92,41 @@ class LibraryRepository(
         android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID) ?: "cadence"
     }
 
-    private fun sourceFor(entry: ServerEntry): com.cadence.music.data.source.MusicSource = when (entry.type) {
-        ServerType.SUBSONIC -> SubsonicSource { ServerConfig(entry.url, entry.user, entry.password ?: "") }
-        ServerType.JELLYFIN -> JellyfinSource(entry, deviceId)
-        ServerType.EMBY -> EmbySource(entry, deviceId)
-        ServerType.PLEX -> PlexSource(entry, deviceId)
-        ServerType.TELEGRAM -> com.cadence.music.data.source.telegram.TelegramSource(context, entry)
+    private val activeUrls = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    fun activeUrlFor(entry: ServerEntry): String {
+        if (entry.secondaryUrl.isNullOrBlank()) return entry.url
+        return activeUrls[entry.id] ?: entry.url
+    }
+
+    fun markActiveUrl(entryId: String, url: String) {
+        activeUrls[entryId] = url
+    }
+
+    fun switchActiveUrl(entryId: String): String? {
+        val entry = prefs.entry(entryId) ?: return null
+        val sec = entry.secondaryUrl ?: return null
+        val current = activeUrls[entry.id] ?: entry.url
+        val next = if (current == entry.url) sec else entry.url
+        activeUrls[entry.id] = next
+        return next
+    }
+
+    fun effectiveEntry(entry: ServerEntry): ServerEntry {
+        if (entry.secondaryUrl.isNullOrBlank()) return entry
+        val active = activeUrlFor(entry)
+        return if (active == entry.url) entry else entry.copy(url = active)
+    }
+
+    private fun sourceFor(entry: ServerEntry): com.cadence.music.data.source.MusicSource {
+        val eff = effectiveEntry(entry)
+        return when (eff.type) {
+            ServerType.SUBSONIC -> SubsonicSource { ServerConfig(eff.url, eff.user, eff.password ?: "") }
+            ServerType.JELLYFIN -> JellyfinSource(eff, deviceId)
+            ServerType.EMBY -> EmbySource(eff, deviceId)
+            ServerType.PLEX -> PlexSource(eff, deviceId)
+            ServerType.TELEGRAM -> com.cadence.music.data.source.telegram.TelegramSource(context, eff)
+        }
     }
 
     /** Entry id is the segment before the FIRST ':'; null when absent or unknown. */
@@ -111,7 +140,17 @@ class LibraryRepository(
         track.localPath?.let { return it }
         val entry = entryForServerId(track.key) ?: return null
         val remote = remoteKey(track.key, entry)
-        return sourceFor(entry).streamUrl(track.copy(key = remote))
+        val s = sourceFor(entry)
+        val url = runCatching { s.streamUrl(track.copy(key = remote)) }.getOrNull()
+        if (url != null) return url
+
+        // If primary attempt failed (e.g. Plex metadata lookup failed), try secondary if available
+        if (!entry.secondaryUrl.isNullOrBlank()) {
+            val altUrl = switchActiveUrl(entry.id) ?: return null
+            val altSource = sourceFor(entry.copy(url = altUrl))
+            return runCatching { altSource.streamUrl(track.copy(key = remote)) }.getOrNull()
+        }
+        return null
     }
 
     fun downloadUrlFor(serverId: String, format: String, bitrate: Int): String? {
@@ -126,14 +165,31 @@ class LibraryRepository(
         return sourceFor(entry).coverArtUrl(remote)
     }
 
+    suspend fun trackCoverArtFor(trackServerId: String): String? {
+        val entry = entryForServerId(trackServerId) ?: return null
+        val remote = remoteKey(trackServerId, entry)
+        return sourceFor(entry).trackCoverArtUrl(remote)
+    }
+
     suspend fun setStarredFor(serverId: String, starred: Boolean) {
         val entry = entryForServerId(serverId) ?: return
         val remote = remoteKey(serverId, entry)
         runCatching { sourceFor(entry).setStarred(remote, starred) }
     }
 
-    suspend fun pingEntry(entry: ServerEntry): Boolean =
-        runCatching { sourceFor(entry).ping() }.getOrDefault(false)
+    suspend fun pingEntry(entry: ServerEntry): Boolean {
+        if (runCatching { sourceFor(entry.copy(url = entry.url)).ping() }.getOrDefault(false)) {
+            markActiveUrl(entry.id, entry.url)
+            return true
+        }
+        if (!entry.secondaryUrl.isNullOrBlank()) {
+            if (runCatching { sourceFor(entry.copy(url = entry.secondaryUrl)).ping() }.getOrDefault(false)) {
+                markActiveUrl(entry.id, entry.secondaryUrl)
+                return true
+            }
+        }
+        return false
+    }
 
     /**
      * Active-entry filter for SQL builders: empty when nothing is disabled
@@ -408,8 +464,22 @@ class LibraryRepository(
             ServerType.PLEX -> "plex"
             ServerType.TELEGRAM -> "telegram"
         }
-        val s = sourceFor(entry)
-        val remoteAlbums = s.listAlbums()
+        val eff = effectiveEntry(entry)
+        var s = sourceFor(eff)
+        var remoteAlbums = runCatching { s.listAlbums() }.getOrNull()
+        if (remoteAlbums == null && !entry.secondaryUrl.isNullOrBlank()) {
+            val altUrl = if (eff.url == entry.url) entry.secondaryUrl else entry.url
+            val altSource = sourceFor(entry.copy(url = altUrl))
+            val altAlbums = runCatching { altSource.listAlbums() }.getOrNull()
+            if (altAlbums != null) {
+                markActiveUrl(entry.id, altUrl)
+                s = altSource
+                remoteAlbums = altAlbums
+            }
+        }
+        if (remoteAlbums == null) {
+            remoteAlbums = s.listAlbums()
+        }
         val known = db.albumDao().bySource(sourceId)
             .filter { it.serverId.startsWith("${entry.id}:") }
             .associateBy { it.serverId }

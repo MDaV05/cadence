@@ -23,6 +23,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -382,10 +383,17 @@ private fun ServerTab(container: AppContainer) {
         item { SectionHeader("Servers") }
         items(servers, key = { it.id }) { e ->
             val failed = syncErrors.containsKey(e.id)
+            val serverTitle = if (e.customName?.isNotBlank() == true) {
+                "${e.customName} (${e.type.name.lowercase()}) • ${e.url}"
+            } else {
+                "${e.type.name.lowercase().replaceFirstChar { it.uppercase() }} • ${e.url}"
+            }
+            val statusText = if (failed) "Sync failed" else if (e.active) "Active" else "Disabled"
+            val subtitleText = if (!e.secondaryUrl.isNullOrBlank()) "$statusText • Alt: ${e.secondaryUrl}" else statusText
             SettingRow(
-                title = "${e.type.name.lowercase().replaceFirstChar { it.uppercase() }} • ${e.url}",
-                subtitle = if (failed) "Sync failed — tap to edit" else if (e.active) "Active" else "Disabled",
-                onClick = if (failed) ({ editTarget = e }) else null,
+                title = serverTitle,
+                subtitle = subtitleText,
+                onClick = { editTarget = e },
                 trailing = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Switch(
@@ -398,6 +406,9 @@ private fun ServerTab(container: AppContainer) {
                                 container.library.launchSync()
                             },
                         )
+                        IconButton(onClick = { editTarget = e }) {
+                            Icon(Icons.Filled.Edit, "Edit server")
+                        }
                         IconButton(onClick = { confirmDelete = e }) {
                             Icon(Icons.Filled.Delete, "Remove server")
                         }
@@ -410,6 +421,21 @@ private fun ServerTab(container: AppContainer) {
                 onClick = { showPicker = true },
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             ) { Text("+ Add server") }
+        }
+        item {
+            SettingRow(
+                title = "Show server name in stream tag",
+                subtitle = "Display custom name in track tags (e.g. Stream (dav/jellyfin))",
+                trailing = {
+                    Switch(
+                        checked = container.prefs.showServerNameInStreamTag,
+                        onCheckedChange = {
+                            container.prefs.showServerNameInStreamTag = it
+                            refresh()
+                        },
+                    )
+                },
+            )
         }
         item {
             Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
@@ -557,6 +583,8 @@ private fun AddServerSheet(
     var url by remember { mutableStateOf(existing?.url ?: "") }
     var user by remember { mutableStateOf(existing?.user ?: "") }
     var pass by remember { mutableStateOf(existing?.password ?: "") }
+    var customName by remember { mutableStateOf(existing?.customName ?: "") }
+    var secondaryUrl by remember { mutableStateOf(existing?.secondaryUrl ?: "") }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf("") }
     // Plex PIN flow state: 0 = connect button, 1 = waiting for approval, 2 = pick server.
@@ -620,9 +648,15 @@ private fun AddServerSheet(
 
     suspend fun saveTyped() {
         // Scheme-less URLs ("192.168.1.106:4533") would fail silently on Android 9+.
+        val normSecondary = secondaryUrl.trim().ifBlank { null }?.let { normalizeServerUrl(it) }
         val candidate = ServerEntry(
             id = existing?.id ?: newServerId(), type = type,
-            url = normalizeServerUrl(url), user = user.trim(), password = pass,
+            url = normalizeServerUrl(url), user = user.trim(),
+            password = pass.ifBlank { existing?.password },
+            token = existing?.token,
+            userId = existing?.userId,
+            customName = customName.trim().ifBlank { null },
+            secondaryUrl = normSecondary,
         )
         when (type) {
             ServerType.SUBSONIC -> {
@@ -630,15 +664,21 @@ private fun AddServerSheet(
                 else error = "Couldn't connect — check URL and credentials."
             }
             ServerType.JELLYFIN, ServerType.EMBY -> {
-                val authed = if (type == ServerType.JELLYFIN) {
-                    JellyfinSource(candidate, deviceId).authenticate()
+                if (pass.isBlank() && existing?.token != null && container.library.pingEntry(candidate)) {
+                    saveAndSync(candidate)
                 } else {
-                    EmbySource(candidate, deviceId).authenticate()
-                }
-                if (authed != null) {
-                    saveAndSync(candidate.copy(token = authed.first, userId = authed.second, password = null))
-                } else {
-                    error = "Couldn't connect — check URL and credentials."
+                    val authed = if (type == ServerType.JELLYFIN) {
+                        JellyfinSource(candidate, deviceId).authenticate()
+                            ?: candidate.secondaryUrl?.let { JellyfinSource(candidate.copy(url = it), deviceId).authenticate() }
+                    } else {
+                        EmbySource(candidate, deviceId).authenticate()
+                            ?: candidate.secondaryUrl?.let { EmbySource(candidate.copy(url = it), deviceId).authenticate() }
+                    }
+                    if (authed != null) {
+                        saveAndSync(candidate.copy(token = authed.first, userId = authed.second, password = null))
+                    } else {
+                        error = "Couldn't connect — check URL and credentials."
+                    }
                 }
             }
             ServerType.PLEX -> error = "Couldn't connect — check URL and credentials."
@@ -705,8 +745,22 @@ private fun AddServerSheet(
                                 )
                             }
                             OutlinedTextField(
+                                value = customName,
+                                onValueChange = { customName = it },
+                                label = { Text("Server Name / Nickname (Optional)") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                            )
+                            OutlinedTextField(
                                 url, { url = it },
                                 label = { Text("Server URL") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                            )
+                            OutlinedTextField(
+                                value = secondaryUrl,
+                                onValueChange = { secondaryUrl = it },
+                                label = { Text("Secondary URL (Optional, e.g. LAN IP)") },
                                 modifier = Modifier.fillMaxWidth(),
                                 singleLine = true,
                             )
@@ -1129,11 +1183,25 @@ private fun AddServerSheet(
                         ) { Text("Connect Bot") }
                     }
                 } else {
+                    OutlinedTextField(
+                        value = customName,
+                        onValueChange = { customName = it },
+                        label = { Text("Server Name / Nickname (Optional)") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                    )
                     OutlinedTextField(url, { url = it }, label = { Text("URL") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                    OutlinedTextField(
+                        value = secondaryUrl,
+                        onValueChange = { secondaryUrl = it },
+                        label = { Text("Secondary URL (Optional, e.g. LAN IP)") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                    )
                     OutlinedTextField(user, { user = it }, label = { Text("Username") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
                     OutlinedTextField(
                         pass, { pass = it },
-                        label = { Text("Password") },
+                        label = { Text(if (existing?.token != null) "Password (leave blank to keep current)" else "Password") },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
                         visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
@@ -1167,6 +1235,11 @@ private fun AddServerSheet(
                         } else {
                             "Telegram Music"
                         }
+                        val resolvedCustomName = if (tgDisplayName.isNotBlank() && tgDisplayName != "Telegram Music") {
+                            tgDisplayName.trim()
+                        } else {
+                            customName.trim().ifBlank { null }
+                        }
                         val candidate = ServerEntry(
                             id = existing?.id ?: newServerId(),
                             type = ServerType.TELEGRAM,
@@ -1174,6 +1247,7 @@ private fun AddServerSheet(
                             user = tgDisplayName.trim().ifBlank { defaultName },
                             token = if (tgAuthMethod == 1) tgBotToken.trim() else null,
                             userId = tgManager.myUserId?.toString(),
+                            customName = resolvedCustomName,
                         )
                         saveAndSync(candidate)
                     },
@@ -1198,10 +1272,13 @@ private fun AddServerSheet(
                     onClick = {
                         val name = plexOptions.firstOrNull { it.second == url }?.first
                             ?: existing?.user ?: "Plex"
+                        val normSecondary = secondaryUrl.trim().ifBlank { null }?.let { normalizeServerUrl(it) }
                         val candidate = ServerEntry(
                             id = existing?.id ?: newServerId(), type = ServerType.PLEX,
                             url = normalizeServerUrl(url), user = name,
                             token = plexToken ?: existing?.token,
+                            customName = customName.trim().ifBlank { null },
+                            secondaryUrl = normSecondary,
                         )
                         busy = true; error = ""
                         scope.launch {

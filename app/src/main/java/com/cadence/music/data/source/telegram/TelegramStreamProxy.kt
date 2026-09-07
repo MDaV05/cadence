@@ -57,6 +57,11 @@ class TelegramStreamProxy private constructor(private val manager: TelegramManag
         return "http://127.0.0.1:$port/stream?remoteId=" + URLEncoder.encode(remoteFileId, "UTF-8")
     }
 
+    fun thumbUrl(remoteFileId: String): String {
+        start()
+        return "http://127.0.0.1:$port/thumb?remoteId=" + URLEncoder.encode(remoteFileId, "UTF-8")
+    }
+
     private fun handleClient(socket: Socket) {
         socket.use { s ->
             s.soTimeout = 30_000
@@ -219,16 +224,33 @@ class TelegramStreamProxy private constructor(private val manager: TelegramManag
     }
 
     private fun handleThumbRequest(path: String, output: OutputStream) {
+        val remoteId = parseQueryParam(path, "remoteId")
         val fileIdStr = parseQueryParam(path, "fileId")
-        val fileId = fileIdStr?.toIntOrNull() ?: run {
-            sendNotFound(output)
-            return
+        val localPath: String? = when {
+            remoteId != null -> runBlocking {
+                runCatching { manager.downloadThumbnail(remoteId) }.getOrNull()
+            }
+            fileIdStr != null -> {
+                val fileId = fileIdStr.toIntOrNull() ?: return sendNotFound(output)
+                runBlocking {
+                    runCatching {
+                        val file = manager.getFile(fileId)
+                        if (file.local.isDownloadingCompleted && File(file.local.path).exists()) {
+                            file.local.path
+                        } else {
+                            val dl = manager.downloadFile(fileId, priority = 32, synchronous = true)
+                            dl.local.path.takeIf { File(it).exists() }
+                        }
+                    }.getOrNull()
+                }
+            }
+            else -> null
         }
-        val file = runBlocking { runCatching { manager.getFile(fileId) }.getOrNull() }
-        val localPath = file?.local?.path
+
         if (localPath != null && File(localPath).exists()) {
             val bytes = File(localPath).readBytes()
-            val header = "HTTP/1.1 200 OK\r\nContent-Type: image/jpeg\r\nContent-Length: ${bytes.size}\r\n\r\n"
+            val mime = if (localPath.endsWith(".png", ignoreCase = true)) "image/png" else "image/jpeg"
+            val header = "HTTP/1.1 200 OK\r\nContent-Type: $mime\r\nContent-Length: ${bytes.size}\r\nConnection: close\r\n\r\n"
             output.write(header.toByteArray(Charsets.ISO_8859_1))
             output.write(bytes)
             output.flush()

@@ -48,7 +48,16 @@ class PlaybackService : MediaLibraryService() {
         val container = (application as? CadenceApp)?.container
         val cacheBytes = container?.prefs?.cacheGb?.coerceIn(1, 20)?.let { it * 1024L * 1024 * 1024 }
             ?: 2L * 1024 * 1024 * 1024
-        val upstream: DataSource.Factory = DefaultDataSource.Factory(this)
+        val httpFactory = androidx.media3.datasource.DefaultHttpDataSource.Factory()
+            .setConnectTimeoutMs(4000)
+            .setReadTimeoutMs(8000)
+            .setAllowCrossProtocolRedirects(true)
+        val baseUpstream: DataSource.Factory = DefaultDataSource.Factory(this, httpFactory)
+        val upstream: DataSource.Factory = FallbackDataSource.Factory(
+            upstreamFactory = baseUpstream,
+            resolveFallback = { uri -> container?.resolveFallbackUrl(uri) },
+            onFallbackUsed = { from, to -> container?.onPlaybackUrlFailed(from, to) },
+        )
         val cached: DataSource.Factory = CacheDataSource.Factory()
             .setCache(StreamCache.get(applicationContext, cacheBytes))
             .setUpstreamDataSourceFactory(upstream)
@@ -68,6 +77,7 @@ class PlaybackService : MediaLibraryService() {
             .build()
 
         fun attachEq(sessionId: Int) = EqManager.attach(sessionId)
+        val retriedPlaybackIds = java.util.Collections.synchronizedSet(mutableSetOf<String>())
         player.addListener(object : Player.Listener {
             override fun onAudioSessionIdChanged(audioSessionId: Int) = attachEq(audioSessionId)
 
@@ -75,6 +85,39 @@ class PlaybackService : MediaLibraryService() {
                 pushWidget(mediaItem, player.isPlaying)
                 applyReplayGain(mediaItem?.mediaId)
                 saveResumeState(player)
+                retriedPlaybackIds.remove(mediaItem?.mediaId)
+            }
+
+            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                val currentItem = player.currentMediaItem ?: return
+                val mediaId = currentItem.mediaId
+                val c = (application as? CadenceApp)?.container ?: return
+                val entryId = com.cadence.music.data.entryIdOf(mediaId) ?: return
+                val entry = c.prefs.entry(entryId) ?: return
+                if (entry.secondaryUrl.isNullOrBlank()) return
+
+                if (retriedPlaybackIds.add(mediaId)) {
+                    c.library.switchActiveUrl(entry.id) ?: return
+                    serviceScope.launch {
+                        val entity = withContext(Dispatchers.IO) {
+                            c.database.trackDao().byServerId(mediaId)
+                        }
+                        val track = entity?.let {
+                            com.cadence.music.data.source.Track(
+                                key = it.serverId, sourceId = it.sourceId, title = it.title, artist = it.artistName,
+                                album = it.albumName, albumKey = it.albumKey, durationMs = it.durationMs, localPath = null,
+                            )
+                        }
+                        val newStreamUrl = track?.let { c.library.streamUrlFor(it) }
+                        if (newStreamUrl != null) {
+                            val newItem = currentItem.buildUpon().setUri(newStreamUrl).build()
+                            val curIdx = player.currentMediaItemIndex
+                            player.replaceMediaItem(curIdx, newItem)
+                            player.prepare()
+                            player.play()
+                        }
+                    }
+                }
             }
 
             override fun onIsPlayingChanged(isPlaying: Boolean) {

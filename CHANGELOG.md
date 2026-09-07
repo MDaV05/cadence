@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.14.3
+
+- Stream Tag Server Attribution & Nicknames: Track subtitles display the active server type (e.g. `Stream (jellyfin)`, `Stream (telegram)`). Added option to set custom server nicknames and toggle custom attribution (e.g. `Stream (dav/jellyfin)`).
+- Telegram Artwork Integration: Embedded cover art and chat photos from Telegram are automatically extracted, cached, and rendered across all screens (library, now playing, albums, artists).
+- Server Edit Action: Added dedicated edit button to server rows in Settings -> Servers alongside delete, preserving existing authentication tokens.
+- Secondary URL with Seamless Playback Failover: Added secondary URL option for Subsonic, Jellyfin, Emby, and Plex servers. Playback automatically tries the primary URL first and transparently falls back to the secondary URL if unreachable.
+
 ## 0.14.1
 
 - Telegram Music Source: Connect Telegram chats, channels, groups, bots, or Saved Messages directly to Cadence.

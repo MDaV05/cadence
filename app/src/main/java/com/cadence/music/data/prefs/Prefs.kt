@@ -25,10 +25,13 @@ data class ServerEntry(
     val token: String? = null,
     val userId: String? = null, // jelly/emby remote user id
     val active: Boolean = true,
+    val customName: String? = null,
+    val secondaryUrl: String? = null,
 ) {
     fun toJson(): org.json.JSONObject = org.json.JSONObject()
         .put("id", id).put("type", type.name).put("url", url).put("user", user)
         .put("password", password).put("token", token).put("userId", userId).put("active", active)
+        .put("customName", customName).put("secondaryUrl", secondaryUrl)
 
     companion object {
         fun fromJson(o: org.json.JSONObject): ServerEntry = ServerEntry(
@@ -40,6 +43,8 @@ data class ServerEntry(
             token = o.optString("token", null),
             userId = o.optString("userId", null),
             active = o.optBoolean("active", true),
+            customName = o.optString("customName", null)?.ifBlank { null },
+            secondaryUrl = o.optString("secondaryUrl", null)?.ifBlank { null },
         )
     }
 }
@@ -223,4 +228,9 @@ class Prefs(context: Context) {
     var seenUpdateTag: String
         get() = sp.getString("update_seen_tag", null) ?: ""
         set(value) = sp.edit().putString("update_seen_tag", value).apply()
+
+    /** Whether to show custom server name in stream tags (e.g. Stream (dav/jellyfin) vs Stream (jellyfin)). */
+    var showServerNameInStreamTag: Boolean
+        get() = sp.getBoolean("show_server_name_stream_tag", true)
+        set(value) = sp.edit().putBoolean("show_server_name_stream_tag", value).apply()
 }

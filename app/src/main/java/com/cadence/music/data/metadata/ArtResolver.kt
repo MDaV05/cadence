@@ -28,8 +28,11 @@ class ArtResolver(private val library: LibraryRepository) {
                 ).toString()
             }
         }
+        if (track.sourceId != "local") {
+            library.trackCoverArtFor(track.serverId)?.let { return it }
+        }
         if (track.sourceId != "local" && track.albumKey != null) {
-            return library.coverArtFor(track.albumKey)
+            library.coverArtFor(track.albumKey)?.let { return it }
         }
         val key = "${track.artistName}::${track.albumName}"
         return mutex.withLock { mbCache[key] } ?: run {

@@ -287,9 +287,12 @@ class TelegramManager private constructor(private val appContext: Context) {
 
     suspend fun getMyUserId(): Long? = cachedUserId ?: getMe()?.id
 
+    suspend fun getChat(chatId: Long): TdApi.Chat? =
+        runCatching { send(TdApi.GetChat(chatId)) }.getOrNull()
+
     suspend fun getChatTitle(chatId: Long): String? {
         chatTitleCache[chatId]?.let { return it }
-        val chat = runCatching { send(TdApi.GetChat(chatId)) }.getOrNull()
+        val chat = getChat(chatId)
         if (chat != null) {
             val title = chat.title.ifBlank { "Chat $chatId" }
             chatTitleCache[chatId] = title
@@ -396,11 +399,11 @@ class TelegramManager private constructor(private val appContext: Context) {
     }
 
     /** Resolves a permanent remote file id to a current TDLib file object. */
-    suspend fun getRemoteFile(remoteFileId: String): TdApi.File {
+    suspend fun getRemoteFile(remoteFileId: String, fileType: TdApi.FileType = TdApi.FileTypeAudio()): TdApi.File {
         remoteFileMap[remoteFileId]?.let { cachedId ->
             runCatching { return send(TdApi.GetFile(cachedId)) }
         }
-        val file = send(TdApi.GetRemoteFile(remoteFileId, TdApi.FileTypeAudio()))
+        val file = send(TdApi.GetRemoteFile(remoteFileId, fileType))
         remoteFileMap[remoteFileId] = file.id
         return file
     }
@@ -414,6 +417,51 @@ class TelegramManager private constructor(private val appContext: Context) {
         limit: Long = 0,
         synchronous: Boolean = false,
     ): TdApi.File = send(TdApi.DownloadFile(fileId, priority, offset, limit, synchronous))
+
+    suspend fun downloadThumbnail(remoteFileId: String): String? {
+        val file = runCatching { getRemoteFile(remoteFileId, TdApi.FileTypeThumbnail()) }.getOrNull() ?: return null
+        if (file.local.isDownloadingCompleted && File(file.local.path).exists()) {
+            return file.local.path
+        }
+        val downloaded = runCatching {
+            downloadFile(file.id, priority = 32, offset = 0, limit = 0, synchronous = true)
+        }.getOrNull()
+        return downloaded?.local?.path?.takeIf { it.isNotEmpty() && File(it).exists() }
+    }
+
+    fun downloadFileAsync(fileId: Int) {
+        scope.launch {
+            runCatching {
+                downloadFile(fileId, priority = 16, offset = 0, limit = 0, synchronous = false)
+            }
+        }
+    }
+
+    private val artworkPrefs by lazy {
+        appContext.getSharedPreferences("cadence_tg_artwork", Context.MODE_PRIVATE)
+    }
+
+    fun registerAudioArtwork(audioRemoteId: String, thumbRemoteId: String) {
+        artworkPrefs.edit().putString("audio_$audioRemoteId", thumbRemoteId).apply()
+    }
+
+    fun getAudioArtwork(audioRemoteId: String): String? =
+        artworkPrefs.getString("audio_$audioRemoteId", null)
+
+    fun registerChatArtwork(chatKey: String, photoRemoteId: String) {
+        artworkPrefs.edit().putString("chat_$chatKey", photoRemoteId).apply()
+    }
+
+    fun getChatArtwork(chatKey: String): String? =
+        artworkPrefs.getString("chat_$chatKey", null)
+
+    suspend fun getLocalFilePath(remoteFileId: String): String? {
+        val cachedId = remoteFileMap[remoteFileId] ?: runCatching {
+            getRemoteFile(remoteFileId, TdApi.FileTypeThumbnail()).id
+        }.getOrNull() ?: return null
+        val file = runCatching { getFile(cachedId) }.getOrNull() ?: return null
+        return file.local.path.takeIf { file.local.isDownloadingCompleted && it.isNotEmpty() && File(it).exists() }
+    }
 
     suspend fun cancelDownload(fileId: Int) {
         runCatching { send(TdApi.CancelDownloadFile(fileId, false)) }

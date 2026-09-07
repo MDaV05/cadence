@@ -139,6 +139,23 @@ fun LibraryScreen(
     }
 }
 
+fun formatStreamTag(
+    prefs: com.cadence.music.data.prefs.Prefs,
+    sourceId: String,
+    serverId: String,
+): String {
+    val typeName = sourceId.lowercase()
+    val entryId = com.cadence.music.data.entryIdOf(serverId)
+    val entry = entryId?.let { prefs.entry(it) }
+    val customName = entry?.customName?.trim()?.ifBlank { null }
+        ?: (if (sourceId == "telegram") entry?.user?.trim()?.takeIf { it != "Telegram Music" && it.isNotBlank() } else null)
+    return if (prefs.showServerNameInStreamTag && customName != null) {
+        "Stream ($customName/$typeName)"
+    } else {
+        "Stream ($typeName)"
+    }
+}
+
 @OptIn(
     androidx.compose.foundation.ExperimentalFoundationApi::class,
 )
@@ -174,7 +191,7 @@ fun TrackRow(
             val sub = when {
                 track.sourceId == "local" -> listOfNotNull(track.artistName.ifBlank { null }, "Local")
                 track.path != null -> listOfNotNull(track.artistName.ifBlank { null }, "Downloaded")
-                else -> listOfNotNull(track.artistName.ifBlank { null }, "Stream")
+                else -> listOfNotNull(track.artistName.ifBlank { null }, formatStreamTag(container.prefs, track.sourceId, track.serverId))
             }
             Text(
                 sub.joinToString(" • "),

@@ -162,6 +162,38 @@ class AppContainer(app: Application) {
         },
     )
 
+    fun resolveFallbackUrl(uri: android.net.Uri): android.net.Uri? {
+        val uriStr = uri.toString()
+        for (entry in prefs.servers) {
+            val sec = entry.secondaryUrl?.trimEnd('/') ?: continue
+            val prim = entry.url.trimEnd('/')
+            if (uriStr.startsWith(prim)) {
+                val fallbackStr = sec + uriStr.substring(prim.length)
+                return android.net.Uri.parse(fallbackStr)
+            } else if (uriStr.startsWith(sec)) {
+                val fallbackStr = prim + uriStr.substring(sec.length)
+                return android.net.Uri.parse(fallbackStr)
+            }
+        }
+        return null
+    }
+
+    fun onPlaybackUrlFailed(failedUri: android.net.Uri, fallbackUri: android.net.Uri) {
+        val failedStr = failedUri.toString()
+        val fallbackStr = fallbackUri.toString()
+        for (entry in prefs.servers) {
+            val sec = entry.secondaryUrl?.trimEnd('/') ?: continue
+            val prim = entry.url.trimEnd('/')
+            if (failedStr.startsWith(prim) && fallbackStr.startsWith(sec)) {
+                library.markActiveUrl(entry.id, entry.secondaryUrl)
+                break
+            } else if (failedStr.startsWith(sec) && fallbackStr.startsWith(prim)) {
+                library.markActiveUrl(entry.id, entry.url)
+                break
+            }
+        }
+    }
+
     private val _updateStatus = MutableStateFlow<UpdateStatus>(Idle)
     val updateStatus: StateFlow<UpdateStatus> = _updateStatus
 

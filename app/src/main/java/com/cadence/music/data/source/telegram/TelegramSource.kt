@@ -6,6 +6,7 @@ import com.cadence.music.data.source.Album
 import com.cadence.music.data.source.MusicSource
 import com.cadence.music.data.source.Track
 import org.drinkless.tdlib.TdApi
+import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -71,6 +72,14 @@ class TelegramSource(
                 val audio = content.audio
                 val remoteId = audio.audio?.remote?.id ?: continue
 
+                // Register artwork
+                val thumb = audio.albumCoverThumbnail ?: audio.externalAlbumCovers?.firstOrNull()
+                val thumbRemoteId = thumb?.file?.remote?.id
+                if (thumbRemoteId != null) {
+                    manager.registerAudioArtwork(remoteId, thumbRemoteId)
+                    thumb.file?.let { manager.downloadFileAsync(it.id) }
+                }
+
                 val title = audio.title.ifBlank {
                     audio.fileName.ifBlank { "Track ${msg.id}" }.substringBeforeLast('.')
                 }
@@ -89,6 +98,15 @@ class TelegramSource(
                     streamUrl = proxy.streamUrl(remoteId),
                 )
                 tracks += track
+            }
+
+            // Register chat photo as album cover
+            val chat = manager.getChat(chatId)
+            val chatPhoto = chat?.photo?.small ?: chat?.photo?.big
+            val photoRemoteId = chatPhoto?.remote?.id
+            if (photoRemoteId != null) {
+                manager.registerChatArtwork("tg:chat:$chatId", photoRemoteId)
+                chatPhoto.let { manager.downloadFileAsync(it.id) }
             }
 
             if (tracks.isNotEmpty()) {
@@ -117,6 +135,12 @@ class TelegramSource(
                 val content = msg.content as? TdApi.MessageAudio ?: return@mapNotNull null
                 val audio = content.audio
                 val remoteId = audio.audio?.remote?.id ?: return@mapNotNull null
+                val thumb = audio.albumCoverThumbnail ?: audio.externalAlbumCovers?.firstOrNull()
+                val thumbRemoteId = thumb?.file?.remote?.id
+                if (thumbRemoteId != null) {
+                    manager.registerAudioArtwork(remoteId, thumbRemoteId)
+                    thumb.file?.let { manager.downloadFileAsync(it.id) }
+                }
                 val title = audio.title.ifBlank {
                     audio.fileName.ifBlank { "Track ${msg.id}" }.substringBeforeLast('.')
                 }
@@ -149,5 +173,32 @@ class TelegramSource(
         return proxy.streamUrl(remoteId)
     }
 
-    override suspend fun coverArtUrl(albumKey: String): String? = null
+    override suspend fun trackCoverArtUrl(remoteTrackKey: String): String? {
+        val remoteId = remoteTrackKey.removePrefix("tg:")
+        val thumbRemoteId = manager.getAudioArtwork(remoteId)
+        if (thumbRemoteId != null) {
+            val local = manager.getLocalFilePath(thumbRemoteId)
+            if (local != null && File(local).exists()) {
+                return "file://$local"
+            }
+            return proxy.thumbUrl(thumbRemoteId)
+        }
+        return null
+    }
+
+    override suspend fun coverArtUrl(albumKey: String): String? {
+        val photoRemoteId = manager.getChatArtwork(albumKey)
+        if (photoRemoteId != null) {
+            val local = manager.getLocalFilePath(photoRemoteId)
+            if (local != null && File(local).exists()) {
+                return "file://$local"
+            }
+            return proxy.thumbUrl(photoRemoteId)
+        }
+        val firstTrack = albumCache[albumKey]?.firstOrNull()
+        if (firstTrack != null) {
+            return trackCoverArtUrl(firstTrack.key)
+        }
+        return null
+    }
 }
