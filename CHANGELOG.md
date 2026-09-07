@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.14.3
+
+- Library Sync & Featured Artist Normalization: Tracks with featured artists (`feat.`, `ft.`, `featuring`, `with`, `w/`, `[feat. ...]`, `(feat. ...)`) and collaborations (`&`, `,`, `/`, `;`, `x`, `vs.`, `and`) cleanly fold under the primary artist instead of creating separate artist entries.
+- Unified Album Grouping: Tracks across an album share a single consistent album key, preventing albums with featured or collaborating artists from splitting into duplicate album cards.
+- Automatic Database Migration: Re-normalizes all existing tracks and albums in Room database on update without requiring a manual rescan.
+- Preserved Band Ensembles: Curated catalog of genuine band ensembles containing `&`, `,`, `+`, `/` (e.g. Earth, Wind & Fire, Simon & Garfunkel, AC/DC, Crosby, Stills, Nash & Young, Hall & Oates) are preserved intact.
+
 ## 0.14.2
 
 - Stream Tag Server Attribution & Nicknames: Track subtitles display the active server type (e.g. `Stream (jellyfin)`, `Stream (telegram)`). Added option to set custom server nicknames and toggle custom attribution (e.g. `Stream (dav/jellyfin)`).

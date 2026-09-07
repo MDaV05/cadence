@@ -27,7 +27,7 @@ android {
         versionCode = commitCount + 100
         // Tag builds (v1.2.3) take the version name from the tag; local builds get the default.
         val ciTag = System.getenv("GITHUB_REF_NAME")?.takeIf { it.matches(Regex("v\\d+\\.\\d+.*")) }
-        versionName = ciTag?.removePrefix("v") ?: "0.2.0"
+        versionName = ciTag?.removePrefix("v") ?: "0.14.3"
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a")
         }
