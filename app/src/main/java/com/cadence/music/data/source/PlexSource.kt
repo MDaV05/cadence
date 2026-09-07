@@ -22,10 +22,10 @@ class PlexSource(private val entry: ServerEntry, private val deviceId: String) :
     fun thumbUrl(thumb: String): String =
         "${base()}/photo/:/transcode?url=${java.net.URLEncoder.encode(thumb, "UTF-8").replace("%2F", "/")}&X-Plex-Token=${token()}"
 
-    suspend fun coverArtUrl(albumKey: String): String? =
+    override suspend fun coverArtUrl(albumKey: String): String? =
         metadataFor(albumKey.removePrefix("plex:"))?.optString("thumb", null)?.let { thumbUrl(it) }
 
-    fun downloadUrl(songId: String): String {
+    override fun downloadUrl(songId: String, format: String, bitrate: Int): String {
         val ratingKey = songId.removePrefix("plex:")
         // Direct play: downloads are the same direct-play Part URL.
         return partUrl("/library/metadata/$ratingKey/download")
@@ -43,10 +43,10 @@ class PlexSource(private val entry: ServerEntry, private val deviceId: String) :
     // scan(): no-op (library sync uses listAlbums+albumTracksByKey, same rationale as Task 2).
     override suspend fun scan(): List<Track> = emptyList()
 
-    suspend fun ping(): Boolean =
+    override suspend fun ping(): Boolean =
         runCatching { get("identity") != null }.getOrDefault(false)
 
-    suspend fun listAlbums(): List<Album> {
+    override suspend fun listAlbums(): List<Album> {
         val sections = get("library/sections")
             ?.optJSONObject("MediaContainer")
             ?.optJSONArray("Directory") ?: return emptyList()
@@ -82,7 +82,7 @@ class PlexSource(private val entry: ServerEntry, private val deviceId: String) :
         return out
     }
 
-    suspend fun albumTracksByKey(albumKey: String): List<Track> {
+    override suspend fun albumTracksByKey(albumKey: String): List<Track> {
         val albumRatingKey = albumKey.removePrefix("plex:")
         val obj = get("library/metadata/$albumRatingKey/children") ?: return emptyList()
         val items = obj.optJSONObject("MediaContainer")?.optJSONArray("Metadata")

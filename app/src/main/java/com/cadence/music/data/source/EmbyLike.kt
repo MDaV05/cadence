@@ -30,13 +30,13 @@ abstract class EmbyLikeSource(
      */
     abstract suspend fun authenticate(): Pair<String, String>?
 
-    suspend fun ping(): Boolean =
+    override suspend fun ping(): Boolean =
         runCatching { get("Users/${uid()}") != null }.getOrDefault(false)
 
     fun streamUrlFor(remoteId: String): String = "${base()}/Audio/$remoteId/stream?api_key=${token()}"
-    fun downloadUrl(songId: String): String =
+    override fun downloadUrl(songId: String, format: String, bitrate: Int): String =
         "${base()}/Items/${songId.removePrefix(prefix())}/Download?api_key=${token()}"
-    fun coverArtUrl(albumKey: String): String =
+    override suspend fun coverArtUrl(albumKey: String): String =
         "${base()}/Items/${albumKey.removePrefix(prefix())}/Images/Primary?api_key=${token()}"
 
     protected abstract fun prefix(): String // "jelly:" or "emby:"
@@ -44,7 +44,7 @@ abstract class EmbyLikeSource(
     override suspend fun streamUrl(track: Track): String? =
         track.streamUrl ?: track.key.removePrefix(prefix()).let { streamUrlFor(it) }
 
-    suspend fun setStarred(songId: String, starred: Boolean) {
+    override suspend fun setStarred(songId: String, starred: Boolean) {
         val id = songId.removePrefix(prefix())
         if (starred) post("Users/${uid()}/FavoriteItems/$id") else delete("Users/${uid()}/FavoriteItems/$id")
     }
@@ -52,7 +52,7 @@ abstract class EmbyLikeSource(
     // scan() no-op: library sync uses listAlbums+albumTracksByKey (same as Subsonic callers).
     override suspend fun scan(): List<Track> = emptyList()
 
-    suspend fun listAlbums(): List<Album> {
+    override suspend fun listAlbums(): List<Album> {
         val out = mutableListOf<Album>()
         var start = 0
         while (true) {
@@ -77,7 +77,7 @@ abstract class EmbyLikeSource(
         return out
     }
 
-    suspend fun albumTracksByKey(albumKey: String): List<Track> {
+    override suspend fun albumTracksByKey(albumKey: String): List<Track> {
         val albumId = albumKey.removePrefix(prefix())
         val obj = get(
             "Users/${uid()}/Items?ParentId=$albumId&Recursive=true" +

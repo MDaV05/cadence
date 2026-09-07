@@ -53,7 +53,7 @@ class SubsonicSource(private val configProvider: () -> ServerConfig?) : MusicSou
             }
         }
 
-    suspend fun ping(): Boolean = try { get("ping"); true } catch (_: Exception) { false }
+    override suspend fun ping(): Boolean = try { get("ping"); true } catch (_: Exception) { false }
 
     override suspend fun scan(): List<Track> {
         val tracks = mutableListOf<Track>()
@@ -74,7 +74,7 @@ class SubsonicSource(private val configProvider: () -> ServerConfig?) : MusicSou
         return tracks
     }
 
-    suspend fun listAlbums(): List<Album> {
+    override suspend fun listAlbums(): List<Album> {
         val out = mutableListOf<Album>()
         var offset = 0
         while (true) {
@@ -100,7 +100,7 @@ class SubsonicSource(private val configProvider: () -> ServerConfig?) : MusicSou
         return out
     }
 
-    suspend fun albumTracksByKey(albumKey: String): List<Track> =
+    override suspend fun albumTracksByKey(albumKey: String): List<Track> =
         albumTracks(albumKey.removePrefix("sub:"))
 
     private suspend fun albumTracks(albumId: String): List<Track> {
@@ -127,11 +127,12 @@ class SubsonicSource(private val configProvider: () -> ServerConfig?) : MusicSou
     }
 
     /** Stars/unstars a song on the server. */
-    suspend fun setStarred(songId: String, starred: Boolean) {
-        get(if (starred) "star" else "unstar", mapOf("id" to songId))
+    override suspend fun setStarred(songId: String, starred: Boolean) {
+        val id = songId.removePrefix("sub:")
+        get(if (starred) "star" else "unstar", mapOf("id" to id))
     }
 
-    fun coverArtUrl(albumKey: String): String =
+    override suspend fun coverArtUrl(albumKey: String): String =
         url("getCoverArt", mapOf("id" to albumKey.removePrefix("sub:")))
 
     override suspend fun search(query: String): List<Track> {
@@ -155,12 +156,14 @@ class SubsonicSource(private val configProvider: () -> ServerConfig?) : MusicSou
 
     private fun streamUrlFor(songId: String) = url("stream", mapOf("id" to songId))
 
-    fun downloadUrl(songId: String, format: String, bitrate: Int): String =
-        if (format == "raw") url("download", mapOf("id" to songId))
+    override fun downloadUrl(songId: String, format: String, bitrate: Int): String {
+        val id = songId.removePrefix("sub:")
+        return if (format == "raw") url("download", mapOf("id" to id))
         else url(
             "download",
-            mapOf("id" to songId, "format" to format, "maxBitRate" to bitrate.toString()),
+            mapOf("id" to id, "format" to format, "maxBitRate" to bitrate.toString()),
         )
+    }
 
     override suspend fun streamUrl(track: Track): String? =
         track.streamUrl ?: track.key.removePrefix("sub:").let { streamUrlFor(it) }

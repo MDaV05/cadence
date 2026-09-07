@@ -18,7 +18,7 @@ class EmbyLikeTest {
     }
 
     @Test
-    fun `cover art url`() {
+    fun `cover art url`() = kotlinx.coroutines.runBlocking {
         val s = JellyfinSource(entry)
         assertEquals("https://box:8096/Items/abc/Images/Primary?api_key=tok", s.coverArtUrl("jelly:abc"))
     }

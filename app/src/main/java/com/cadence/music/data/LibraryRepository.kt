@@ -92,7 +92,7 @@ class LibraryRepository(
         android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID) ?: "cadence"
     }
 
-    private fun sourceFor(entry: ServerEntry): Any = when (entry.type) {
+    private fun sourceFor(entry: ServerEntry): com.cadence.music.data.source.MusicSource = when (entry.type) {
         ServerType.SUBSONIC -> SubsonicSource { ServerConfig(entry.url, entry.user, entry.password ?: "") }
         ServerType.JELLYFIN -> JellyfinSource(entry, deviceId)
         ServerType.EMBY -> EmbySource(entry, deviceId)
@@ -110,52 +110,29 @@ class LibraryRepository(
         track.localPath?.let { return it }
         val entry = entryForServerId(track.key) ?: return null
         val remote = remoteKey(track.key, entry)
-        return when (val s = sourceFor(entry)) {
-            is SubsonicSource -> s.streamUrl(track.copy(key = remote))
-            is EmbyLikeSource -> s.streamUrl(track.copy(key = remote))
-            is PlexSource -> s.streamUrl(track.copy(key = remote))
-            else -> null
-        }
+        return sourceFor(entry).streamUrl(track.copy(key = remote))
     }
 
     fun downloadUrlFor(serverId: String, format: String, bitrate: Int): String? {
         val entry = entryForServerId(serverId) ?: return null
         val remote = remoteKey(serverId, entry)
-        return when (val s = sourceFor(entry)) {
-            is SubsonicSource -> s.downloadUrl(remote.removePrefix("sub:"), format, bitrate)
-            is EmbyLikeSource -> s.downloadUrl(remote)
-            is PlexSource -> s.downloadUrl(remote)
-            else -> null
-        }
+        return sourceFor(entry).downloadUrl(remote, format, bitrate)
     }
 
     suspend fun coverArtFor(albumKey: String): String? {
         val entry = entryForServerId(albumKey) ?: return null
         val remote = remoteKey(albumKey, entry)
-        return when (val s = sourceFor(entry)) {
-            is SubsonicSource -> s.coverArtUrl(remote)
-            is EmbyLikeSource -> s.coverArtUrl(remote)
-            is PlexSource -> s.coverArtUrl(remote)
-            else -> null
-        }
+        return sourceFor(entry).coverArtUrl(remote)
     }
 
     suspend fun setStarredFor(serverId: String, starred: Boolean) {
         val entry = entryForServerId(serverId) ?: return
         val remote = remoteKey(serverId, entry)
-        when (val s = sourceFor(entry)) {
-            is SubsonicSource -> runCatching { s.setStarred(remote.removePrefix("sub:"), starred) }
-            is EmbyLikeSource -> runCatching { s.setStarred(remote, starred) }
-            // Plex: starring unsupported v1 — silent no-op.
-        }
+        runCatching { sourceFor(entry).setStarred(remote, starred) }
     }
 
-    suspend fun pingEntry(entry: ServerEntry): Boolean = when (val s = sourceFor(entry)) {
-        is SubsonicSource -> s.ping()
-        is EmbyLikeSource -> s.ping()
-        is PlexSource -> s.ping()
-        else -> false
-    }
+    suspend fun pingEntry(entry: ServerEntry): Boolean =
+        runCatching { sourceFor(entry).ping() }.getOrDefault(false)
 
     /**
      * Active-entry filter for SQL builders: empty when nothing is disabled
@@ -430,12 +407,7 @@ class LibraryRepository(
             ServerType.PLEX -> "plex"
         }
         val s = sourceFor(entry)
-        val remoteAlbums = when (s) {
-            is SubsonicSource -> s.listAlbums()
-            is EmbyLikeSource -> s.listAlbums()
-            is PlexSource -> s.listAlbums()
-            else -> emptyList()
-        }
+        val remoteAlbums = s.listAlbums()
         val known = db.albumDao().bySource(sourceId)
             .filter { it.serverId.startsWith("${entry.id}:") }
             .associateBy { it.serverId }
@@ -492,12 +464,8 @@ class LibraryRepository(
         return SyncResult(fetchedAlbums, fetchedTracks)
     }
 
-    private suspend fun fetchAlbumTracks(s: Any, albumKey: String): List<Track>? = when (s) {
-        is SubsonicSource -> s.albumTracksByKey(albumKey)
-        is EmbyLikeSource -> s.albumTracksByKey(albumKey)
-        is PlexSource -> s.albumTracksByKey(albumKey)
-        else -> null
-    }
+    private suspend fun fetchAlbumTracks(s: com.cadence.music.data.source.MusicSource, albumKey: String): List<Track>? =
+        s.albumTracksByKey(albumKey)
 
     private suspend fun storeAlbum(
         entry: ServerEntry,
