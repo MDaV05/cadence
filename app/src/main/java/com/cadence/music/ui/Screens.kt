@@ -24,6 +24,8 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
@@ -31,6 +33,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
@@ -573,11 +576,16 @@ private fun AddServerSheet(
     var tgDisplayName by remember { mutableStateOf(existing?.user ?: "Telegram Music") }
     val tgManager = remember { com.cadence.music.data.source.telegram.TelegramManager.get(context) }
     val tgState by tgManager.authState.collectAsStateWithLifecycle()
+    val tgConn by tgManager.connectionState.collectAsStateWithLifecycle()
     var tgChats by remember { mutableStateOf<List<com.cadence.music.data.source.telegram.TelegramChatItem>>(emptyList()) }
     var tgChatsLoading by remember { mutableStateOf(false) }
     var tgSelectedChatIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
     var tgChatSearchQuery by remember { mutableStateOf("") }
     var tgManualChatMode by remember { mutableStateOf(false) }
+    var tgShowProxy by remember { mutableStateOf(false) }
+    var tgProxyHost by remember { mutableStateOf("127.0.0.1") }
+    var tgProxyPort by remember { mutableStateOf("10808") }
+    var tgProxyApplied by remember { mutableStateOf(false) }
 
     LaunchedEffect(tgState) {
         if (tgState is com.cadence.music.data.source.telegram.TelegramAuthState.Ready) {
@@ -707,17 +715,100 @@ private fun AddServerSheet(
                 } else if (type == ServerType.TELEGRAM) {
                     Text("Sync and stream audio directly from Telegram without saving files on your device.", style = MaterialTheme.typography.bodyMedium)
 
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FilterChip(
-                            selected = tgAuthMethod == 0,
-                            onClick = { tgAuthMethod = 0 },
-                            label = { Text("Account Login") },
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            FilterChip(
+                                selected = tgAuthMethod == 0,
+                                onClick = { tgAuthMethod = 0 },
+                                label = { Text("Account Login") },
+                            )
+                            FilterChip(
+                                selected = tgAuthMethod == 1,
+                                onClick = { tgAuthMethod = 1 },
+                                label = { Text("Bot Token") },
+                            )
+                        }
+                        TextButton(onClick = { tgShowProxy = !tgShowProxy }) {
+                            Text(if (tgShowProxy) "Hide Proxy" else "Proxy", style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            "Connection: $tgConn",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (tgConn == "Connected") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        FilterChip(
-                            selected = tgAuthMethod == 1,
-                            onClick = { tgAuthMethod = 1 },
-                            label = { Text("Bot Token") },
-                        )
+                    }
+
+                    if (tgShowProxy) {
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("SOCKS5 Proxy (v2rayNG / Clash / Nekobox)", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    OutlinedTextField(
+                                        value = tgProxyHost,
+                                        onValueChange = { tgProxyHost = it },
+                                        label = { Text("Host") },
+                                        modifier = Modifier.weight(2f),
+                                        singleLine = true,
+                                    )
+                                    OutlinedTextField(
+                                        value = tgProxyPort,
+                                        onValueChange = { tgProxyPort = it },
+                                        label = { Text("Port") },
+                                        modifier = Modifier.weight(1f),
+                                        singleLine = true,
+                                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                                            keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
+                                        ),
+                                    )
+                                }
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Button(
+                                        onClick = {
+                                            val p = tgProxyPort.toIntOrNull() ?: 10808
+                                            scope.launch {
+                                                try {
+                                                    tgManager.addSocks5Proxy(tgProxyHost, p)
+                                                    tgProxyApplied = true
+                                                    error = ""
+                                                } catch (e: Exception) {
+                                                    error = "Proxy error: ${e.message}"
+                                                }
+                                            }
+                                        },
+                                        modifier = Modifier.weight(1f),
+                                    ) {
+                                        Text(if (tgProxyApplied) "Re-apply" else "Apply Proxy")
+                                    }
+                                    if (tgProxyApplied) {
+                                        OutlinedButton(
+                                            onClick = {
+                                                scope.launch {
+                                                    tgManager.disableProxy()
+                                                    tgProxyApplied = false
+                                                }
+                                            },
+                                            modifier = Modifier.weight(1f),
+                                        ) {
+                                            Text("Disable")
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
 
                     if (tgAuthMethod == 0) {
@@ -874,28 +965,59 @@ private fun AddServerSheet(
                                 )
                             }
                             is com.cadence.music.data.source.telegram.TelegramAuthState.WaitCode -> {
-                                Text("Enter the code sent to your Telegram app:")
+                                Text("Enter the login code:", fontWeight = FontWeight.SemiBold)
+                                Card(
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
+                                    ),
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Text(
+                                        "Telegram sends login codes to your official Telegram app (check the 'Telegram' Service Notifications chat in your Telegram mobile/desktop app), NOT via SMS.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        modifier = Modifier.padding(10.dp),
+                                    )
+                                }
                                 OutlinedTextField(
                                     value = tgCode,
                                     onValueChange = { tgCode = it },
                                     label = { Text("Login Code") },
                                     modifier = Modifier.fillMaxWidth(),
                                     singleLine = true,
+                                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                                        keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
+                                    ),
                                 )
-                                Button(
-                                    onClick = {
-                                        busy = true; error = ""
-                                        scope.launch {
-                                            try {
-                                                tgManager.sendAuthCode(tgCode)
-                                            } catch (e: Exception) {
-                                                error = e.message ?: "Failed to verify code"
+                                Row(
+                                    Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    Button(
+                                        onClick = {
+                                            busy = true; error = ""
+                                            scope.launch {
+                                                try {
+                                                    tgManager.sendAuthCode(tgCode)
+                                                } catch (e: Exception) {
+                                                    error = e.message ?: "Failed to verify code"
+                                                } finally {
+                                                    busy = false
+                                                }
                                             }
-                                            busy = false
-                                        }
-                                    },
-                                    enabled = !busy && tgCode.isNotBlank(),
-                                ) { Text("Verify Code") }
+                                        },
+                                        enabled = !busy && tgCode.isNotBlank(),
+                                        modifier = Modifier.weight(1f),
+                                    ) { Text("Verify Code") }
+                                    OutlinedButton(
+                                        onClick = {
+                                            scope.launch {
+                                                tgManager.restart()
+                                                tgCode = ""
+                                            }
+                                        },
+                                        enabled = !busy,
+                                    ) { Text("Back") }
+                                }
                             }
                             is com.cadence.music.data.source.telegram.TelegramAuthState.WaitPassword -> {
                                 Text("Enter your 2FA Cloud Password" + (st.hint?.let { " (Hint: $it)" } ?: "") + ":")
@@ -915,36 +1037,56 @@ private fun AddServerSheet(
                                                 tgManager.sendPassword(tgPassword)
                                             } catch (e: Exception) {
                                                 error = e.message ?: "Incorrect 2FA password"
+                                            } finally {
+                                                busy = false
                                             }
-                                            busy = false
                                         }
                                     },
                                     enabled = !busy && tgPassword.isNotBlank(),
+                                    modifier = Modifier.fillMaxWidth(),
                                 ) { Text("Submit Password") }
+                            }
+                            is com.cadence.music.data.source.telegram.TelegramAuthState.Error -> {
+                                Text("Telegram Error", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.error)
+                                Text(st.message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                                Button(
+                                    onClick = {
+                                        error = ""
+                                        tgManager.restart()
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) { Text("Retry") }
                             }
                             else -> {
                                 OutlinedTextField(
                                     value = tgPhone,
                                     onValueChange = { tgPhone = it },
-                                    label = { Text("Phone number (e.g. +1234567890)") },
+                                    label = { Text("Phone number with country code") },
+                                    placeholder = { Text("+1234567890 or +98912...") },
                                     modifier = Modifier.fillMaxWidth(),
                                     singleLine = true,
+                                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                                        keyboardType = androidx.compose.ui.text.input.KeyboardType.Phone
+                                    ),
                                 )
                                 Button(
                                     onClick = {
                                         busy = true; error = ""
                                         scope.launch {
                                             try {
-                                                tgManager.start()
                                                 tgManager.sendPhoneNumber(tgPhone)
                                             } catch (e: Exception) {
                                                 error = e.message ?: "Failed to send code"
+                                            } finally {
+                                                busy = false
                                             }
-                                            busy = false
                                         }
                                     },
                                     enabled = !busy && tgPhone.isNotBlank(),
-                                ) { Text("Send Login Code") }
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Text("Send Login Code")
+                                }
                             }
                         }
                     } else {
@@ -974,15 +1116,16 @@ private fun AddServerSheet(
                                 busy = true; error = ""
                                 scope.launch {
                                     try {
-                                        tgManager.start()
                                         tgManager.sendBotToken(tgBotToken)
                                     } catch (e: Exception) {
                                         error = e.message ?: "Failed to connect bot"
+                                    } finally {
+                                        busy = false
                                     }
-                                    busy = false
                                 }
                             },
                             enabled = !busy && tgBotToken.isNotBlank(),
+                            modifier = Modifier.fillMaxWidth(),
                         ) { Text("Connect Bot") }
                     }
                 } else {

@@ -9,8 +9,11 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import org.drinkless.tdlib.Client
 import org.drinkless.tdlib.TdApi
 import java.io.File
@@ -42,6 +45,8 @@ class TelegramManager private constructor(private val appContext: Context) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val _authState = MutableStateFlow<TelegramAuthState>(TelegramAuthState.Uninitialized)
     val authState: StateFlow<TelegramAuthState> = _authState.asStateFlow()
+    private val _connectionState = MutableStateFlow<String>("Connecting...")
+    val connectionState: StateFlow<String> = _connectionState.asStateFlow()
 
     @Volatile private var client: Client? = null
     private val started = AtomicBoolean(false)
@@ -87,10 +92,30 @@ class TelegramManager private constructor(private val appContext: Context) {
         }
     }
 
+    @Synchronized
+    fun restart() {
+        started.set(false)
+        runCatching { client?.send(TdApi.Close(), null) }
+        client = null
+        _authState.value = TelegramAuthState.Uninitialized
+        start()
+    }
+
     private fun onUpdate(update: TdApi.Object) {
         when (update) {
             is TdApi.UpdateAuthorizationState -> {
                 handleAuthState(update.authorizationState)
+            }
+            is TdApi.UpdateConnectionState -> {
+                val stateName = when (update.state) {
+                    is TdApi.ConnectionStateWaitingForNetwork -> "Waiting for network..."
+                    is TdApi.ConnectionStateConnectingToProxy -> "Connecting to proxy..."
+                    is TdApi.ConnectionStateConnecting -> "Connecting to Telegram..."
+                    is TdApi.ConnectionStateUpdating -> "Updating..."
+                    is TdApi.ConnectionStateReady -> "Connected"
+                    else -> "Connecting..."
+                }
+                _connectionState.value = stateName
             }
             is TdApi.UpdateFile -> {
                 // Background download progress
@@ -155,39 +180,101 @@ class TelegramManager private constructor(private val appContext: Context) {
         }
     }
 
-    suspend fun <R : TdApi.Object> send(query: TdApi.Function<R>): R =
-        suspendCancellableCoroutine { cont ->
-            val c = client ?: run {
-                cont.resumeWithException(IllegalStateException("TDLib client not initialized"))
-                return@suspendCancellableCoroutine
-            }
-            c.send(query, { result ->
-                if (!cont.isActive) return@send
-                if (result is TdApi.Error) {
-                    cont.resumeWithException(IOException(result.message ?: "Telegram error code ${result.code}"))
-                } else {
-                    @Suppress("UNCHECKED_CAST")
-                    cont.resume(result as R)
+    suspend fun <R : TdApi.Object> send(query: TdApi.Function<R>, timeoutMs: Long = 20_000): R =
+        withTimeout(timeoutMs) {
+            suspendCancellableCoroutine { cont ->
+                val c = client ?: run {
+                    cont.resumeWithException(IllegalStateException("TDLib client not initialized"))
+                    return@suspendCancellableCoroutine
                 }
-            })
+                c.send(query, { result ->
+                    if (!cont.isActive) return@send
+                    if (result is TdApi.Error) {
+                        cont.resumeWithException(IOException(result.message ?: "Telegram error code ${result.code}"))
+                    } else {
+                        @Suppress("UNCHECKED_CAST")
+                        cont.resume(result as R)
+                    }
+                })
+            }
         }
 
     suspend fun sendPhoneNumber(phone: String) {
-        pendingPhone = phone.trim()
-        val settings = TdApi.PhoneNumberAuthenticationSettings()
-        send(TdApi.SetAuthenticationPhoneNumber(pendingPhone, settings))
+        val trimmed = phone.trim().replace(" ", "").replace("-", "")
+        val formatted = if (trimmed.startsWith("+")) trimmed else "+$trimmed"
+        pendingPhone = formatted
+
+        start()
+
+        // Wait up to 12s for TDLib parameters to be applied and state to reach WaitPhoneNumber
+        val reached = withTimeoutOrNull(12_000) {
+            authState.first { state ->
+                state is TelegramAuthState.WaitPhoneNumber || state is TelegramAuthState.Ready || state is TelegramAuthState.Error
+            }
+        }
+
+        if (reached == null) {
+            val conn = _connectionState.value
+            throw IOException("Telegram connection timed out ($conn). If Telegram is restricted in your region, please connect via VPN or set a proxy.")
+        }
+
+        val current = authState.value
+        if (current is TelegramAuthState.Error) {
+            throw IOException(current.message)
+        }
+        if (current is TelegramAuthState.Ready) {
+            return
+        }
+
+        val settings = TdApi.PhoneNumberAuthenticationSettings().apply {
+            allowFlashCall = false
+            allowMissedCall = false
+            isCurrentPhoneNumber = false
+            allowSmsRetrieverApi = false
+        }
+        send(TdApi.SetAuthenticationPhoneNumber(formatted, settings), timeoutMs = 25_000)
     }
 
     suspend fun sendAuthCode(code: String) {
-        send(TdApi.CheckAuthenticationCode(code.trim()))
+        send(TdApi.CheckAuthenticationCode(code.trim()), timeoutMs = 25_000)
     }
 
     suspend fun sendPassword(password: String) {
-        send(TdApi.CheckAuthenticationPassword(password))
+        send(TdApi.CheckAuthenticationPassword(password), timeoutMs = 25_000)
     }
 
     suspend fun sendBotToken(token: String) {
-        send(TdApi.CheckAuthenticationBotToken(token.trim()))
+        val trimmed = token.trim()
+        start()
+        val reached = withTimeoutOrNull(12_000) {
+            authState.first { state ->
+                state is TelegramAuthState.WaitPhoneNumber || state is TelegramAuthState.Ready || state is TelegramAuthState.Error
+            }
+        }
+        if (reached == null) {
+            val conn = _connectionState.value
+            throw IOException("Telegram connection timed out ($conn). Please check your internet or VPN.")
+        }
+        val current = authState.value
+        if (current is TelegramAuthState.Error) throw IOException(current.message)
+        if (current is TelegramAuthState.Ready) return
+        send(TdApi.CheckAuthenticationBotToken(trimmed), timeoutMs = 25_000)
+    }
+
+    suspend fun addSocks5Proxy(server: String, port: Int, username: String = "", password: String = "") {
+        val proxyType = TdApi.ProxyTypeSocks5(username, password)
+        val proxy = TdApi.Proxy(server.trim(), port, proxyType)
+        send(TdApi.AddProxy(proxy, true, "Cadence SOCKS5"), timeoutMs = 10_000)
+    }
+
+    suspend fun addMtprotoProxy(server: String, port: Int, secret: String) {
+        val proxyType = TdApi.ProxyTypeMtproto(secret.trim())
+        val proxy = TdApi.Proxy(server.trim(), port, proxyType)
+        send(TdApi.AddProxy(proxy, true, "Cadence MTProto"), timeoutMs = 10_000)
+    }
+
+    suspend fun disableProxy() {
+        runCatching { send(TdApi.DisableProxy(), timeoutMs = 5_000) }
     }
 
     private val chatTitleCache = ConcurrentHashMap<Long, String>()
