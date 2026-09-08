@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -90,7 +91,7 @@ import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun NowPlayingScreen(container: AppContainer) {
+fun NowPlayingScreen(container: AppContainer, onBack: () -> Unit = {}) {
     val player = container.player
     val state by player.state.collectAsStateWithLifecycle()
     var position by remember { mutableLongStateOf(0L) }
@@ -206,20 +207,39 @@ fun NowPlayingScreen(container: AppContainer) {
         }
     }
 
-    Scaffold { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .background(
-                    Brush.verticalGradient(
-                        listOf((accent ?: primary).copy(alpha = 0.10f), bg, bg),
-                    )
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                Brush.verticalGradient(
+                    listOf((accent ?: primary).copy(alpha = 0.15f), bg, bg),
                 )
-                .padding(24.dp),
-            verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
+            ),
+    ) {
+        Scaffold(
+            containerColor = Color.Transparent,
+            topBar = {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .statusBarsPadding()
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.Start,
+                ) {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.Filled.Close, contentDescription = "Close player")
+                    }
+                }
+            },
+        ) { padding ->
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .padding(horizontal = 24.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
         // Cover is a fixed-size box in a full-width pager page: without a
         // centering wrapper it hugs the page's start edge.
         if (horizontal) {
@@ -436,6 +456,7 @@ fun NowPlayingScreen(container: AppContainer) {
             }
         }
     }
+}
 
     if (showQueue) {
         ModalBottomSheet(

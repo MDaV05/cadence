@@ -5,9 +5,11 @@ import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -31,6 +33,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -82,8 +85,12 @@ fun AppNav(initialSettingsTab: Int = 0, onDeepLinkConsumed: () -> Unit = {}) {
     }
 
     Scaffold(
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         bottomBar = {
-            Column {
+            val hasNavBar = current in listOf("home", "library", "playlists", "search", "settings")
+            Column(
+                modifier = if (!hasNavBar) Modifier.navigationBarsPadding() else Modifier,
+            ) {
                 val np by container.player.state.collectAsStateWithLifecycle()
                 // Hidden on now-playing — the full screen already shows the track.
                 if (np.title.isNotEmpty() && current != "nowplaying") {
@@ -133,39 +140,54 @@ fun AppNav(initialSettingsTab: Int = 0, onDeepLinkConsumed: () -> Unit = {}) {
                         }
                     }
                 }
-                if (current in listOf("home", "library", "playlists", "search", "settings")) {
-                    NavigationBar {
-                    NavigationBarItem(
-                        selected = current == "home",
-                        onClick = { navController.navigate("home") { launchSingleTop = true; popUpTo(navController.graph.startDestinationId) { saveState = true }; restoreState = true } },
-                        icon = { Icon(if (current == "home") Icons.Filled.Home else Icons.Outlined.Home, null) },
-                        label = { Text("Home") },
+                if (hasNavBar) {
+                    val itemColors = NavigationBarItemDefaults.colors(
+                        selectedIconColor = MaterialTheme.colorScheme.primary,
+                        selectedTextColor = MaterialTheme.colorScheme.primary,
+                        indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    NavigationBarItem(
-                        selected = current == "library",
-                        onClick = { navController.navigate("library") { launchSingleTop = true; popUpTo(navController.graph.startDestinationId) { saveState = true }; restoreState = true } },
-                        icon = { Icon(if (current == "library") Icons.Filled.LibraryMusic else Icons.Outlined.LibraryMusic, null) },
-                        label = { Text("Library") },
-                    )
-                    NavigationBarItem(
-                        selected = current == "playlists",
-                        onClick = { navController.navigate("playlists") { launchSingleTop = true; popUpTo(navController.graph.startDestinationId) { saveState = true }; restoreState = true } },
-                        icon = { Icon(if (current == "playlists") Icons.AutoMirrored.Filled.QueueMusic else Icons.AutoMirrored.Outlined.QueueMusic, null) },
-                        label = { Text("Playlists") },
-                    )
-                    NavigationBarItem(
-                        selected = current == "search",
-                        onClick = { navController.navigate("search") { launchSingleTop = true; popUpTo(navController.graph.startDestinationId) { saveState = true }; restoreState = true } },
-                        icon = { Icon(if (current == "search") Icons.Filled.Search else Icons.Outlined.Search, null) },
-                        label = { Text("Search") },
-                    )
-                    NavigationBarItem(
-                        selected = current == "settings",
-                        onClick = { navController.navigate("settings") { launchSingleTop = true; popUpTo(navController.graph.startDestinationId) { saveState = true }; restoreState = true } },
-                        icon = { Icon(if (current == "settings") Icons.Filled.Settings else Icons.Outlined.Settings, null) },
-                        label = { Text("Settings") },
-                    )
-                }
+                    NavigationBar(
+                        containerColor = MaterialTheme.colorScheme.background,
+                        tonalElevation = 0.dp,
+                    ) {
+                        NavigationBarItem(
+                            selected = current == "home",
+                            onClick = { navController.navigate("home") { launchSingleTop = true; popUpTo(navController.graph.startDestinationId) { saveState = true }; restoreState = true } },
+                            icon = { Icon(if (current == "home") Icons.Filled.Home else Icons.Outlined.Home, null) },
+                            label = { Text("Home") },
+                            colors = itemColors,
+                        )
+                        NavigationBarItem(
+                            selected = current == "library",
+                            onClick = { navController.navigate("library") { launchSingleTop = true; popUpTo(navController.graph.startDestinationId) { saveState = true }; restoreState = true } },
+                            icon = { Icon(if (current == "library") Icons.Filled.LibraryMusic else Icons.Outlined.LibraryMusic, null) },
+                            label = { Text("Library") },
+                            colors = itemColors,
+                        )
+                        NavigationBarItem(
+                            selected = current == "playlists",
+                            onClick = { navController.navigate("playlists") { launchSingleTop = true; popUpTo(navController.graph.startDestinationId) { saveState = true }; restoreState = true } },
+                            icon = { Icon(if (current == "playlists") Icons.AutoMirrored.Filled.QueueMusic else Icons.AutoMirrored.Outlined.QueueMusic, null) },
+                            label = { Text("Playlists") },
+                            colors = itemColors,
+                        )
+                        NavigationBarItem(
+                            selected = current == "search",
+                            onClick = { navController.navigate("search") { launchSingleTop = true; popUpTo(navController.graph.startDestinationId) { saveState = true }; restoreState = true } },
+                            icon = { Icon(if (current == "search") Icons.Filled.Search else Icons.Outlined.Search, null) },
+                            label = { Text("Search") },
+                            colors = itemColors,
+                        )
+                        NavigationBarItem(
+                            selected = current == "settings",
+                            onClick = { navController.navigate("settings") { launchSingleTop = true; popUpTo(navController.graph.startDestinationId) { saveState = true }; restoreState = true } },
+                            icon = { Icon(if (current == "settings") Icons.Filled.Settings else Icons.Outlined.Settings, null) },
+                            label = { Text("Settings") },
+                            colors = itemColors,
+                        )
+                    }
                 }
             }
         }
@@ -218,7 +240,9 @@ fun AppNav(initialSettingsTab: Int = 0, onDeepLinkConsumed: () -> Unit = {}) {
             composable("downloads") {
                 DownloadsScreen(container, onBack = { navController.popBackStack() })
             }
-            composable("nowplaying") { NowPlayingScreen(container) }
+            composable("nowplaying") {
+                NowPlayingScreen(container, onBack = { navController.popBackStack() })
+            }
             composable("artist/{name}") { entry ->
                 // NavController already decoded the arg; a second decode turns
                 // "+" into a space and crashes on a trailing "%".
@@ -229,11 +253,12 @@ fun AppNav(initialSettingsTab: Int = 0, onDeepLinkConsumed: () -> Unit = {}) {
                     onAlbumClick = { album ->
                         navController.navigate("album/${Uri.encode(album)}")
                     },
+                    onBack = { navController.popBackStack() },
                 )
             }
             composable("album/{name}") { entry ->
                 val name = entry.arguments?.getString("name") ?: return@composable
-                AlbumScreen(container, name)
+                AlbumScreen(container, name, onBack = { navController.popBackStack() })
             }
         }
     }
