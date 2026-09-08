@@ -16,8 +16,12 @@ class PlexSource(private val entry: ServerEntry, private val deviceId: String) :
     private fun base(): String = entry.url.trimEnd('/')
     private fun token(): String = entry.token ?: ""
 
-    fun partUrl(partKey: String): String =
-        "${base()}$partKey${if (partKey.contains("?")) "&" else "?"}X-Plex-Token=${token()}"
+    fun partUrl(partKey: String): String? {
+        // Reject authority injection: "@evil.host/..." or "//evil.host/..."
+        // would turn base into userinfo and leak X-Plex-Token.
+        if (!partKey.startsWith("/") || partKey.startsWith("//")) return null
+        return "${base()}$partKey${if (partKey.contains("?")) "&" else "?"}X-Plex-Token=${token()}"
+    }
 
     fun thumbUrl(thumb: String): String =
         "${base()}/photo/:/transcode?url=${java.net.URLEncoder.encode(thumb, "UTF-8").replace("%2F", "/")}&X-Plex-Token=${token()}"
@@ -25,7 +29,7 @@ class PlexSource(private val entry: ServerEntry, private val deviceId: String) :
     override suspend fun coverArtUrl(albumKey: String): String? =
         metadataFor(albumKey.removePrefix("plex:"))?.optString("thumb", null)?.let { thumbUrl(it) }
 
-    override fun downloadUrl(songId: String, format: String, bitrate: Int): String {
+    override fun downloadUrl(songId: String, format: String, bitrate: Int): String? {
         val ratingKey = songId.removePrefix("plex:")
         // Direct play: downloads are the same direct-play Part URL.
         return partUrl("/library/metadata/$ratingKey/download")

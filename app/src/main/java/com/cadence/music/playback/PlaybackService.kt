@@ -137,7 +137,9 @@ class PlaybackService : MediaLibraryService() {
                 val pkg = controller.packageName
                 // The session is exported; only let our own UI and platform media
                 // surfaces (lock screen, Bluetooth, Android Auto) attach.
-                val trusted = pkg == packageName || pkg in TRUSTED_CONTROLLER_PACKAGES
+                // Package names can be squatted, so non-own packages must also
+                // be system apps or Play-installed (see isTrustedController).
+                val trusted = isTrustedController(pkg)
                 return if (trusted) super.onConnect(session, controller)
                 else MediaSession.ConnectionResult.reject()
             }
@@ -286,6 +288,31 @@ class PlaybackService : MediaLibraryService() {
         }
         session = null
         super.onDestroy()
+    }
+
+    private fun isSystemApp(pkg: String): Boolean = runCatching {
+        val flags = packageManager.getApplicationInfo(pkg, 0).flags
+        flags and (
+            android.content.pm.ApplicationInfo.FLAG_SYSTEM or
+                android.content.pm.ApplicationInfo.FLAG_UPDATED_SYSTEM_APP
+            ) != 0
+    }.getOrDefault(false)
+
+    // Companion apps (Wear, Auto) are often user apps, not system apps — but a
+    // squatted package can never come from Play (name taken by the real listing),
+    // while adb/sideloaded installs report a shell/null installer. So Play-installed
+    // controllers are trusted; anything else must be a system app.
+    private fun isTrustedController(pkg: String): Boolean {
+        if (pkg == packageName) return true
+        if (pkg !in TRUSTED_CONTROLLER_PACKAGES) return false
+        if (isSystemApp(pkg)) return true
+        if (android.os.Build.VERSION.SDK_INT >= 30) {
+            val installer = runCatching {
+                packageManager.getInstallSourceInfo(pkg).installingPackageName
+            }.getOrNull()
+            if (installer == "com.android.vending") return true
+        }
+        return false
     }
 
     private companion object {

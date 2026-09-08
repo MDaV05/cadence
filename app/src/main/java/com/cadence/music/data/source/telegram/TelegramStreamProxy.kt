@@ -18,6 +18,8 @@ import java.net.ServerSocket
 import java.net.Socket
 import java.net.URLDecoder
 import java.net.URLEncoder
+import java.security.MessageDigest
+import java.security.SecureRandom
 import java.util.concurrent.atomic.AtomicBoolean
 
 class TelegramStreamProxy private constructor(private val manager: TelegramManager) {
@@ -25,6 +27,11 @@ class TelegramStreamProxy private constructor(private val manager: TelegramManag
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val isRunning = AtomicBoolean(false)
     private var serverSocket: ServerSocket? = null
+
+    // Per-instance bearer token: the port is ephemeral per process start, so
+    // rotation per start is automatic. Required on every /stream and /thumb
+    // request — loopback is reachable by any app on the device.
+    private val authToken: String = generateAuthToken()
 
     val port: Int
         get() = serverSocket?.localPort ?: 0
@@ -54,12 +61,14 @@ class TelegramStreamProxy private constructor(private val manager: TelegramManag
 
     fun streamUrl(remoteFileId: String): String {
         start()
-        return "http://127.0.0.1:$port/stream?remoteId=" + URLEncoder.encode(remoteFileId, "UTF-8")
+        return "http://127.0.0.1:$port/stream?remoteId=" + URLEncoder.encode(remoteFileId, "UTF-8") +
+            "&auth=" + authToken
     }
 
     fun thumbUrl(remoteFileId: String): String {
         start()
-        return "http://127.0.0.1:$port/thumb?remoteId=" + URLEncoder.encode(remoteFileId, "UTF-8")
+        return "http://127.0.0.1:$port/thumb?remoteId=" + URLEncoder.encode(remoteFileId, "UTF-8") +
+            "&auth=" + authToken
     }
 
     private fun handleClient(socket: Socket) {
@@ -83,8 +92,11 @@ class TelegramStreamProxy private constructor(private val manager: TelegramManag
             val path = parts[1]
 
             if (path.startsWith("/stream")) {
+                // Missing/wrong token → 404, same as unknown path (no oracle).
+                if (!authOk(path)) { sendNotFound(output); return }
                 handleStreamRequest(method, path, lines, output)
             } else if (path.startsWith("/thumb")) {
+                if (!authOk(path)) { sendNotFound(output); return }
                 handleThumbRequest(path, output)
             } else {
                 sendNotFound(output)
@@ -271,6 +283,9 @@ class TelegramStreamProxy private constructor(private val manager: TelegramManag
         output.flush()
     }
 
+    private fun authOk(path: String): Boolean =
+        authMatches(parseQueryParam(path, "auth"), authToken)
+
     private fun parseQueryParam(url: String, name: String): String? {
         val query = url.substringAfter("?", "")
         for (pair in query.split("&")) {
@@ -286,6 +301,21 @@ class TelegramStreamProxy private constructor(private val manager: TelegramManag
         private const val TAG = "TelegramStreamProxy"
 
         @Volatile private var instance: TelegramStreamProxy? = null
+
+        fun generateAuthToken(): String {
+            val bytes = ByteArray(32)
+            SecureRandom().nextBytes(bytes)
+            return java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
+        }
+
+        // Pure token compare for tests; constant-time, false on missing.
+        internal fun authMatches(supplied: String?, expected: String): Boolean {
+            if (supplied == null) return false
+            return MessageDigest.isEqual(
+                supplied.toByteArray(Charsets.UTF_8),
+                expected.toByteArray(Charsets.UTF_8),
+            )
+        }
 
         fun get(context: Context): TelegramStreamProxy =
             instance ?: synchronized(this) {

@@ -9,6 +9,19 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- Package visibility for the MediaSession controller allowlist: on Android 11+,
+         getApplicationInfo() throws for packages not declared here, which would make
+         PlaybackService reject legitimate system controllers (Auto, Wear, Assistant). -->
+    <queries>
+        <package android:name="com.android.systemui" />
+        <package android:name="com.android.bluetooth" />
+        <package android:name="com.google.android.projection.gearhead" />
+        <package android:name="com.google.android.wearable.app" />
+        <package android:name="com.samsung.android.app.watchmanager" />
+        <package android:name="com.google.android.googlequicksearchbox" />
+        <package android:name="com.google.android.as" />
+    </queries>
+
     <application
         android:name=".CadenceApp"
         android:allowBackup="true"

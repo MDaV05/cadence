@@ -3,4 +3,6 @@
      server password and ListenBrainz token in plaintext. -->
 <full-backup-content>
     <exclude domain="sharedpref" path="cadence.xml" />
+    <exclude domain="file" path="tdlib_db" />
+    <exclude domain="sharedpref" path="cadence_tg_artwork.xml" />
 </full-backup-content>

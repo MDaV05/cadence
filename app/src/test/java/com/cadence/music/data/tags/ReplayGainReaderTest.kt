@@ -182,4 +182,27 @@ class ReplayGainReaderTest {
         val s = id3Stream(3, listOf("TITL" to "hello".toByteArray()))
         assertNull(ReplayGainReader.read(ByteArrayInputStream(s)))
     }
+
+    @Test
+    fun `frame cap boundary`() {
+        assertEquals(false, ReplayGainReader.frameTooLarge(0))
+        assertEquals(false, ReplayGainReader.frameTooLarge(ReplayGainReader.MAX_FRAME_BYTES))
+        assertEquals(true, ReplayGainReader.frameTooLarge(ReplayGainReader.MAX_FRAME_BYTES + 1))
+    }
+
+    @Test
+    fun `oversized txxx frame is rejected without allocation`() {
+        // 300KB payload carrying a valid gain: must return null (cap),
+        // never allocate the frame. Pre-fix this returned -6.00.
+        val big = "A".repeat(300 * 1024) + "-6.00 dB"
+        val s = id3Stream(3, listOf("TXXX" to txxxPayload("replaygain_track_gain", big)))
+        assertNull(ReplayGainReader.read(ByteArrayInputStream(s)))
+    }
+
+    @Test
+    fun `oversized flac vorbis block is rejected without allocation`() {
+        // Pre-fix this allocated ~300KB and returned -1.00.
+        val big = "REPLAYGAIN_TRACK_GAIN=-1.00 dB" + "x".repeat(300 * 1024)
+        assertNull(ReplayGainReader.read(ByteArrayInputStream(flacStream(big))))
+    }
 }

@@ -4,8 +4,12 @@
 <data-extraction-rules>
     <cloud-backup>
         <exclude domain="sharedpref" path="cadence.xml" />
+        <exclude domain="file" path="tdlib_db" />
+        <exclude domain="sharedpref" path="cadence_tg_artwork.xml" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="sharedpref" path="cadence.xml" />
+        <exclude domain="file" path="tdlib_db" />
+        <exclude domain="sharedpref" path="cadence_tg_artwork.xml" />
     </device-transfer>
 </data-extraction-rules>

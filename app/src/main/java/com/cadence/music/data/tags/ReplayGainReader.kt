@@ -14,6 +14,13 @@ import java.io.InputStream
  */
 object ReplayGainReader {
 
+    // Largest frame payload ever allocated: real ReplayGain values are a few
+    // bytes. Anything bigger is hostile — reject before ByteArray() so the
+    // OOM Error can't crash-loop the scanner (Errors bypass catch Exception).
+    internal const val MAX_FRAME_BYTES = 256 * 1024
+
+    internal fun frameTooLarge(size: Int): Boolean = size > MAX_FRAME_BYTES
+
     fun read(context: Context, uri: Uri): Float? = try {
         context.contentResolver.openInputStream(uri)?.use { read(it) }
     } catch (_: Exception) { null }
@@ -39,6 +46,7 @@ object ReplayGainReader {
             val type = hdr[0].toInt() and 0x7F
             val len = be24(hdr, 1)
             if (type == 4) {
+                if (frameTooLarge(len)) return null
                 val data = ByteArray(len)
                 if (!readFully(s, data)) return null
                 return vorbisComment(data)
@@ -109,6 +117,7 @@ object ReplayGainReader {
 
             val name = String(id, Charsets.US_ASCII)
             if (name == "TXXX") {
+                if (frameTooLarge(size)) return null
                 val payload = ByteArray(size)
                 if (!readFully(s, payload)) return null
                 txxxGain(payload)?.let { return it }
