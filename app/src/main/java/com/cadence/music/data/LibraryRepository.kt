@@ -733,6 +733,11 @@ class LibraryRepository(
         tracks.filter { it.sourceId != "local" }.forEach { enqueueDownload(it) }
     }
 
+    /** Off-main bulk enqueue that survives dialog disposal (app-lifetime scope). */
+    fun enqueueDownloadsAsync(tracks: List<TrackEntity>) {
+        syncScope.launch { enqueueDownloads(tracks) }
+    }
+
     suspend fun retryDownload(download: DownloadEntity, track: TrackEntity?) {
         if (track != null) {
             enqueueDownload(track)
