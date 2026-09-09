@@ -238,7 +238,13 @@ fun AppNav(initialSettingsTab: Int = 0, onDeepLinkConsumed: () -> Unit = {}) {
                 EqualizerScreen(container, onBack = { navController.popBackStack() })
             }
             composable("downloads") {
-                DownloadsScreen(container, onBack = { navController.popBackStack() })
+                DownloadsScreen(
+                    container,
+                    onBack = { navController.popBackStack() },
+                    onAlbumClick = { name ->
+                        navController.navigate("album/${Uri.encode(name)}")
+                    },
+                )
             }
             composable("nowplaying") {
                 NowPlayingScreen(container, onBack = { navController.popBackStack() })

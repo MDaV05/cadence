@@ -1385,6 +1385,7 @@ private fun StorageTab(container: AppContainer, onOpenDownloads: () -> Unit) {
     val cacheGb = remember { mutableIntStateOf(container.prefs.cacheGb) }
     val cacheUnlimited = remember { mutableStateOf(container.prefs.cacheUnlimited) }
     val cacheUsage by produceCacheUsage()
+    var showDownloadAll by remember { mutableStateOf(false) }
 
     LazyColumn(Modifier.fillMaxSize()) {
         item { SectionHeader("Downloads") }
@@ -1447,10 +1448,17 @@ private fun StorageTab(container: AppContainer, onOpenDownloads: () -> Unit) {
                     0 -> "Nothing offline yet"
                     else -> "$downloadCount track${if (downloadCount == 1) "" else "s"} downloaded"
                 },
+                trailing = {
+                    TextButton(onClick = { showDownloadAll = true }) { Text("Download library") }
+                },
                 onClick = onOpenDownloads,
             )
         }
         item { Spacer(Modifier.height(32.dp)) }
+    }
+
+    if (showDownloadAll) {
+        DownloadLibraryDialog(container, onDismiss = { showDownloadAll = false })
     }
 }
 
