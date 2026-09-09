@@ -109,4 +109,49 @@ class NamesTest {
             albumNormKey("After Hours", "Adele"),
         )
     }
+
+    @Test
+    fun `lead and feat both become candidates`() {
+        assertEquals(listOf("Future", "Drake"), artistCandidates("Future feat. Drake"))
+    }
+
+    @Test
+    fun `collaborators split into candidates`() {
+        assertEquals(listOf("A", "B"), artistCandidates("A / B"))
+        assertEquals(listOf("A", "B", "C", "D"), artistCandidates("A, B & C and D"))
+    }
+
+    @Test
+    fun `known ensembles are never split`() {
+        assertEquals(listOf("AC/DC"), artistCandidates("AC/DC"))
+        assertEquals(listOf("Simon & Garfunkel"), artistCandidates("Simon & Garfunkel"))
+    }
+
+    @Test
+    fun `ensemble keeps whole while feat name is added`() {
+        assertEquals(
+            listOf("Simon & Garfunkel", "Paul Simon"),
+            artistCandidates("Simon & Garfunkel feat. Paul Simon"),
+        )
+    }
+
+    @Test
+    fun `bracketed feat and edition tags handled`() {
+        assertEquals(listOf("Kendrick", "SZA"), artistCandidates("Kendrick (Deluxe) feat. SZA"))
+    }
+
+    @Test
+    fun `case-insensitive dedupe keeps first form`() {
+        assertEquals(listOf("A"), artistCandidates("A feat. a"))
+    }
+
+    @Test
+    fun `blank yields no candidates`() {
+        assertEquals(emptyList<String>(), artistCandidates("   "))
+    }
+
+    @Test
+    fun `bracketed feat clause becomes a candidate without stray brackets`() {
+        assertEquals(listOf("Drake", "21 Savage"), artistCandidates("Drake (feat. 21 Savage)"))
+    }
 }

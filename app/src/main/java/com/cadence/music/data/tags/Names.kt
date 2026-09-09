@@ -183,6 +183,40 @@ fun primaryArtist(raw: String): String {
     return result.ifEmpty { trimmed }
 }
 
+/** Every artist named in a raw tag string (lead + collaborators + featured),
+ *  order-preserving, deduped case-insensitively; known ensembles stay whole.
+ *  Candidates are guesses — callers must confirm a page exists before linking. */
+fun artistCandidates(raw: String): List<String> {
+    val trimmed = raw.trim()
+    if (trimmed.isEmpty()) return emptyList()
+    val names = mutableListOf<String>()
+    addCandidate(INLINE_FEAT.replace(BRACKETED_FEAT.replace(trimmed, " "), "").trim(), names)
+    val featClause = BRACKETED_FEAT.find(trimmed)?.value ?: INLINE_FEAT.find(trimmed)?.value
+    if (featClause != null) {
+        // Peel the brackets wrapping a bracketed clause, then drop the feat keyword
+        // (longest keyword first so "featuring" isn't half-consumed by "feat").
+        val inner = featClause.trim().removePrefix("(").removePrefix("[")
+        val feats = inner
+            .replace(Regex(""".*?(?:featuring|feat\.?|ft\.?|with|w/)""", RegexOption.IGNORE_CASE), "")
+            .trim().removeSuffix(")").removeSuffix("]").trim()
+        addCandidate(feats, names)
+    }
+    return names
+}
+
+private fun addCandidate(s: String, out: MutableList<String>) {
+    val t = TRAILING_BRACKET_TAG.replace(s.trim(), "").trim()
+    if (t.isEmpty()) return
+    findKnownEnsemble(t)?.let { whole ->
+        if (out.none { it.equals(whole, true) }) out += whole
+        return
+    }
+    COLLAB_SPLIT.split(t).forEach { p ->
+        val n = p.trim().ifEmpty { return@forEach }
+        if (out.none { it.equals(n, true) }) out += n
+    }
+}
+
 /** Grouping key: lowercase, collapsed spaces, no leading article, no trailing (...) edition tag. */
 fun albumNormKey(album: String, artist: String): String {
     var a = album.trim().replace(TRAILING_BRACKET_TAG, "").trim()
