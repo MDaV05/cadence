@@ -259,6 +259,15 @@ class LibraryRepository(
                 TrackQueries.artistNamesQuery(s, mode == LibraryMode.LOCAL_ONLY, active)
             )
         }
+
+    /** Names from [names] that have at least one visible track (i.e. a real page). */
+    suspend fun artistsWithPages(names: List<String>): List<String> {
+        if (names.isEmpty()) return emptyList()
+        val (mode, active) = observeModeAndActive().first()
+        return db.trackDao().tracksByQuery(
+            TrackQueries.artistPagesQuery(names, sourcesFor(mode), mode == LibraryMode.LOCAL_ONLY, active)
+        ).map { it.artistName }.distinct()
+    }
     /** Mode-aware total used for the Library counter; paging-safe (separate COUNT, not itemCount). */
     fun observeTrackCount(): Flow<Int> =
         observeModeAndActive().flatMapLatest { (mode, active) ->
@@ -692,6 +701,17 @@ class LibraryRepository(
     suspend fun removeFromPlaylist(rowId: Long) = db.playlistDao().removeTrack(rowId)
 
     // ---- Downloads ----
+
+    /** Server tracks in the visible library with no local copy yet. */
+    suspend fun tracksForBulkDownload(): List<TrackEntity> {
+        if (prefs.mode == LibraryMode.LOCAL_ONLY || prefs.servers.none { it.active }) return emptyList()
+        // activePrefixesSnapshot() over the FULL server list — the helper computes
+        // "active + local" only when something is disabled; passing a pre-filtered
+        // active list would silently disable the filter and include disabled servers.
+        return db.trackDao().tracksByQuery(
+            TrackQueries.downloadableTracksQuery(sourcesFor(prefs.mode), activePrefixesSnapshot())
+        )
+    }
 
     /** Download rows joined with their track for display; live-updates as states change. */
     fun observeDownloads(): Flow<List<DownloadStatusRow>> =

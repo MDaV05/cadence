@@ -20,6 +20,9 @@ interface TrackDao {
     @RawQuery(observedEntities = [TrackEntity::class])
     fun tracksPaged(query: SupportSQLiteQuery): PagingSource<Int, TrackEntity>
 
+    @RawQuery(observedEntities = [TrackEntity::class])
+    suspend fun tracksByQuery(query: SupportSQLiteQuery): List<TrackEntity>
+
     @Query("SELECT * FROM tracks WHERE id = :id")
     suspend fun byId(id: Long): TrackEntity?
 
@@ -64,6 +67,10 @@ interface TrackDao {
 
     @RawQuery(observedEntities = [TrackEntity::class])
     fun observeArtistNamesFor(query: SupportSQLiteQuery): Flow<List<String>>
+
+    /** One artist-tile row per distinct artist name, with its cached picture if any. */
+    @RawQuery(observedEntities = [TrackEntity::class])
+    fun observeArtistTilesFor(query: SupportSQLiteQuery): Flow<List<ArtistTile>>
 
     @Query("SELECT * FROM tracks WHERE artistName = :name ORDER BY albumName, trackNumber")
     suspend fun byArtist(name: String): List<TrackEntity>
@@ -233,6 +240,9 @@ interface PendingScrobbleDao {
     @Query("SELECT COUNT(*) FROM pending_scrobbles")
     suspend fun count(): Int
 }
+
+/** Row shape for artistTilesQuery: name plus the cached artist-image URL (nullable). */
+data class ArtistTile(val name: String, val imageUrl: String?)
 
 data class PlaylistWithCount(
     val id: Long,

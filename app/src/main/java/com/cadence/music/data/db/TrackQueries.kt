@@ -134,6 +134,76 @@ object TrackQueries {
         )
     }
 
+    fun artistPagesQuery(
+        names: List<String>,
+        sources: Set<String>? = null,
+        includeDownloaded: Boolean = false,
+        activePrefixes: Set<String> = emptySet(),
+    ): SupportSQLiteQuery {
+        // names is non-empty (caller guards). Every name rides as a bound arg —
+        // one placeholder per name, never concatenated into the SQL text.
+        val (activeSql, activeArgs) = activeFilter(activePrefixes)
+        val namePlaceholders = names.joinToString(", ") { "?" }
+        val nameArgs = names.toTypedArray()
+        if (sources == null) {
+            return SimpleSQLiteQuery(
+                "SELECT * FROM tracks WHERE artistName IN ($namePlaceholders)$activeSql ORDER BY artistName",
+                arrayOf(*nameArgs, *activeArgs),
+            )
+        }
+        val sorted = sources.sorted()
+        val placeholders = sorted.joinToString(", ") { "?" }
+        return SimpleSQLiteQuery(
+            "SELECT * FROM tracks WHERE artistName IN ($namePlaceholders) AND (sourceId IN ($placeholders) " +
+                "OR (? AND sourceId != 'local' AND path LIKE 'file:%'))$activeSql ORDER BY artistName",
+            arrayOf(*nameArgs, *sorted.toTypedArray(), if (includeDownloaded) 1 else 0, *activeArgs),
+        )
+    }
+
+    fun downloadableTracksQuery(
+        sources: Set<String>? = null,
+        activePrefixes: Set<String> = emptySet(),
+    ): SupportSQLiteQuery {
+        // Server tracks with no local copy. path IS NULL already excludes
+        // downloaded rows, so there is deliberately no includeDownloaded param.
+        val (activeSql, activeArgs) = activeFilter(activePrefixes)
+        val base = "SELECT * FROM tracks WHERE sourceId != 'local' AND path IS NULL"
+        val order = " ORDER BY artistName COLLATE NOCASE, albumName COLLATE NOCASE, trackNumber"
+        if (sources == null) {
+            return SimpleSQLiteQuery("$base$activeSql$order", activeArgs)
+        }
+        val sorted = sources.sorted()
+        val placeholders = sorted.joinToString(", ") { "?" }
+        return SimpleSQLiteQuery(
+            "$base AND sourceId IN ($placeholders)$activeSql$order",
+            arrayOf(*sorted.toTypedArray(), *activeArgs),
+        )
+    }
+
+    fun artistTilesQuery(
+        sources: Set<String>? = null,
+        includeDownloaded: Boolean = false,
+        activePrefixes: Set<String> = emptySet(),
+    ): SupportSQLiteQuery {
+        val (activeSql, activeArgs) = activeFilter(activePrefixes)
+        val select = "SELECT DISTINCT t.artistName AS name, a.imageUrl AS imageUrl FROM tracks t " +
+            "LEFT JOIN artist_info a ON a.name = t.artistName WHERE t.artistName != ''"
+        if (sources == null) {
+            return SimpleSQLiteQuery(
+                "$select$activeSql ORDER BY t.artistName COLLATE NOCASE",
+                activeArgs,
+            )
+        }
+        val sorted = sources.sorted()
+        val placeholders = sorted.joinToString(", ") { "?" }
+        return SimpleSQLiteQuery(
+            "$select AND (t.sourceId IN ($placeholders) " +
+                "OR (? AND t.sourceId != 'local' AND t.path LIKE 'file:%'))$activeSql " +
+                "ORDER BY t.artistName COLLATE NOCASE",
+            arrayOf(*sorted.toTypedArray(), if (includeDownloaded) 1 else 0, *activeArgs),
+        )
+    }
+
     fun albumGroupsQuery(
         sources: Set<String>? = null,
         includeDownloaded: Boolean = false,

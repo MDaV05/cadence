@@ -215,4 +215,29 @@ class TrackQueriesTest {
         )
         assertEquals(2, q.argCount)
     }
+
+    @Test
+    fun `artist pages gate binds names with in clause`() {
+        val q = TrackQueries.artistPagesQuery(listOf("A", "B", "C"))
+        assertTrue(q.sql.contains("artistName IN (?, ?, ?)"))
+        // One placeholder per name — names never touch the SQL text itself.
+        assertEquals(3, q.sql.split("?").size - 1)
+        assertEquals(3, q.argCount)
+    }
+
+    @Test
+    fun `downloadable selects server tracks without a local file`() {
+        val q = TrackQueries.downloadableTracksQuery(setOf("jellyfin", "subsonic"), activePrefixes = setOf("s1", "s2"))
+        assertTrue(q.sql.contains("sourceId != 'local'"))
+        assertTrue(q.sql.contains("path IS NULL"))
+        assertTrue(q.sql.contains("sourceId IN (?, ?)"))
+        assertEquals(2, q.sql.split("serverId LIKE ?").size - 1)
+    }
+
+    @Test
+    fun `artist tiles join carries cached image url`() {
+        val q = TrackQueries.artistTilesQuery()
+        assertTrue(q.sql.contains("LEFT JOIN artist_info"))
+        assertTrue(q.sql.contains("imageUrl"))
+    }
 }
