@@ -10,6 +10,8 @@ import androidx.room.RawQuery
 import androidx.room.Transaction
 import androidx.room.Upsert
 import androidx.sqlite.db.SupportSQLiteQuery
+import com.cadence.music.data.stats.ArtistPlays
+import com.cadence.music.data.stats.PlayRow
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -86,6 +88,18 @@ interface TrackDao {
 
     @Query("SELECT * FROM tracks WHERE lastPlayed IS NOT NULL ORDER BY lastPlayed DESC LIMIT 10")
     suspend fun recentlyPlayed(): List<TrackEntity>
+
+    /** Played-only projection for local listening stats. */
+    @Query("SELECT playCount, durationMs, lastPlayed FROM tracks WHERE playCount > 0")
+    suspend fun playRows(): List<PlayRow>
+
+    /** Top five artists by total plays, for the stats card. */
+    @Query(
+        "SELECT artistName AS name, SUM(playCount) AS plays FROM tracks " +
+            "WHERE playCount > 0 AND artistName != '' " +
+            "GROUP BY artistName ORDER BY plays DESC, name COLLATE NOCASE LIMIT 5"
+    )
+    suspend fun topArtists(): List<ArtistPlays>
 
     @Query("SELECT * FROM tracks ORDER BY id DESC LIMIT 10")
     suspend fun recentlyAdded(): List<TrackEntity>
