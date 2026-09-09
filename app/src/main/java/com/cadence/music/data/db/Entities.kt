@@ -21,6 +21,8 @@ data class TrackEntity(
     val serverId: String,
     val title: String,
     val artistName: String = "",
+    // Raw tag artist string ("A feat. B"); artistName keeps the cleaned value.
+    val artistRaw: String? = null,
     val albumName: String = "",
     val albumNorm: String = "",
     val albumKey: String? = null,

@@ -25,7 +25,7 @@ import com.cadence.music.data.tags.primaryArtist
         AlbumArtOverrideEntity::class,
         ArtistOverrideEntity::class,
     ],
-    version = 12,
+    version = 13,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -192,6 +192,14 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_12_13 = object : Migration(12, 13) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Raw artist tag per track; cleaned artistName unchanged. Null for
+                // pre-existing rows until the next sync or metadata edit repopulates it.
+                db.execSQL("ALTER TABLE tracks ADD COLUMN artistRaw TEXT")
+            }
+        }
+
         fun build(context: Context): AppDatabase =
             Room.databaseBuilder(context, AppDatabase::class.java, "cadence.db")
                 .addMigrations(
@@ -204,6 +212,7 @@ abstract class AppDatabase : RoomDatabase() {
                     MIGRATION_9_10,
                     MIGRATION_10_11,
                     MIGRATION_11_12,
+                    MIGRATION_12_13,
                 )
                 // No paths exist from schema 1/2 (they predate exported schemas);
                 // those dev-only installs rebuild destructively instead of crashing.

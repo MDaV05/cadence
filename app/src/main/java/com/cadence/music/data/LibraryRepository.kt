@@ -437,6 +437,7 @@ class LibraryRepository(
                     serverId = t.key,
                     title = t.title,
                     artistName = trackArtist.ifBlank { resolvedAlbumArtist },
+                    artistRaw = t.artist,
                     albumName = t.album.ifBlank { albumTitle },
                     albumNorm = albumNorm,
                     path = uri.toString(),
@@ -592,6 +593,7 @@ class LibraryRepository(
                 serverId = nsKey,
                 title = t.title,
                 artistName = trackArtist.ifBlank { resolvedAlbumArtist },
+                artistRaw = t.artist,
                 albumName = t.album.ifBlank { albumTitle },
                 albumNorm = albumNorm,
                 albumKey = t.albumKey?.let { namespacedKey(entry.id, it) },
@@ -759,7 +761,7 @@ class LibraryRepository(
                 return@withContext false
             }
             val a = primaryArtist(aRaw)
-            db.trackDao().updateMetadata(row.id, t, a, al, albumNormKey(al, aRaw))
+            db.trackDao().updateMetadata(row.id, t, a, aRaw, al, albumNormKey(al, aRaw))
             true
         }
 
@@ -782,7 +784,8 @@ class LibraryRepository(
             renameBatch(
                 rows,
                 valuesFor = { ContentValues().apply { put(MediaStore.Audio.Media.ALBUM, t) } },
-                mirror = { row -> db.trackDao().updateMetadata(row.id, row.title, row.artistName, t, albumNormKey(t, row.artistName)) },
+                // Artist unchanged: carry the row's existing raw tag through the UPDATE.
+                mirror = { row -> db.trackDao().updateMetadata(row.id, row.title, row.artistName, row.artistRaw, t, albumNormKey(t, row.artistName)) },
             )
         }
 
@@ -798,7 +801,7 @@ class LibraryRepository(
             renameBatch(
                 rows,
                 valuesFor = { ContentValues().apply { put(MediaStore.Audio.Media.ARTIST, raw) } },
-                mirror = { row -> db.trackDao().updateMetadata(row.id, row.title, primary, row.albumName, albumNormKey(row.albumName, raw)) },
+                mirror = { row -> db.trackDao().updateMetadata(row.id, row.title, primary, raw, row.albumName, albumNormKey(row.albumName, raw)) },
             )
         }
 
