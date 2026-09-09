@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.15.0
+
+- **Artist Pictures Grid**: The Artists tab is now a grid of circular artist photos (with an initials fallback when no image is cached) instead of a plain name list.
+- **One-Tap Library Download**: A single action in Downloads and Settings → Storage downloads every not-yet-offline track across your active servers, with a confirm dialog that shows the count and warns on mobile data.
+- **Downloads as Albums**: Offline content is grouped into album cards (even partially downloaded ones) with an "x/y offline" count; a Failed section keeps retry within reach.
+- **Live Download Progress**: Song rows and the album/playlist download buttons show an inline spinner while a track is downloading.
+- **Now Playing Hierarchy**: Title, album, and artist are shown in that order, and both the album and artist lines jump to their pages.
+- **Go-To Actions**: Long-pressing a song links to its album and artist — including featuring artists, shown only when that artist actually has a page in the library.
+- **Bigger Cache Limits**: Stream and image caches now range 1–100 GB or fully unlimited.
+
 ## 0.14.4
 
 - Wikipedia Artist Bio & Photo Integration: Fixed URL path encoding issue where multi-word artist names produced HTTP 404s.
