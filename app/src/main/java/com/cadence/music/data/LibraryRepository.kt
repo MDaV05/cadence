@@ -15,6 +15,7 @@ import com.cadence.music.data.db.AlbumEntity
 import com.cadence.music.data.db.AlbumArtOverrideEntity
 import com.cadence.music.data.db.AppDatabase
 import com.cadence.music.data.db.ArtistOverrideEntity
+import com.cadence.music.data.db.ArtistTile
 import com.cadence.music.data.db.DownloadEntity
 import com.cadence.music.data.db.LyricsEntity
 import com.cadence.music.data.db.TrackArtOverrideEntity
@@ -257,6 +258,16 @@ class LibraryRepository(
             if (s == null && active.isEmpty()) db.trackDao().observeArtistNames()
             else db.trackDao().observeArtistNamesFor(
                 TrackQueries.artistNamesQuery(s, mode == LibraryMode.LOCAL_ONLY, active)
+            )
+        }
+    fun artistTiles(): Flow<List<ArtistTile>> =
+        observeModeAndActive().flatMapLatest { (mode, active) ->
+            // One raw-query path: artistTilesQuery's null-sources branch already
+            // emits the plain join+order SQL, so artistNames()'s fast-path
+            // @Query has no tiles equivalent to branch to.
+            val s = sourcesFor(mode)
+            db.trackDao().observeArtistTilesFor(
+                TrackQueries.artistTilesQuery(s, mode == LibraryMode.LOCAL_ONLY, active)
             )
         }
 

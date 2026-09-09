@@ -240,4 +240,19 @@ class TrackQueriesTest {
         assertTrue(q.sql.contains("LEFT JOIN artist_info"))
         assertTrue(q.sql.contains("imageUrl"))
     }
+
+    @Test
+    fun `artist tiles sources branch is byte-identical with NOCASE collation`() {
+        // Pins COLLATE NOCASE on the ORDER BY — an edit dropping it would
+        // silently sort uppercase names before lowercase ones.
+        val q = TrackQueries.artistTilesQuery(setOf("local"))
+        assertEquals(
+            "SELECT DISTINCT t.artistName AS name, a.imageUrl AS imageUrl FROM tracks t " +
+                "LEFT JOIN artist_info a ON a.name = t.artistName WHERE t.artistName != '' AND (t.sourceId IN (?) " +
+                "OR (? AND t.sourceId != 'local' AND t.path LIKE 'file:%')) " +
+                "ORDER BY t.artistName COLLATE NOCASE",
+            q.sql,
+        )
+        assertEquals(2, q.argCount)
+    }
 }

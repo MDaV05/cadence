@@ -20,7 +20,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -66,9 +65,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -79,6 +81,7 @@ import androidx.paging.compose.itemKey
 import coil.compose.AsyncImage
 import com.cadence.music.AppContainer
 import com.cadence.music.data.WriteConsentRequired
+import com.cadence.music.data.db.ArtistTile
 import com.cadence.music.data.db.TrackEntity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -94,7 +97,7 @@ fun LibraryScreen(
     val tracks by container.library.tracks().collectAsStateWithLifecycle(initialValue = emptyList())
     val albumGroups by container.library.albumGroups()
         .collectAsStateWithLifecycle(initialValue = emptyList())
-    val artists by container.library.artistNames()
+    val artists by container.library.artistTiles()
         .collectAsStateWithLifecycle(initialValue = emptyList())
 
     var tab by remember { mutableIntStateOf(0) }
@@ -786,34 +789,53 @@ private fun albumsTab(
 }
 
 @Composable
-private fun artistsTab(artists: List<String>, onArtistClick: (String) -> Unit) {
-    LazyColumn(Modifier.fillMaxSize()) {
-        items(artists, key = { it }) { name ->
-            Row(
+private fun artistsTab(tiles: List<ArtistTile>, onArtistClick: (String) -> Unit) {
+    LazyVerticalGrid(
+        columns = GridCells.Adaptive(104.dp),
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        items(tiles, key = { it.name }) { tile ->
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable { onArtistClick(name) }
-                    .padding(horizontal = 16.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
+                    .clickable { onArtistClick(tile.name) },
+                horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primaryContainer),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = name.firstOrNull()?.uppercase() ?: "?",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                if (tile.imageUrl == null) {
+                    Box(
+                        modifier = Modifier
+                            .size(88.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primaryContainer),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = tile.name.firstOrNull()?.uppercase() ?: "?",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        )
+                    }
+                } else {
+                    AsyncImage(
+                        model = tile.imageUrl,
+                        contentDescription = tile.name,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .size(88.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.surfaceVariant),
                     )
                 }
-                Spacer(Modifier.width(16.dp))
                 Text(
-                    text = name,
-                    style = MaterialTheme.typography.bodyLarge,
-                    modifier = Modifier.weight(1f),
+                    text = tile.name,
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                 )
             }
         }
