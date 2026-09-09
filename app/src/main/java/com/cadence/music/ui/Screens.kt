@@ -49,6 +49,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -92,6 +93,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import kotlin.math.roundToInt
 
 @Composable
 internal fun SectionHeader(text: String) {
@@ -1381,6 +1383,7 @@ private fun StorageTab(container: AppContainer, onOpenDownloads: () -> Unit) {
     val dlFormat = remember { mutableStateOf(container.prefs.downloadFormat) }
     val dlBitrate = remember { mutableIntStateOf(container.prefs.downloadBitrate) }
     val cacheGb = remember { mutableIntStateOf(container.prefs.cacheGb) }
+    val cacheUnlimited = remember { mutableStateOf(container.prefs.cacheUnlimited) }
     val cacheUsage by produceCacheUsage()
 
     LazyColumn(Modifier.fillMaxSize()) {
@@ -1415,19 +1418,19 @@ private fun StorageTab(container: AppContainer, onOpenDownloads: () -> Unit) {
 
         item { SectionHeader("Stream cache") }
         item {
-            SettingRow(
-                title = "Size limit: ${cacheGb.value} GB",
+            CacheLimit(
+                title = "Size limit",
+                gb = cacheGb.value,
+                unlimited = cacheUnlimited.value,
                 subtitle = cacheUsage?.let { used -> "Currently using ${"%.1f".format(used / (1024f * 1024 * 1024))} GB — applies after restart" },
-            )
-        }
-        item {
-            Slider(
-                value = cacheGb.value.toFloat(),
-                onValueChange = { cacheGb.value = it.toInt() },
-                onValueChangeFinished = { container.prefs.cacheGb = cacheGb.value },
-                valueRange = 1f..8f,
-                steps = 6,
-                modifier = Modifier.padding(horizontal = 16.dp),
+                onGb = {
+                    cacheGb.value = it
+                    container.prefs.cacheGb = it
+                },
+                onUnlimited = {
+                    cacheUnlimited.value = it
+                    container.prefs.cacheUnlimited = it
+                },
             )
         }
 
@@ -1448,6 +1451,40 @@ private fun StorageTab(container: AppContainer, onOpenDownloads: () -> Unit) {
             )
         }
         item { Spacer(Modifier.height(32.dp)) }
+    }
+}
+
+/** Slider 1-100 GB with an Unlimited switch; commits the limit only when the drag ends. */
+@Composable
+private fun CacheLimit(
+    title: String,
+    gb: Int,
+    unlimited: Boolean,
+    subtitle: String?,
+    modifier: Modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+    onGb: (Int) -> Unit,
+    onUnlimited: (Boolean) -> Unit,
+) {
+    // Local drag value keeps the slider/label responsive without per-tick pref writes.
+    var value by remember(gb) { mutableFloatStateOf(gb.toFloat()) }
+    Column(modifier) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                if (unlimited) "$title: Unlimited" else "$title: ${value.roundToInt()} GB",
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.weight(1f),
+            )
+            Switch(checked = unlimited, onCheckedChange = onUnlimited)
+            Text("Unlimited", style = MaterialTheme.typography.labelLarge)
+        }
+        Slider(
+            value = value,
+            onValueChange = { value = it },
+            onValueChangeFinished = { onGb(value.roundToInt().coerceIn(1, 100)) },
+            valueRange = 1f..100f,
+            enabled = !unlimited,
+        )
+        if (subtitle != null) Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -1741,7 +1778,8 @@ private fun MetadataSection(container: AppContainer) {
     var metaHours by remember { mutableIntStateOf(container.prefs.metaIntervalHours) }
     var metaWifiOnly by remember { mutableStateOf(container.prefs.metaWifiOnly) }
     var metaArtPrewarm by remember { mutableStateOf(container.prefs.metaArtPrewarm) }
-    var metaCacheMb by remember { mutableIntStateOf(container.prefs.metaCacheMb) }
+    var imageCacheGb by remember { mutableIntStateOf(container.prefs.imageCacheGb) }
+    var imageUnlimited by remember { mutableStateOf(container.prefs.imageUnlimited) }
 
     // Live coverage: lyrics cached / total tracks / artist bios
     val coverage by produceState<Triple<Int, Int, Int>?>(null) {
@@ -1799,17 +1837,20 @@ private fun MetadataSection(container: AppContainer) {
                 )
             },
         )
-        Text(
-            "Image cache: $metaCacheMb MB — applies after restart",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 8.dp),
-        )
-        Slider(
-            value = metaCacheMb.toFloat(),
-            onValueChange = { metaCacheMb = (it / 50).toInt() * 50 },
-            onValueChangeFinished = { container.prefs.metaCacheMb = metaCacheMb },
-            valueRange = 50f..1000f,
+        CacheLimit(
+            title = "Image cache",
+            gb = imageCacheGb,
+            unlimited = imageUnlimited,
+            subtitle = "Applies after restart",
+            modifier = Modifier.padding(vertical = 8.dp),
+            onGb = {
+                imageCacheGb = it
+                container.prefs.imageCacheGb = it
+            },
+            onUnlimited = {
+                imageUnlimited = it
+                container.prefs.imageUnlimited = it
+            },
         )
         coverage?.let { (lyricsDone, trackTotal, bios) ->
             Text(
