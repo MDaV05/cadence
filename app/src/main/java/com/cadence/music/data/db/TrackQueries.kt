@@ -108,32 +108,6 @@ object TrackQueries {
         )
     }
 
-    fun artistNamesQuery(
-        sources: Set<String>? = null,
-        includeDownloaded: Boolean = false,
-        activePrefixes: Set<String> = emptySet(),
-    ): SupportSQLiteQuery {
-        val (activeSql, activeArgs) = activeFilter(activePrefixes)
-        if (sources == null) {
-            if (activeSql.isEmpty()) {
-                return SimpleSQLiteQuery(
-                    "SELECT DISTINCT artistName FROM tracks WHERE artistName != '' ORDER BY artistName"
-                )
-            }
-            return SimpleSQLiteQuery(
-                "SELECT DISTINCT artistName FROM tracks WHERE artistName != ''$activeSql ORDER BY artistName",
-                activeArgs,
-            )
-        }
-        val sorted = sources.sorted()
-        val placeholders = sorted.joinToString(", ") { "?" }
-        return SimpleSQLiteQuery(
-            "SELECT DISTINCT artistName FROM tracks WHERE artistName != '' AND (sourceId IN ($placeholders) " +
-                "OR (? AND sourceId != 'local' AND path LIKE 'file:%'))$activeSql ORDER BY artistName",
-            arrayOf(*sorted.toTypedArray(), if (includeDownloaded) 1 else 0, *activeArgs),
-        )
-    }
-
     fun artistPagesQuery(
         names: List<String>,
         sources: Set<String>? = null,

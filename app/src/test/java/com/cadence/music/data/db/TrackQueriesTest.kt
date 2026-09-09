@@ -135,36 +135,6 @@ class TrackQueriesTest {
     }
 
     @Test
-    fun `artistNames no filter is byte-identical to unfiltered SQL`() {
-        assertEquals(
-            "SELECT DISTINCT artistName FROM tracks WHERE artistName != '' ORDER BY artistName",
-            TrackQueries.artistNamesQuery(null).sql,
-        )
-        assertEquals(
-            "SELECT DISTINCT artistName FROM tracks WHERE artistName != '' AND (sourceId IN (?) " +
-                "OR (? AND sourceId != 'local' AND path LIKE 'file:%')) ORDER BY artistName",
-            TrackQueries.artistNamesQuery(setOf("local")).sql,
-        )
-    }
-
-    @Test
-    fun `artistNames with active filter appends AND clause`() {
-        assertEquals(
-            "SELECT DISTINCT artistName FROM tracks WHERE artistName != '' AND (serverId LIKE ?) " +
-                "ORDER BY artistName",
-            TrackQueries.artistNamesQuery(null, activePrefixes = setOf("e1")).sql,
-        )
-        assertEquals(
-            "SELECT DISTINCT artistName FROM tracks WHERE artistName != '' AND (sourceId IN (?) " +
-                "OR (? AND sourceId != 'local' AND path LIKE 'file:%')) AND (serverId LIKE ?) " +
-                "ORDER BY artistName",
-            TrackQueries.artistNamesQuery(setOf("local"), activePrefixes = setOf("e1")).sql,
-        )
-        assertEquals(1, TrackQueries.artistNamesQuery(null, activePrefixes = setOf("e1")).argCount)
-        assertEquals(3, TrackQueries.artistNamesQuery(setOf("local"), activePrefixes = setOf("e1")).argCount)
-    }
-
-    @Test
     fun `albumGroups no filter is byte-identical to unfiltered SQL`() {
         assertEquals(
             "SELECT MIN(albumName) AS name, MIN(artistName) AS artistName, albumNorm AS norm, COUNT(*) AS trackCount " +
@@ -223,6 +193,25 @@ class TrackQueriesTest {
         // One placeholder per name — names never touch the SQL text itself.
         assertEquals(3, q.sql.split("?").size - 1)
         assertEquals(3, q.argCount)
+    }
+
+    @Test
+    fun `artist pages sources branch is byte-identical with active filter`() {
+        // Pins the full arg-ordering surface: names, then source, then the
+        // downloaded flag, then the active-prefix arg.
+        val q = TrackQueries.artistPagesQuery(
+            listOf("A", "B"),
+            sources = setOf("subsonic"),
+            includeDownloaded = true,
+            activePrefixes = setOf("e1"),
+        )
+        assertEquals(
+            "SELECT * FROM tracks WHERE artistName IN (?, ?) AND (sourceId IN (?) " +
+                "OR (? AND sourceId != 'local' AND path LIKE 'file:%')) AND (serverId LIKE ?) " +
+                "ORDER BY artistName",
+            q.sql,
+        )
+        assertEquals(5, q.argCount)
     }
 
     @Test

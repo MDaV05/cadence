@@ -85,6 +85,14 @@ fun HomeScreen(
         recent = r; most = m; added = a; total = t
     }
 
+    // Running-download keys collected once at the list level, never per item.
+    val downloadRows by container.library.observeDownloads()
+        .collectAsStateWithLifecycle(initialValue = emptyList())
+    val runningDownloads = remember(downloadRows) {
+        downloadRows.filter { it.download.status == "running" }
+            .mapTo(mutableSetOf()) { "${it.download.sourceId}:${it.download.trackServerId}" }
+    }
+
     Scaffold { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding),
@@ -121,7 +129,13 @@ fun HomeScreen(
             if (most.isNotEmpty()) {
                 item { SectionHeader("Most played") }
                 items(most, key = { "most:${it.id}" }) { track ->
-                    TrackRow(container, track, onArtistClick, onAlbumClick) {
+                    TrackRow(
+                        container,
+                        track,
+                        onArtistClick,
+                        onAlbumClick,
+                        isDownloading = "${track.sourceId}:${track.serverId}" in runningDownloads,
+                    ) {
                         player.playNow(listOf(track.toTrack()))
                     }
                 }

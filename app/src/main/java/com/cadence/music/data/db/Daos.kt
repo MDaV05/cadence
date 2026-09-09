@@ -62,14 +62,8 @@ interface TrackDao {
     @Query("UPDATE tracks SET title = :t, artistName = :a, artistRaw = :raw, albumName = :al, albumNorm = :n WHERE id = :id")
     suspend fun updateMetadata(id: Long, t: String, a: String, raw: String?, al: String, n: String)
 
-    @Query("SELECT DISTINCT artistName FROM tracks WHERE artistName != '' ORDER BY artistName")
-    fun observeArtistNames(): Flow<List<String>>
-
-    @RawQuery(observedEntities = [TrackEntity::class])
-    fun observeArtistNamesFor(query: SupportSQLiteQuery): Flow<List<String>>
-
     /** One artist-tile row per distinct artist name, with its cached picture if any. */
-    @RawQuery(observedEntities = [TrackEntity::class])
+    @RawQuery(observedEntities = [TrackEntity::class, ArtistInfoEntity::class])
     fun observeArtistTilesFor(query: SupportSQLiteQuery): Flow<List<ArtistTile>>
 
     @Query("SELECT * FROM tracks WHERE artistName = :name ORDER BY albumName, trackNumber")

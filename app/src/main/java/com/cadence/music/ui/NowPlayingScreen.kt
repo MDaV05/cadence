@@ -306,7 +306,7 @@ fun NowPlayingScreen(
                 textAlign = TextAlign.Center,
                 modifier = Modifier
                     .padding(top = 2.dp)
-                    .clickable { trackArtist?.let(onArtistClick) },
+                    .clickable(enabled = trackArtist != null) { trackArtist?.let(onArtistClick) },
             )
 
             // Drag updates a local value; the seek fires once on release instead

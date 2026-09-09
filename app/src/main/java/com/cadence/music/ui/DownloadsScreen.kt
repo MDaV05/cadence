@@ -190,6 +190,7 @@ private fun AlbumDownloadTile(
 @Composable
 internal fun DownloadLibraryDialog(container: AppContainer, onDismiss: () -> Unit) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val tracks by produceState<List<TrackEntity>?>(null, container) {
         value = withContext(Dispatchers.IO) {
             runCatching { container.library.tracksForBulkDownload() }.getOrDefault(emptyList())
@@ -217,7 +218,11 @@ internal fun DownloadLibraryDialog(container: AppContainer, onDismiss: () -> Uni
         },
         confirmButton = {
             TextButton(enabled = tracks != null && n > 0, onClick = {
-                container.library.enqueueDownloads(tracks.orEmpty())
+                // Enqueue off main: one WorkManager call per track would
+                // otherwise stutter the dialog dismissal on large libraries.
+                scope.launch(Dispatchers.IO) {
+                    container.library.enqueueDownloads(tracks.orEmpty())
+                }
                 Toast.makeText(context, "Queued", Toast.LENGTH_SHORT).show()
                 onDismiss()
             }) { Text("Download") }
