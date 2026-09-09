@@ -52,6 +52,7 @@ import kotlinx.coroutines.delay
 fun SearchScreen(
     container: AppContainer,
     onArtistClick: (String) -> Unit = {},
+    onAlbumClick: (String) -> Unit = {},
 ) {
     val player = container.player
     val focusManager = LocalFocusManager.current
@@ -170,6 +171,7 @@ fun SearchScreen(
                                     container,
                                     track,
                                     onArtistClick,
+                                    onAlbumClick,
                                     isDownloading = "${track.sourceId}:${track.serverId}" in runningDownloads,
                                 ) {
                                     recordQuery(query)

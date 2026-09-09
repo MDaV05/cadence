@@ -228,6 +228,8 @@ fun AppNav(initialSettingsTab: Int = 0, onDeepLinkConsumed: () -> Unit = {}) {
             }
             composable("search") { SearchScreen(container, onArtistClick = { name ->
                 navController.navigate("artist/${Uri.encode(name)}")
+            }, onAlbumClick = { name ->
+                navController.navigate("album/${Uri.encode(name)}")
             }) }
             composable("settings") { SettingsScreen(container, initialTab = deepLinkTab, onOpenEqualizer = {
                 navController.navigate("equalizer")
@@ -269,12 +271,27 @@ fun AppNav(initialSettingsTab: Int = 0, onDeepLinkConsumed: () -> Unit = {}) {
                     onAlbumClick = { album ->
                         navController.navigate("album/${Uri.encode(album)}")
                     },
+                    // launchSingleTop: the sheet's "go to" entries can target
+                    // the artist already on screen; don't stack a duplicate.
+                    onArtistClick = { artist ->
+                        navController.navigate("artist/${Uri.encode(artist)}") { launchSingleTop = true }
+                    },
                     onBack = { navController.popBackStack() },
                 )
             }
             composable("album/{name}") { entry ->
                 val name = entry.arguments?.getString("name") ?: return@composable
-                AlbumScreen(container, name, onBack = { navController.popBackStack() })
+                AlbumScreen(
+                    container,
+                    name,
+                    onArtistClick = { artist ->
+                        navController.navigate("artist/${Uri.encode(artist)}") { launchSingleTop = true }
+                    },
+                    onAlbumClick = { album ->
+                        navController.navigate("album/${Uri.encode(album)}") { launchSingleTop = true }
+                    },
+                    onBack = { navController.popBackStack() },
+                )
             }
         }
     }

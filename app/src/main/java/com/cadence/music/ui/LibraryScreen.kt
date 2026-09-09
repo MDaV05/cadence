@@ -30,9 +30,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddPhotoAlternate
+import androidx.compose.material.icons.filled.Album
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
@@ -83,6 +85,7 @@ import com.cadence.music.AppContainer
 import com.cadence.music.data.WriteConsentRequired
 import com.cadence.music.data.db.ArtistTile
 import com.cadence.music.data.db.TrackEntity
+import com.cadence.music.data.tags.artistCandidates
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -136,7 +139,7 @@ fun LibraryScreen(
             }
 
             when (tab) {
-                0 -> songsTab(container, onArtistClick, player)
+                0 -> songsTab(container, onArtistClick, onAlbumClick, player)
                 1 -> albumsTab(albumGroups, container, onAlbumClick)
                 2 -> artistsTab(artists, onArtistClick)
             }
@@ -169,6 +172,7 @@ fun TrackRow(
     container: AppContainer,
     track: TrackEntity,
     onArtistClick: (String) -> Unit = {},
+    onAlbumClick: (String) -> Unit = {},
     isDownloading: Boolean = false,
     onClick: () -> Unit,
 ) {
@@ -227,6 +231,7 @@ fun TrackRow(
             container = container,
             track = track,
             onArtistClick = onArtistClick,
+            onAlbumClick = onAlbumClick,
             onDismiss = { showSheet = false },
         )
     }
@@ -238,6 +243,7 @@ fun TrackActionsSheet(
     container: AppContainer,
     track: TrackEntity,
     onArtistClick: (String) -> Unit = {},
+    onAlbumClick: (String) -> Unit = {},
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -247,6 +253,17 @@ fun TrackActionsSheet(
     var sheetVisible by remember { mutableStateOf(true) }
     var pendingEdit by remember { mutableStateOf<PendingEdit?>(null) }
     var pendingDelete by remember { mutableStateOf(false) }
+
+    // Featuring names beyond the primary artist that actually own a library
+    // page. The raw tag is authoritative when present; blank counts as absent.
+    val extraArtists by produceState<List<String>>(emptyList(), track.id) {
+        value = withContext(Dispatchers.IO) {
+            val raw = track.artistRaw?.takeIf { it.isNotBlank() } ?: track.artistName
+            val candidates = artistCandidates(raw).filter { it != track.artistName }
+            if (candidates.isEmpty()) emptyList()
+            else container.library.artistsWithPages(candidates)
+        }
+    }
 
     fun toast(msg: String) = Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
     fun close() {
@@ -343,6 +360,37 @@ fun TrackActionsSheet(
             .collectAsStateWithLifecycle(initialValue = emptyList())
         var showNew by remember { mutableStateOf(false) }
         ModalBottomSheet(onDismissRequest = { close() }) {
+            if (track.albumName.isNotBlank()) {
+                ListItem(
+                    headlineContent = { Text("Go to album: ${track.albumName}") },
+                    leadingContent = { Icon(Icons.Filled.Album, null) },
+                    modifier = Modifier.clickable {
+                        onAlbumClick(track.albumNorm)
+                        close()
+                    },
+                )
+            }
+            if (track.artistName.isNotBlank()) {
+                ListItem(
+                    headlineContent = { Text("Go to artist: ${track.artistName}") },
+                    leadingContent = { Icon(Icons.Filled.Person, null) },
+                    modifier = Modifier.clickable {
+                        onArtistClick(track.artistName)
+                        close()
+                    },
+                )
+            }
+            extraArtists.forEach { name ->
+                ListItem(
+                    headlineContent = { Text("Go to artist: $name") },
+                    supportingContent = { Text("Featuring") },
+                    leadingContent = { Icon(Icons.Filled.Person, null) },
+                    modifier = Modifier.clickable {
+                        onArtistClick(name)
+                        close()
+                    },
+                )
+            }
             Text(
                 "Add to playlist",
                 style = MaterialTheme.typography.titleMedium,
@@ -584,6 +632,7 @@ private fun EmptyLibrary(granted: Boolean, deniedForever: Boolean, onGrant: () -
 private fun songsTab(
     container: AppContainer,
     onArtistClick: (String) -> Unit,
+    onAlbumClick: (String) -> Unit,
     player: com.cadence.music.playback.PlayerConnection,
 ) {
     val context = LocalContext.current
@@ -739,6 +788,7 @@ private fun songsTab(
                         container,
                         track,
                         onArtistClick,
+                        onAlbumClick,
                         isDownloading = "${track.sourceId}:${track.serverId}" in runningDownloads,
                     ) { player.playNow(listOf(track.toTrack())) }
                 }

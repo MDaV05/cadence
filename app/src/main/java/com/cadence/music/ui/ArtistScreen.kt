@@ -67,6 +67,7 @@ fun ArtistScreen(
     container: AppContainer,
     artistName: String,
     onAlbumClick: (String) -> Unit = {},
+    onArtistClick: (String) -> Unit = {},
     onBack: () -> Unit = {},
 ) {
     val player = container.player
@@ -306,6 +307,8 @@ fun ArtistScreen(
                 TrackRow(
                     container,
                     track,
+                    onArtistClick = onArtistClick,
+                    onAlbumClick = onAlbumClick,
                     isDownloading = "${track.sourceId}:${track.serverId}" in runningDownloads,
                 ) { player.playNow(listOf(track.toTrack())) }
             }

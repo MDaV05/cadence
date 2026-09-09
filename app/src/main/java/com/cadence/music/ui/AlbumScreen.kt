@@ -59,7 +59,13 @@ import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
-fun AlbumScreen(container: AppContainer, albumNorm: String, onBack: () -> Unit = {}) {
+fun AlbumScreen(
+    container: AppContainer,
+    albumNorm: String,
+    onArtistClick: (String) -> Unit = {},
+    onAlbumClick: (String) -> Unit = {},
+    onBack: () -> Unit = {},
+) {
     val player = container.player
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -283,6 +289,8 @@ fun AlbumScreen(container: AppContainer, albumNorm: String, onBack: () -> Unit =
         TrackActionsSheet(
             container = container,
             track = track,
+            onArtistClick = onArtistClick,
+            onAlbumClick = onAlbumClick,
             onDismiss = { sheetTrack = null },
         )
     }
