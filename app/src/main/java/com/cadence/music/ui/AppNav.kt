@@ -247,7 +247,17 @@ fun AppNav(initialSettingsTab: Int = 0, onDeepLinkConsumed: () -> Unit = {}) {
                 )
             }
             composable("nowplaying") {
-                NowPlayingScreen(container, onBack = { navController.popBackStack() })
+                NowPlayingScreen(
+                    container,
+                    onBack = { navController.popBackStack() },
+                    onArtistClick = { name ->
+                        navController.navigate("artist/${Uri.encode(name)}")
+                    },
+                    // Album route keys on albumNorm, not the display name.
+                    onAlbumClick = { norm ->
+                        navController.navigate("album/${Uri.encode(norm)}")
+                    },
+                )
             }
             composable("artist/{name}") { entry ->
                 // NavController already decoded the arg; a second decode turns

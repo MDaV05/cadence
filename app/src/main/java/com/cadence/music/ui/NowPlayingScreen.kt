@@ -70,6 +70,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -91,7 +92,12 @@ import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun NowPlayingScreen(container: AppContainer, onBack: () -> Unit = {}) {
+fun NowPlayingScreen(
+    container: AppContainer,
+    onBack: () -> Unit = {},
+    onArtistClick: (String) -> Unit = {},
+    onAlbumClick: (String) -> Unit = {},
+) {
     val player = container.player
     val state by player.state.collectAsStateWithLifecycle()
     var position by remember { mutableLongStateOf(0L) }
@@ -207,6 +213,19 @@ fun NowPlayingScreen(container: AppContainer, onBack: () -> Unit = {}) {
         }
     }
 
+    // The DB row for the playing track, resolved by mediaId (serverId). Loaded
+    // up front so the title block can offer album/artist navigation while the
+    // transport row below reads the same state for star/download actions.
+    var currentTrack by remember(state.title) {
+        mutableStateOf<com.cadence.music.data.db.TrackEntity?>(null)
+    }
+    LaunchedEffect(state.title) {
+        val mid = player.controller?.currentMediaItem?.mediaId
+        currentTrack = mid?.let { mid2 ->
+            withContext(Dispatchers.IO) { container.database.trackDao().byServerId(mid2) }
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -261,10 +280,33 @@ fun NowPlayingScreen(container: AppContainer, onBack: () -> Unit = {}) {
                 textAlign = TextAlign.Center,
                 modifier = Modifier.padding(top = 24.dp),
             )
+            // Album then artist under the title; both jump to their page once
+            // the track row resolves (currentTrack is null mid-swap).
+            val track = currentTrack
+            val trackArtist = track?.artistName?.takeIf { it.isNotBlank() }
+            track?.albumName?.takeIf { it.isNotBlank() }?.let { albumName ->
+                Text(
+                    albumName,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .padding(top = 4.dp)
+                        .clickable { onAlbumClick(track.albumNorm) },
+                )
+            }
             Text(
-                state.artist,
+                trackArtist ?: state.artist,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .padding(top = 2.dp)
+                    .clickable { trackArtist?.let(onArtistClick) },
             )
 
             // Drag updates a local value; the seek fires once on release instead
@@ -290,15 +332,6 @@ fun NowPlayingScreen(container: AppContainer, onBack: () -> Unit = {}) {
                 // Star toggle — server tracks only; reflects and updates the
                 // Subsonic favorite state.
                 val scope = rememberCoroutineScope()
-                var currentTrack by remember(state.title) {
-                    mutableStateOf<com.cadence.music.data.db.TrackEntity?>(null)
-                }
-                LaunchedEffect(state.title) {
-                    val mid = player.controller?.currentMediaItem?.mediaId
-                    currentTrack = mid?.let { mid2 ->
-                        withContext(Dispatchers.IO) { container.database.trackDao().byServerId(mid2) }
-                    }
-                }
                 // Stars route to subsonic/jellyfin/emby only; plex starring unsupported v1.
                 if (currentTrack?.sourceId.let { it != null && it != "local" && it != "plex" } == true) {
                     val starred = currentTrack?.starred == true
@@ -440,7 +473,7 @@ fun NowPlayingScreen(container: AppContainer, onBack: () -> Unit = {}) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center,
                         maxLines = 2,
-                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f, fill = false),
                     )
                     TextButton(onClick = { showFullLyrics = true }) {
