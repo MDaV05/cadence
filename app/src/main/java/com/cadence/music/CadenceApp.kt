@@ -25,6 +25,7 @@ import com.cadence.music.data.db.AppDatabase
 import com.cadence.music.data.metadata.ArtResolver
 import com.cadence.music.data.metadata.MetadataSync
 import com.cadence.music.data.prefs.Prefs
+import com.cadence.music.data.prefs.cacheBytes
 import com.cadence.music.data.source.LocalSource
 import com.cadence.music.data.update.UpdateStatus
 import com.cadence.music.data.update.UpdateStatus.Available
@@ -82,7 +83,7 @@ class CadenceApp : Application(), coil.ImageLoaderFactory {
         }
     }
 
-    /** Coil loader sized by the metadata-cache setting; AsyncImage picks this up globally. */
+    /** Coil loader sized by the image-cache setting; AsyncImage picks this up globally. */
     override fun newImageLoader(): coil.ImageLoader {
         val okHttpClient = okhttp3.OkHttpClient.Builder()
             .addInterceptor { chain ->
@@ -98,7 +99,7 @@ class CadenceApp : Application(), coil.ImageLoaderFactory {
             .diskCache {
                 coil.disk.DiskCache.Builder()
                     .directory(cacheDir.resolve("metadata_images"))
-                    .maxSizeBytes(container.prefs.metaCacheMb.coerceIn(50, 1000) * 1024L * 1024L)
+                    .maxSizeBytes(cacheBytes(container.prefs.imageCacheGb, container.prefs.imageUnlimited))
                     .build()
             }
             .crossfade(true)

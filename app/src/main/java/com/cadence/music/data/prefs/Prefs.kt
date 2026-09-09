@@ -120,6 +120,19 @@ class Prefs(context: Context) {
         get() = sp.getInt("cache_gb", 2)
         set(value) = sp.edit().putInt("cache_gb", value).apply()
 
+    var cacheUnlimited: Boolean
+        get() = sp.getBoolean("cache_unlimited", false)
+        set(value) = sp.edit().putBoolean("cache_unlimited", value).apply()
+
+    /** Budget for Coil's album-art disk cache, in GB. */
+    var imageCacheGb: Int
+        get() = sp.getInt("image_cache_gb", 1)
+        set(value) = sp.edit().putInt("image_cache_gb", value).apply()
+
+    var imageUnlimited: Boolean
+        get() = sp.getBoolean("image_unlimited", false)
+        set(value) = sp.edit().putBoolean("image_unlimited", value).apply()
+
     var listenBrainzToken: String?
         get() = sp.getString("lb_token", null)
         set(value) = sp.edit().putString("lb_token", value).apply()

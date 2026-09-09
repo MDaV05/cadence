@@ -16,6 +16,7 @@ import androidx.media3.session.MediaSession
 import com.cadence.music.CadenceApp
 import com.cadence.music.data.db.TrackEntity
 import com.cadence.music.data.resumeLookupIds
+import com.cadence.music.data.prefs.cacheBytes
 import com.google.common.util.concurrent.ListenableFuture
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -46,8 +47,8 @@ class PlaybackService : MediaLibraryService() {
             .registerOnSharedPreferenceChangeListener(prefsListener)
 
         val container = (application as? CadenceApp)?.container
-        val cacheBytes = container?.prefs?.cacheGb?.coerceIn(1, 20)?.let { it * 1024L * 1024 * 1024 }
-            ?: 2L * 1024 * 1024 * 1024
+        val cacheBytes = container?.prefs?.let { cacheBytes(it.cacheGb, it.cacheUnlimited) }
+            ?: cacheBytes(2, false)
         val httpFactory = androidx.media3.datasource.DefaultHttpDataSource.Factory()
             .setConnectTimeoutMs(4000)
             .setReadTimeoutMs(8000)
