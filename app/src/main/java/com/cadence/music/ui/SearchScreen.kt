@@ -34,6 +34,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.paging.LoadState
 import androidx.paging.cachedIn
 import androidx.paging.compose.collectAsLazyPagingItems
@@ -62,6 +63,14 @@ fun SearchScreen(
         debounced = query
     }
     var history by remember { mutableStateOf(container.prefs.searchHistory) }
+
+    // Running-download keys collected once at the list level, never per item.
+    val downloadRows by container.library.observeDownloads()
+        .collectAsStateWithLifecycle(initialValue = emptyList())
+    val runningDownloads = remember(downloadRows) {
+        downloadRows.filter { it.download.status == "running" }
+            .mapTo(mutableSetOf()) { "${it.download.sourceId}:${it.download.trackServerId}" }
+    }
 
     fun recordQuery(q: String) {
         if (q.isBlank()) return
@@ -157,7 +166,12 @@ fun SearchScreen(
                             key = pagingItems.itemKey { it.id },
                         ) { i ->
                             pagingItems[i]?.let { track ->
-                                TrackRow(container, track, onArtistClick) {
+                                TrackRow(
+                                    container,
+                                    track,
+                                    onArtistClick,
+                                    isDownloading = "${track.sourceId}:${track.serverId}" in runningDownloads,
+                                ) {
                                     recordQuery(query)
                                     focusManager.clearFocus()
                                     player.playNow(listOf(track.toTrack()))

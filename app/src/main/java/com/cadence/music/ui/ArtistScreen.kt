@@ -53,6 +53,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.cadence.music.AppContainer
 import com.cadence.music.data.WriteConsentRequired
@@ -166,6 +167,14 @@ fun ArtistScreen(
     }
 
     val allLocal = tracks.isNotEmpty() && tracks.all { it.sourceId == "local" }
+
+    // Running-download keys collected once at the list level, never per item.
+    val downloadRows by container.library.observeDownloads()
+        .collectAsStateWithLifecycle(initialValue = emptyList())
+    val runningDownloads = remember(downloadRows) {
+        downloadRows.filter { it.download.status == "running" }
+            .mapTo(mutableSetOf()) { "${it.download.sourceId}:${it.download.trackServerId}" }
+    }
 
     val albums = remember(tracks) {
         // byArtist is ordered by albumName; groupBy preserves first-seen order.
@@ -294,7 +303,11 @@ fun ArtistScreen(
                 Text("All songs", style = MaterialTheme.typography.titleMedium)
             }
             items(tracks, key = { "song:${it.id}" }, span = { GridItemSpan(maxLineSpan) }) { track ->
-                TrackRow(container, track) { player.playNow(listOf(track.toTrack())) }
+                TrackRow(
+                    container,
+                    track,
+                    isDownloading = "${track.sourceId}:${track.serverId}" in runningDownloads,
+                ) { player.playNow(listOf(track.toTrack())) }
             }
             if (tracks.isEmpty()) {
                 item(span = { GridItemSpan(maxLineSpan) }) {

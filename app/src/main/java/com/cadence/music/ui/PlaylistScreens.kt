@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -284,6 +285,17 @@ fun PlaylistDetailScreen(container: AppContainer, playlistId: Long, onBack: () -
 
     LaunchedEffect(playlistId) { reload() }
 
+    // Header download button shows a live spinner while any playlist track is running.
+    val downloadRows by container.library.observeDownloads()
+        .collectAsStateWithLifecycle(initialValue = emptyList())
+    val runningDownloads = remember(downloadRows) {
+        downloadRows.filter { it.download.status == "running" }
+            .mapTo(mutableSetOf()) { "${it.download.sourceId}:${it.download.trackServerId}" }
+    }
+    val playlistDownloading = remember(tracks, runningDownloads) {
+        tracks.any { "${it.track.sourceId}:${it.track.serverId}" in runningDownloads }
+    }
+
     val pickCover = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) scope.launch {
             container.library.setPlaylistCover(playlistId, savePlaylistCover(context, playlistId, uri))
@@ -302,7 +314,12 @@ fun PlaylistDetailScreen(container: AppContainer, playlistId: Long, onBack: () -
                 },
                 actions = {
                     IconButton(onClick = { container.library.enqueueDownloads(tracks.map { it.track }) }) {
-                        Icon(Icons.Filled.Download, "Download playlist")
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(Icons.Filled.Download, "Download playlist")
+                            if (playlistDownloading) {
+                                CircularProgressIndicator(Modifier.size(16.dp))
+                            }
+                        }
                     }
                     IconButton(onClick = {
                         if (tracks.isNotEmpty()) player.playNow(tracks.map { it.track.toTrack() })

@@ -169,6 +169,7 @@ fun TrackRow(
     container: AppContainer,
     track: TrackEntity,
     onArtistClick: (String) -> Unit = {},
+    isDownloading: Boolean = false,
     onClick: () -> Unit,
 ) {
     val art by produceState<String?>(null, track.id) {
@@ -208,11 +209,17 @@ fun TrackRow(
                 },
             )
         }
-        Text(
-            formatDuration(track.durationMs),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        // A running download replaces the duration with a live spinner — the
+        // trigger point must show feedback, not a dead icon.
+        if (isDownloading) {
+            CircularProgressIndicator(Modifier.size(18.dp))
+        } else {
+            Text(
+                formatDuration(track.durationMs),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 
     if (showSheet) {
@@ -643,6 +650,13 @@ private fun songsTab(
     }.collectAsLazyPagingItems()
     val songCount by container.library.observeTrackCount()
         .collectAsStateWithLifecycle(initialValue = 0)
+    // Running-download keys collected once at the list level, never per item.
+    val downloadRows by container.library.observeDownloads()
+        .collectAsStateWithLifecycle(initialValue = emptyList())
+    val runningDownloads = remember(downloadRows) {
+        downloadRows.filter { it.download.status == "running" }
+            .mapTo(mutableSetOf()) { "${it.download.sourceId}:${it.download.trackServerId}" }
+    }
 
     // Empty gate on the mode-aware count + pager state (never on the initial 0
     // while still Loading — the spinner below covers that).
@@ -721,7 +735,12 @@ private fun songsTab(
                 key = pagingItems.itemKey { it.id },
             ) { i ->
                 pagingItems[i]?.let { track ->
-                    TrackRow(container, track, onArtistClick) { player.playNow(listOf(track.toTrack())) }
+                    TrackRow(
+                        container,
+                        track,
+                        onArtistClick,
+                        isDownloading = "${track.sourceId}:${track.serverId}" in runningDownloads,
+                    ) { player.playNow(listOf(track.toTrack())) }
                 }
             }
             when (pagingItems.loadState.refresh) {

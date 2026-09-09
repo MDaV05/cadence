@@ -49,6 +49,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.cadence.music.AppContainer
 import com.cadence.music.data.WriteConsentRequired
@@ -154,6 +155,17 @@ fun AlbumScreen(container: AppContainer, albumNorm: String, onBack: () -> Unit =
 
     val allLocal = tracks.isNotEmpty() && tracks.all { it.sourceId == "local" }
 
+    // Header download button shows a live spinner while any album track is running.
+    val downloadRows by container.library.observeDownloads()
+        .collectAsStateWithLifecycle(initialValue = emptyList())
+    val runningDownloads = remember(downloadRows) {
+        downloadRows.filter { it.download.status == "running" }
+            .mapTo(mutableSetOf()) { "${it.download.sourceId}:${it.download.trackServerId}" }
+    }
+    val albumDownloading = remember(tracks, runningDownloads) {
+        tracks.any { "${it.sourceId}:${it.serverId}" in runningDownloads }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -217,7 +229,12 @@ fun AlbumScreen(container: AppContainer, albumNorm: String, onBack: () -> Unit =
                             Icon(Icons.Filled.Shuffle, "Shuffle album")
                         }
                         IconButton(onClick = { downloadAll() }) {
-                            Icon(Icons.Filled.Download, "Download album")
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(Icons.Filled.Download, "Download album")
+                                if (albumDownloading) {
+                                    CircularProgressIndicator(Modifier.size(16.dp))
+                                }
+                            }
                         }
                         IconButton(onClick = { coverPicker.launch("image/*") }) {
                             Icon(Icons.Filled.AddPhotoAlternate, "Change cover")
