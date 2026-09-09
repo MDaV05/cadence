@@ -259,7 +259,7 @@ fun TrackActionsSheet(
     val extraArtists by produceState<List<String>>(emptyList(), track.id) {
         value = withContext(Dispatchers.IO) {
             val raw = track.artistRaw?.takeIf { it.isNotBlank() } ?: track.artistName
-            val candidates = artistCandidates(raw).filter { it != track.artistName }
+            val candidates = artistCandidates(raw).filter { !it.equals(track.artistName, true) }
             if (candidates.isEmpty()) emptyList()
             else container.library.artistsWithPages(candidates)
         }
@@ -362,7 +362,7 @@ fun TrackActionsSheet(
         ModalBottomSheet(onDismissRequest = { close() }) {
             if (track.albumName.isNotBlank()) {
                 ListItem(
-                    headlineContent = { Text("Go to album: ${track.albumName}") },
+                    headlineContent = { Text("Go to album: ${track.albumName}", maxLines = 1, overflow = TextOverflow.Ellipsis) },
                     leadingContent = { Icon(Icons.Filled.Album, null) },
                     modifier = Modifier.clickable {
                         onAlbumClick(track.albumNorm)
@@ -372,7 +372,7 @@ fun TrackActionsSheet(
             }
             if (track.artistName.isNotBlank()) {
                 ListItem(
-                    headlineContent = { Text("Go to artist: ${track.artistName}") },
+                    headlineContent = { Text("Go to artist: ${track.artistName}", maxLines = 1, overflow = TextOverflow.Ellipsis) },
                     leadingContent = { Icon(Icons.Filled.Person, null) },
                     modifier = Modifier.clickable {
                         onArtistClick(track.artistName)
@@ -382,7 +382,7 @@ fun TrackActionsSheet(
             }
             extraArtists.forEach { name ->
                 ListItem(
-                    headlineContent = { Text("Go to artist: $name") },
+                    headlineContent = { Text("Go to artist: $name", maxLines = 1, overflow = TextOverflow.Ellipsis) },
                     supportingContent = { Text("Featuring") },
                     leadingContent = { Icon(Icons.Filled.Person, null) },
                     modifier = Modifier.clickable {
