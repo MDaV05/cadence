@@ -7,7 +7,7 @@ A light, fast, native Android music player for your own library — freedom of s
 ## Features
 
 - **Multi-source streaming** — local files, Subsonic (Navidrome, Gonic, Airsonic…), Jellyfin, Emby, Plex, and Telegram
-     -**only telegram and subsonic are tested thus far**
+     (**only telegram and subsonic are tested thus far**)
 - **Three library modes** — local files only, remote servers only, or unified hybrid
 - **Unified library** — sync your songs under their album and artist, even if they're from multiple sources
 - **Offline first** — per-track/album/playlist downloads, plus an LRU stream cache so streamed songs replay without network
