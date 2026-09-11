@@ -171,7 +171,7 @@ val ensureTdlib by tasks.registering {
                 if (next.protocol != "https") throw GradleException("TDLib download: redirect to non-https: $next")
                 val host = next.host.lowercase()
                 val githubHost = host == "github.com" || host.endsWith(".github.com") ||
-                    host == "objects.githubusercontent.com" || host.endsWith(".objects.githubusercontent.com")
+                    host == "githubusercontent.com" || host.endsWith(".githubusercontent.com")
                 if (!githubHost) throw GradleException("TDLib download: redirect to untrusted host: $host")
                 url = next
                 conn = url.openConnection() as HttpURLConnection
