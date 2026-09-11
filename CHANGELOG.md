@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.15.1
+
+Security-focused release from a full third-party-style audit (14 confirmed findings, all fixed and re-verified):
+
+- **ListenBrainz scrobbling actually works**: submissions were being rejected by the API (missing `listened_at`) and the retry queue replayed forever; the queue is now capped, paced, and stops cleanly on permanent rejections. Replayed listens keep their original timestamps.
+- **DoS & crash hardening**: hostile or oversized artist tags from a music server can no longer hang the app in name-parsing regexes (length-capped), crash the long-press sheet (bounded candidate gate), or produce uncaught JSON crashes from cover-art and MusicBrainz lookups.
+- **Download integrity & storage**: downloads write atomically via a temp file with a free-space precheck and a real content-length verification — truncated streams are no longer marked "done", a 416 no longer wedges a track permanently, and deleting a failed download sweeps its orphaned bytes.
+- **Credential leak prevention**: redirects in media-server and metadata HTTP clients are followed only same-origin (server tokens and passwords can no longer ride a 3xx to another host), API-key URLs and ListenBrainz tokens stay out of URLs and logs, GitHub update downloads must be https on github.com hosts, and server URLs are restricted to http(s) at save and on read.
+- **Cleartext downgrade guard**: playback failover between primary/secondary URLs no longer silently adopts an http URL when an https one was active.
+- **Media session trust is now UID-based** instead of a client-claimed package name; the TDLib dependency AAR is checksum-pinned in CI; app data (play history, audio, covers) is excluded from cloud/device-transfer backups.
+
 ## 0.15.0
 
 - **Artist Pictures Grid**: The Artists tab is now a grid of circular artist photos (with an initials fallback when no image is cached) instead of a plain name list.
