@@ -1,5 +1,7 @@
 import java.net.URI
 import java.net.HttpURLConnection
+import java.security.MessageDigest
+import org.gradle.api.GradleException
 
 plugins {
     alias(libs.plugins.android.application)
@@ -131,33 +133,62 @@ dependencies {
     implementation(files("libs/tdlib-0.1.0.aar"))
 }
 
+// SHA-256 of the vendored tdlib-0.1.0.aar. The AAR becomes libtdjni.so in
+// release-signed artifacts, so it is never trusted on fetch alone. Update this
+// digest deliberately when rotating the dependency.
+val tdlibAarSha256 = "5a5ad7fa346a29f3f09a31eaf4a742dbab864f25dc74f5373f7d2708e2a27638"
+
+fun sha256(f: java.io.File): String =
+    MessageDigest.getInstance("SHA-256")
+        .digest(f.readBytes())
+        .joinToString("") { "%02x".format(it) }
+
 val ensureTdlib by tasks.registering {
     val aar = file("libs/tdlib-0.1.0.aar")
-    outputs.file(aar)
+    // No declared outputs: the task must re-run (and re-verify) every build,
+    // so a later-tampered cached AAR can never slip past an up-to-date check.
     doLast {
+        // Verify the already-present cached file first (R3-11): a poisoned
+        // artifact must fail even when no download happens.
+        if (aar.exists() && sha256(aar) != tdlibAarSha256) {
+            aar.delete()
+            throw GradleException("TDLib AAR checksum mismatch on cached libs/tdlib-0.1.0.aar")
+        }
         if (!aar.exists()) {
             aar.parentFile.mkdirs()
             logger.lifecycle("Downloading TDLib AAR...")
-            val url = URI("https://github.com/AkashPriyadarshii/tdlib-android/releases/download/v0.1.0/core-release.aar").toURL()
+            var url = URI("https://github.com/AkashPriyadarshii/tdlib-android/releases/download/v0.1.0/core-release.aar").toURL()
             var conn = url.openConnection() as HttpURLConnection
-            conn.instanceFollowRedirects = true
-            var stream = conn.inputStream
+            // Manual https-only redirect follow; a cross-host hop must stay on GitHub.
+            conn.instanceFollowRedirects = false
             var redirectCount = 0
-            while (conn.responseCode in 300..399 && redirectCount < 5) {
+            while (conn.responseCode in 300..399) {
                 val loc = conn.getHeaderField("Location")
+                    ?: throw GradleException("TDLib download: redirect without Location")
+                if (redirectCount++ >= 5) throw GradleException("TDLib download: too many redirects")
                 conn.disconnect()
-                val nextUrl = URI(loc).toURL()
-                conn = nextUrl.openConnection() as HttpURLConnection
-                stream = conn.inputStream
-                redirectCount++
+                val next = url.toURI().resolve(loc).toURL()
+                if (next.protocol != "https") throw GradleException("TDLib download: redirect to non-https: $next")
+                val host = next.host.lowercase()
+                val githubHost = host == "github.com" || host.endsWith(".github.com") ||
+                    host == "objects.githubusercontent.com" || host.endsWith(".objects.githubusercontent.com")
+                if (!githubHost) throw GradleException("TDLib download: redirect to untrusted host: $host")
+                url = next
+                conn = url.openConnection() as HttpURLConnection
+                conn.instanceFollowRedirects = false
             }
             val tmp = file("libs/tdlib-0.1.0.aar.tmp")
-            stream.use { input ->
+            conn.inputStream.use { input ->
                 tmp.outputStream().use { output ->
                     input.copyTo(output)
                 }
             }
+            conn.disconnect()
             tmp.renameTo(aar)
+            if (sha256(aar) != tdlibAarSha256) {
+                aar.delete()
+                throw GradleException("TDLib AAR checksum mismatch on downloaded artifact")
+            }
             logger.lifecycle("TDLib AAR downloaded (${aar.length()} bytes)")
         }
     }
