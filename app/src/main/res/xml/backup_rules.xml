@@ -1,8 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- API <= 30 auto-backup rules: never back up the prefs file, it holds the
-     server password and ListenBrainz token in plaintext. -->
+     server password and ListenBrainz token in plaintext. The play-history DB,
+     downloaded audio and cover copies are a behavioral profile — off too. -->
 <full-backup-content>
     <exclude domain="sharedpref" path="cadence.xml" />
     <exclude domain="file" path="tdlib_db" />
     <exclude domain="sharedpref" path="cadence_tg_artwork.xml" />
+    <exclude domain="database" path="cadence.db" />
+    <exclude domain="database" path="cadence.db-wal" />
+    <exclude domain="database" path="cadence.db-shm" />
+    <exclude domain="file" path="downloads" />
+    <exclude domain="file" path="covers" />
+    <exclude domain="file" path="playlist_covers" />
 </full-backup-content>

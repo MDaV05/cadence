@@ -1,15 +1,29 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- API 31+ backup/transfer rules: never send the prefs file to cloud backup
-     or device-to-device transfer; it holds credentials in plaintext. -->
+     or device-to-device transfer; it holds credentials in plaintext. The
+     play-history DB, downloaded audio and cover copies are a behavioral
+     profile — off for cloud and transfer alike. -->
 <data-extraction-rules>
     <cloud-backup>
         <exclude domain="sharedpref" path="cadence.xml" />
         <exclude domain="file" path="tdlib_db" />
         <exclude domain="sharedpref" path="cadence_tg_artwork.xml" />
+        <exclude domain="database" path="cadence.db" />
+        <exclude domain="database" path="cadence.db-wal" />
+        <exclude domain="database" path="cadence.db-shm" />
+        <exclude domain="file" path="downloads" />
+        <exclude domain="file" path="covers" />
+        <exclude domain="file" path="playlist_covers" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="sharedpref" path="cadence.xml" />
         <exclude domain="file" path="tdlib_db" />
         <exclude domain="sharedpref" path="cadence_tg_artwork.xml" />
+        <exclude domain="database" path="cadence.db" />
+        <exclude domain="database" path="cadence.db-wal" />
+        <exclude domain="database" path="cadence.db-shm" />
+        <exclude domain="file" path="downloads" />
+        <exclude domain="file" path="covers" />
+        <exclude domain="file" path="playlist_covers" />
     </device-transfer>
 </data-extraction-rules>

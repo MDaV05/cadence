@@ -88,7 +88,8 @@ suspend fun fetchLatest(): ReleaseInfo? = withContext(Dispatchers.IO) {
                 hops++
             }
             if (code !in 200..299) return@runCatching null
-            val root = JSONObject(conn.inputStream.bufferedReader().readText())
+            // R3-15: cap the body so a hostile/corrupt response can't exhaust memory.
+            val root = JSONObject(conn.inputStream.use { it.readNBytes(2 * 1024 * 1024) }.decodeToString())
             if (root.optBoolean("prerelease")) return@runCatching null
             val arr = root.optJSONArray("assets") ?: return@runCatching null
             val assets = (0 until arr.length()).map { i ->

@@ -40,7 +40,8 @@ object Wikipedia {
             conn.readTimeout = 15_000
             try {
                 if (conn.responseCode != 200) return null
-                val json = JSONObject(conn.inputStream.bufferedReader().readText())
+                // R3-15: cap the body so a hostile/corrupt response can't exhaust memory.
+                val json = JSONObject(conn.inputStream.use { it.readNBytes(2 * 1024 * 1024) }.decodeToString())
                 if (json.optString("type") != "standard") return null
                 val desc = json.optString("description", "")
                 val extract = json.optString("extract", "").ifBlank { null }
@@ -102,7 +103,8 @@ object Wikipedia {
             conn.readTimeout = 15_000
             val titles = try {
                 if (conn.responseCode == 200) {
-                    val arr = JSONArray(conn.inputStream.bufferedReader().readText())
+                    // R3-15: cap the body so a hostile/corrupt response can't exhaust memory.
+                    val arr = JSONArray(conn.inputStream.use { it.readNBytes(2 * 1024 * 1024) }.decodeToString())
                     val list = arr.optJSONArray(1)
                     if (list != null) {
                         (0 until list.length()).mapNotNull { list.optString(it) }

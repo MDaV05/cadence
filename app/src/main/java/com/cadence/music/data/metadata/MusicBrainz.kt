@@ -38,7 +38,8 @@ object MusicBrainz {
                 hops++
             }
             if (code != 200) null
-            else conn.inputStream.bufferedReader().readText()
+            // R3-15: cap the body so a hostile/corrupt response can't exhaust memory.
+            else conn.inputStream.use { it.readNBytes(2 * 1024 * 1024) }.decodeToString()
         } finally {
             conn.disconnect()
         }
