@@ -391,11 +391,6 @@ fun TrackActionsSheet(
                     },
                 )
             }
-            Text(
-                "Add to playlist",
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
-            )
             if (showNew) {
                 NewPlaylistDialog(
                     onCreate = { name ->
@@ -463,6 +458,11 @@ fun TrackActionsSheet(
                             container.player.addToQueue(track.toTrack())
                             close()
                         },
+                )
+                Text(
+                    "Add to playlist",
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
                 )
                 ListItem(
                     headlineContent = { Text("New playlist…") },
