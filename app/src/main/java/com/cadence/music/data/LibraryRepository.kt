@@ -101,6 +101,10 @@ class LibraryRepository(
     }
 
     fun markActiveUrl(entryId: String, url: String) {
+        // Never adopt a new active URL that silently downgrades an active https
+        // connection to cleartext (R3-06); the failed-over stream still works.
+        val current = prefs.entry(entryId)?.let { activeUrlFor(it) }
+        if (!com.cadence.music.data.prefs.canAdoptActiveUrl(current, url)) return
         activeUrls[entryId] = url
     }
 

@@ -46,4 +46,18 @@ class ServerUrlsTest {
     fun `url with path and port ok`() {
         assertEquals("http://box:8096/jellyfin", sanitizeServerUrl("http://box:8096/jellyfin"))
     }
+
+    @Test
+    fun `adopting a cleartext url from an active https url is refused`() {
+        assertEquals(false, canAdoptActiveUrl("https://wan.example.com", "http://lan.local:4533"))
+        assertEquals(false, canAdoptActiveUrl("HTTPS://wan.example.com/rest", "http://lan.local"))
+    }
+
+    @Test
+    fun `same or upgraded scheme adoption is allowed`() {
+        assertEquals(true, canAdoptActiveUrl("http://a", "http://b"))
+        assertEquals(true, canAdoptActiveUrl("https://a", "https://b"))
+        assertEquals(true, canAdoptActiveUrl(null, "http://b"))
+        assertEquals(true, canAdoptActiveUrl("", "https://b"))
+    }
 }

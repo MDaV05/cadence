@@ -174,15 +174,23 @@ class AppContainer(app: Application) {
         },
     )
 
+    /**
+     * Authority-safe base match (R3-06): the base must be the whole URL or a full
+     * path-segment prefix — never the start of a foreign authority or hostname
+     * ("http://host" vs "http://hostevil.com/x" must not match).
+     */
+    private fun urlUnderBase(url: String, base: String): Boolean =
+        url == base || url.startsWith("$base/")
+
     fun resolveFallbackUrl(uri: android.net.Uri): android.net.Uri? {
         val uriStr = uri.toString()
         for (entry in prefs.servers) {
             val sec = entry.secondaryUrl?.trimEnd('/') ?: continue
             val prim = entry.url.trimEnd('/')
-            if (uriStr.startsWith(prim)) {
+            if (urlUnderBase(uriStr, prim)) {
                 val fallbackStr = sec + uriStr.substring(prim.length)
                 return android.net.Uri.parse(fallbackStr)
-            } else if (uriStr.startsWith(sec)) {
+            } else if (urlUnderBase(uriStr, sec)) {
                 val fallbackStr = prim + uriStr.substring(sec.length)
                 return android.net.Uri.parse(fallbackStr)
             }
@@ -196,10 +204,12 @@ class AppContainer(app: Application) {
         for (entry in prefs.servers) {
             val sec = entry.secondaryUrl?.trimEnd('/') ?: continue
             val prim = entry.url.trimEnd('/')
-            if (failedStr.startsWith(prim) && fallbackStr.startsWith(sec)) {
+            if (urlUnderBase(failedStr, prim) && urlUnderBase(fallbackStr, sec)) {
+                // Marked active only when it is not a cleartext downgrade (checked in
+                // markActiveUrl); the fallback is still used for this stream anyway.
                 library.markActiveUrl(entry.id, entry.secondaryUrl)
                 break
-            } else if (failedStr.startsWith(sec) && fallbackStr.startsWith(prim)) {
+            } else if (urlUnderBase(failedStr, sec) && urlUnderBase(fallbackStr, prim)) {
                 library.markActiveUrl(entry.id, entry.url)
                 break
             }

@@ -17,3 +17,13 @@ fun sanitizeServerUrl(raw: String): String? {
         else -> null
     }
 }
+
+/**
+ * Failover scheme guard: adopting a new active URL must never silently turn an
+ * https connection into cleartext. https → https and http → http are fine;
+ * https → http is refused (the URL may still be used for the current session).
+ */
+fun canAdoptActiveUrl(from: String?, to: String): Boolean {
+    val fromHttps = from?.trim()?.lowercase()?.startsWith("https://") ?: false
+    return !fromHttps || to.trim().lowercase().startsWith("https://")
+}
