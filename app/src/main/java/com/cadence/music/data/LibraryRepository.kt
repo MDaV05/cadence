@@ -757,6 +757,14 @@ class LibraryRepository(
                     java.io.File(java.net.URI(fileUri)).delete()
                     db.trackDao().setPath(track.id, null)
                 }
+            } else if (track != null && track.sourceId != "local" && fileUri == null) {
+                // Failed/aborted downloads never got a path row but may have left bytes
+                // under the conventional name — sweep those too (row deletion unchanged).
+                runCatching {
+                    val dir = java.io.File(context.filesDir, "downloads")
+                    java.io.File(dir, com.cadence.music.data.downloads.downloadFileName(track.sourceId, track.serverId)).delete()
+                    java.io.File(dir, com.cadence.music.data.downloads.downloadFileName(track.sourceId, track.serverId) + ".tmp").delete()
+                }
             }
             db.downloadDao().delete(download.trackServerId, download.sourceId)
         }
