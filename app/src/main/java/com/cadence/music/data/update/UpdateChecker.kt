@@ -42,6 +42,24 @@ fun isNewerTag(tag: String, installed: String): Boolean {
 fun pickApkAsset(assets: List<ReleaseAsset>, tag: String): ReleaseAsset? =
     assets.firstOrNull { it.name == "cadence-$tag-release.apk" && it.url.isNotBlank() }
 
+/**
+ * Release-asset integrity gate (R3-10): the APK URL comes from the GitHub API
+ * response and is downloaded verbatim, so it must be https on a GitHub-owned
+ * host — never an attacker-controlled scheme or host from the payload.
+ */
+fun isTrustedReleaseUrl(url: String): Boolean {
+    val parsed = runCatching { URL(url) }.getOrNull() ?: return false
+    return parsed.protocol.equals("https", ignoreCase = true) &&
+        parsed.host.lowercase() in TRUSTED_RELEASE_HOSTS
+}
+
+private val TRUSTED_RELEASE_HOSTS = setOf(
+    "github.com",
+    "objects.githubusercontent.com",
+    "codeload.github.com",
+    "raw.githubusercontent.com",
+)
+
 /** Thin Android shell (HTTP + org.json) — covered by build, not unit tests. */
 suspend fun fetchLatest(): ReleaseInfo? = withContext(Dispatchers.IO) {
     runCatching {

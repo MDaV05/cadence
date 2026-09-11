@@ -35,6 +35,7 @@ import com.cadence.music.data.update.UpdateStatus.Idle
 import com.cadence.music.data.update.UpdateStatus.UpToDate
 import com.cadence.music.data.update.fetchLatest
 import com.cadence.music.data.update.isNewerTag
+import com.cadence.music.data.update.isTrustedReleaseUrl
 import com.cadence.music.data.update.pickApkAsset
 import com.cadence.music.playback.PlayerConnection
 import kotlinx.coroutines.CoroutineScope
@@ -238,7 +239,9 @@ class AppContainer(app: Application) {
             if (rel == null) Failed() else UpToDate()
         } else {
             val asset = pickApkAsset(rel.assets, rel.tag)
-            if (asset == null) Failed() else Available(rel.tag, asset.url, rel.htmlUrl, rel.body)
+            // Fails like a missing asset when the download URL is not https-on-github.
+            if (asset == null || !isTrustedReleaseUrl(asset.url)) Failed()
+            else Available(rel.tag, asset.url, rel.htmlUrl, rel.body)
         }
         _updateStatus.value = status
     }

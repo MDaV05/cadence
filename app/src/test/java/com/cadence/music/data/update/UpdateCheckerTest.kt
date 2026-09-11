@@ -55,4 +55,36 @@ class UpdateCheckerTest {
         )
         assertEquals("https://example.com/r", pickApkAsset(assets, "v1.2.4")?.url)
     }
+
+    @Test
+    fun `trusted release hosts pass on https`() {
+        assertTrue(isTrustedReleaseUrl("https://github.com/MDaV05/cadence/releases/download/v1/apk"))
+        assertTrue(isTrustedReleaseUrl("https://objects.githubusercontent.com/x/y.apk"))
+        assertTrue(isTrustedReleaseUrl("https://codeload.github.com/x/y.apk"))
+        assertTrue(isTrustedReleaseUrl("https://raw.githubusercontent.com/x/y.apk"))
+        assertTrue(isTrustedReleaseUrl("HTTPS://GitHub.com/x.apk"))
+    }
+
+    @Test
+    fun `non-https scheme fails even on trusted host`() {
+        assertFalse(isTrustedReleaseUrl("http://github.com/x.apk"))
+        assertFalse(isTrustedReleaseUrl("ftp://github.com/x.apk"))
+        assertFalse(isTrustedReleaseUrl("file:///sdcard/x.apk"))
+        assertFalse(isTrustedReleaseUrl("content://provider/x.apk"))
+    }
+
+    @Test
+    fun `untrusted hosts fail`() {
+        assertFalse(isTrustedReleaseUrl("https://evil.com/cadence.apk"))
+        assertFalse(isTrustedReleaseUrl("https://notgithub.com/x"))
+        assertFalse(isTrustedReleaseUrl("https://github.com.evil.com/x"))
+        assertFalse(isTrustedReleaseUrl("https://objects.githubusercontent.com.example.net/x"))
+    }
+
+    @Test
+    fun `garbage urls fail`() {
+        assertFalse(isTrustedReleaseUrl(""))
+        assertFalse(isTrustedReleaseUrl("not a url"))
+        assertFalse(isTrustedReleaseUrl("github.com/x.apk"))
+    }
 }
