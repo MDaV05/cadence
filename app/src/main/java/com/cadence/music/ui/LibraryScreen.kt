@@ -20,11 +20,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -51,7 +53,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
+import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -85,6 +87,12 @@ import com.cadence.music.AppContainer
 import com.cadence.music.data.WriteConsentRequired
 import com.cadence.music.data.db.ArtistTile
 import com.cadence.music.data.db.TrackEntity
+import com.cadence.music.data.metadata.ListenBrainz
+import com.cadence.music.data.stats.ArtistPlays
+import com.cadence.music.data.stats.ListeningStats
+import com.cadence.music.data.stats.computeStats
+import com.cadence.music.data.stats.formatListenMinutes
+import com.cadence.music.data.stats.mergeRecentPlays
 import com.cadence.music.data.tags.artistCandidates
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -125,14 +133,16 @@ fun LibraryScreen(
                 modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 4.dp),
             )
 
-            TabRow(
+            ScrollableTabRow(
                 selectedTabIndex = tab,
+                edgePadding = 16.dp,
                 containerColor = MaterialTheme.colorScheme.background,
             ) {
-                listOf("Songs", "Albums", "Artists").forEachIndexed { i, label ->
+                listOf("Songs", "Albums", "Artists", "Stats").forEachIndexed { i, label ->
                     Tab(
                         selected = tab == i,
                         onClick = { tab = i },
+                        modifier = Modifier.padding(horizontal = 20.dp),
                         text = { Text(label) },
                     )
                 }
@@ -142,6 +152,7 @@ fun LibraryScreen(
                 0 -> songsTab(container, onArtistClick, onAlbumClick, player)
                 1 -> albumsTab(albumGroups, container, onAlbumClick)
                 2 -> artistsTab(artists, onArtistClick)
+                3 -> statsTab(container, onArtistClick)
             }
         }
     }
@@ -909,6 +920,179 @@ private fun artistsTab(tiles: List<ArtistTile>, onArtistClick: (String) -> Unit)
             }
         }
     }
+}
+
+/**
+ * Everything the Stats tab renders, loaded once on entry: local aggregation plus an
+ * optional ListenBrainz merge. Merge honesty: the play total is never local+LB added
+ * together — when LB stats are present they replace the local count and [playsFromLb]
+ * labels the source. Any LB failure falls back silently to the pure-local view.
+ */
+private data class StatsData(
+    val stats: ListeningStats,
+    val topArtists: List<ArtistPlays>,
+    val recents: List<Pair<Long, Pair<String, String>>>, // (timestampMs, (artist, title))
+    val totalPlays: Long,
+    val playsFromLb: Boolean,
+)
+
+@Composable
+private fun statsTab(container: AppContainer, onArtistClick: (String) -> Unit) {
+    val data by produceState<StatsData?>(null) {
+        value = withContext(Dispatchers.IO) {
+            val dao = container.database.trackDao()
+            val local = computeStats(dao.playRows(), System.currentTimeMillis())
+            val localTop = dao.topArtists()
+            val localRecents = dao.recentlyPlayed()
+                .map { (it.lastPlayed ?: 0L) to (it.artistName to it.title) }
+            var lbTotal: Long? = null
+            var lbTop: List<ArtistPlays>? = null
+            var lbRecents: List<Pair<Long, Pair<String, String>>> = emptyList()
+            val token = container.prefs.listenBrainzToken?.trim()
+            if (!token.isNullOrEmpty()) {
+                val verdict = runCatching { ListenBrainz.validateBlocking(token) }.getOrNull()
+                if (verdict != null && verdict.first) {
+                    val user = verdict.second.orEmpty()
+                    val lbStats = runCatching { ListenBrainz.lbStatsBlocking(user) }.getOrNull()
+                    if (lbStats != null) {
+                        lbTotal = lbStats.totalListens
+                        if (lbStats.topArtists.isNotEmpty()) lbTop = lbStats.topArtists
+                    }
+                    lbRecents = runCatching { ListenBrainz.recentListensBlocking(user) }
+                        .getOrDefault(emptyList())
+                        .map { (it.listenedAtSec * 1000) to (it.artist to it.title) }
+                }
+            }
+            StatsData(
+                stats = local,
+                topArtists = lbTop ?: localTop,
+                recents = mergeRecentPlays(localRecents, lbRecents, cap = 6),
+                totalPlays = lbTotal ?: local.totalPlays.toLong(),
+                playsFromLb = lbTotal != null,
+            )
+        }
+    }
+    val d = data
+    LazyColumn(
+        Modifier.fillMaxSize(),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 32.dp),
+    ) {
+        if (d == null) {
+            item {
+                Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator()
+                }
+            }
+            return@LazyColumn
+        }
+        if (d.totalPlays == 0L && d.topArtists.isEmpty() && d.recents.isEmpty()) {
+            item {
+                Text(
+                    "Play something — your listening stats will show up here.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().padding(32.dp),
+                )
+            }
+            return@LazyColumn
+        }
+        val s = d.stats
+        item {
+            Column(
+                Modifier.fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .padding(20.dp),
+            ) {
+                Text(
+                    "${formatListenMinutes(s.totalMinutes)} listened",
+                    style = MaterialTheme.typography.headlineLarge,
+                )
+                Text(
+                    if (d.playsFromLb) "${d.totalPlays} plays"
+                    else "${d.totalPlays} plays · ${s.uniquePlayed} tracks",
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+                Text(
+                    if (d.playsFromLb) "on ListenBrainz" else "from your library",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                HorizontalDivider(Modifier.padding(vertical = 12.dp))
+                Text(
+                    "${s.playsLast7Days} plays this week · ${s.weekStreak}-week streak",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        if (d.topArtists.isNotEmpty()) {
+            item { StatsSectionHeader("Top artists") }
+            itemsIndexed(d.topArtists) { i, artist ->
+                Row(
+                    Modifier.fillMaxWidth()
+                        .clickable { onArtistClick(artist.name) }
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "${i + 1}",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.width(32.dp),
+                        textAlign = TextAlign.Center,
+                        maxLines = 1,
+                    )
+                    Text(
+                        artist.name,
+                        style = MaterialTheme.typography.bodyLarge,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
+                    )
+                    Text(
+                        "${artist.plays} plays",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+        if (d.recents.isNotEmpty()) {
+            item { StatsSectionHeader("Recently played") }
+            itemsIndexed(d.recents) { _, recent ->
+                val (artist, title) = recent.second
+                Column(
+                    Modifier.fillMaxWidth()
+                        .clickable(enabled = artist.isNotBlank()) { onArtistClick(artist) }
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                ) {
+                    Text(title, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (artist.isNotBlank()) {
+                        Text(
+                            artist,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StatsSectionHeader(label: String) {
+    Text(
+        label,
+        style = MaterialTheme.typography.titleMedium,
+        modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 4.dp),
+    )
 }
 
 fun formatDuration(ms: Long): String {
