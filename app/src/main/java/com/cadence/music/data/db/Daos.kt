@@ -242,6 +242,14 @@ interface PendingScrobbleDao {
     @Query("SELECT * FROM pending_scrobbles ORDER BY createdAt")
     suspend fun all(): List<PendingScrobbleEntity>
 
+    /** Newest-first window the flush will replay; older rows are pruned instead. */
+    @Query("SELECT * FROM pending_scrobbles ORDER BY createdAt DESC LIMIT :limit")
+    suspend fun recent(limit: Int = 500): List<PendingScrobbleEntity>
+
+    /** Drops everything older than the newest [exceptNewest] rows (queue cap). */
+    @Query("DELETE FROM pending_scrobbles WHERE id NOT IN (SELECT id FROM pending_scrobbles ORDER BY createdAt DESC LIMIT :exceptNewest)")
+    suspend fun prune(exceptNewest: Int = 500)
+
     @Query("DELETE FROM pending_scrobbles WHERE id = :id")
     suspend fun delete(id: Long)
 

@@ -153,4 +153,31 @@ class ListenBrainzParseTest {
         val stats = ListenBrainz.parseLbStats(json)
         assertEquals(listOf(ArtistPlays("Good", 10)), stats?.topArtists)
     }
+
+    // -- buildSubmitPayload ---------------------------------------------------
+
+    @Test
+    fun submitPayloadIncludesIntegerListenedAt() {
+        // R3-02: submissions 400'd because listened_at was missing entirely.
+        val payload = ListenBrainz.buildSubmitPayload("Boards of Canada", "Dayvan Cowboy", "The Campfire Headphase", 1700000000L)
+        assertTrue(payload, payload.contains("\"listened_at\":1700000000"))
+        val obj = org.json.JSONObject(payload)
+        assertEquals("single", obj.getString("listen_type"))
+        val listen = obj.getJSONArray("payload").getJSONObject(0)
+        // Must be a JSON number, not a string: getInt proves the raw token is unquoted.
+        assertEquals(1700000000, listen.getInt("listened_at"))
+        val meta = listen.getJSONObject("track_metadata")
+        assertEquals("Boards of Canada", meta.getString("artist_name"))
+        assertEquals("Dayvan Cowboy", meta.getString("track_name"))
+        assertEquals("The Campfire Headphase", meta.getString("release_name"))
+    }
+
+    @Test
+    fun submitPayloadOmitsReleaseNameForNullAlbum() {
+        val payload = ListenBrainz.buildSubmitPayload("Aphex Twin", "Avril 14th", null, 1L)
+        assertTrue(payload, !payload.contains("release_name"))
+        val obj = org.json.JSONObject(payload)
+        val meta = obj.getJSONArray("payload").getJSONObject(0).getJSONObject("track_metadata")
+        assertTrue(!meta.has("release_name"))
+    }
 }

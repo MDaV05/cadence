@@ -13,27 +13,35 @@ object ListenBrainz {
     private const val API_BASE = "https://api.listenbrainz.org/1"
     private const val USER_AGENT = "Cadence/1.0"
 
-    /** Fire-and-forget single listen submission. Returns true on 200. */
-    fun submitBlocking(token: String, artist: String, title: String, album: String?): Boolean {
-        return try {
-            val payload = JSONObject().apply {
-                put("listen_type", "single")
-                put(
-                    "payload",
-                    JSONArray().put(
-                        JSONObject().apply {
-                            put(
-                                "track_metadata",
-                                JSONObject().apply {
-                                    put("artist_name", artist)
-                                    put("track_name", title)
-                                    if (!album.isNullOrBlank()) put("release_name", album)
-                                }
-                            )
-                        }
-                    )
+    /** The exact submit-listens body; `listened_at` must be a JSON integer (seconds). */
+    fun buildSubmitPayload(artist: String, title: String, album: String?, listenedAtSec: Long): String =
+        JSONObject().apply {
+            put("listen_type", "single")
+            put(
+                "payload",
+                JSONArray().put(
+                    JSONObject().apply {
+                        put("listened_at", listenedAtSec)
+                        put(
+                            "track_metadata",
+                            JSONObject().apply {
+                                put("artist_name", artist)
+                                put("track_name", title)
+                                if (!album.isNullOrBlank()) put("release_name", album)
+                            }
+                        )
+                    }
                 )
-            }
+            )
+        }.toString()
+
+    /**
+     * Fire-and-forget single listen submission (now, at submit time).
+     * Returns the HTTP response code, or -1 on transport error.
+     */
+    fun submitBlocking(token: String, artist: String, title: String, album: String?): Int {
+        val payload = buildSubmitPayload(artist, title, album, System.currentTimeMillis() / 1000)
+        return try {
             val conn = URL(ENDPOINT).openConnection() as HttpURLConnection
             conn.requestMethod = "POST"
             conn.doOutput = true
@@ -42,12 +50,12 @@ object ListenBrainz {
             conn.connectTimeout = 10_000
             conn.readTimeout = 15_000
             try {
-                conn.outputStream.use { it.write(payload.toString().toByteArray()) }
-                conn.responseCode == 200
+                conn.outputStream.use { it.write(payload.toByteArray()) }
+                conn.responseCode
             } finally {
                 conn.disconnect()
             }
-        } catch (_: Exception) { false }
+        } catch (_: Exception) { -1 }
     }
 
     // -- Read API: pure parsers + thin HTTP wrappers --------------------------

@@ -263,20 +263,31 @@ class AppContainer(app: Application) {
     /** Submits a listen; failed submissions are queued for a later flush. */
     suspend fun submitScrobble(artist: String, title: String, album: String?) {
         val token = prefs.listenBrainzToken ?: return
-        val ok = com.cadence.music.data.metadata.ListenBrainz.submitBlocking(token, artist, title, album)
-        if (!ok) {
+        val code = com.cadence.music.data.metadata.ListenBrainz.submitBlocking(token, artist, title, album)
+        if (code != 200) {
             database.pendingScrobbleDao().insert(
                 com.cadence.music.data.db.PendingScrobbleEntity(artist = artist, title = title, album = album)
             )
         }
     }
 
-    /** Retries every queued scrobble; drops the ones that finally go through. */
+    /**
+     * Retries queued scrobbles newest-first: drops the ones that go through,
+     * caps the queue at 500 (pruning the oldest), paces requests at 500 ms, and
+     * circuit-breaks the run on the first persistent (4xx) rejection so a
+     * malformed queue can never replay forever.
+     */
     suspend fun flushPendingScrobbles() {
         val token = prefs.listenBrainzToken ?: return
-        for (p in database.pendingScrobbleDao().all()) {
-            if (com.cadence.music.data.metadata.ListenBrainz.submitBlocking(token, p.artist, p.title, p.album)) {
-                database.pendingScrobbleDao().delete(p.id)
+        val dao = database.pendingScrobbleDao()
+        dao.prune()
+        for ((index, p) in dao.recent().withIndex()) {
+            if (index > 0) kotlinx.coroutines.delay(500)
+            val code = com.cadence.music.data.metadata.ListenBrainz.submitBlocking(token, p.artist, p.title, p.album)
+            when {
+                code == 200 -> dao.delete(p.id)
+                code in 400..499 -> { dao.delete(p.id); return }
+                else -> {} // transport / 5xx: leave queued for the next flush
             }
         }
     }
