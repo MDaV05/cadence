@@ -33,6 +33,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -72,6 +73,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.cadence.music.AppContainer
 import com.cadence.music.data.SyncState
 import com.cadence.music.data.db.CustomThemeEntity
+import com.cadence.music.data.downloads.progressOf
 import com.cadence.music.data.prefs.LibraryMode
 import com.cadence.music.data.prefs.Prefs
 import com.cadence.music.data.prefs.ServerEntry
@@ -89,7 +91,6 @@ import com.cadence.music.ui.theme.BUILTIN_THEMES
 import com.cadence.music.ui.theme.ThemeSpec
 import com.cadence.music.ui.theme.customToSpec
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -1386,6 +1387,8 @@ private fun StorageTab(container: AppContainer, onOpenDownloads: () -> Unit) {
     val cacheUnlimited = remember { mutableStateOf(container.prefs.cacheUnlimited) }
     val cacheUsage by produceCacheUsage()
     var showDownloadAll by remember { mutableStateOf(false) }
+    val dlRows by container.library.observeDownloads().collectAsStateWithLifecycle(initialValue = emptyList())
+    val prog = remember(dlRows) { progressOf(dlRows.map { it.download.status }) }
 
     LazyColumn(Modifier.fillMaxSize()) {
         item { SectionHeader("Downloads") }
@@ -1437,22 +1440,33 @@ private fun StorageTab(container: AppContainer, onOpenDownloads: () -> Unit) {
 
         item { SectionHeader("Offline") }
         item {
-            val downloadCount by produceState(0) {
-                value = withContext(Dispatchers.IO) {
-                    runCatching { container.library.observeDownloads().first().size }.getOrDefault(0)
+            Column {
+                SettingRow(
+                    title = "Downloads",
+                    subtitle = when {
+                        prog.total == 0 -> "Nothing offline yet"
+                        else -> "${prog.done} of ${prog.total} offline"
+                    },
+                    trailing = {
+                        TextButton(onClick = { showDownloadAll = true }) { Text("Download library") }
+                    },
+                    onClick = onOpenDownloads,
+                )
+                if (prog.total > 0) {
+                    LinearProgressIndicator(
+                        progress = { prog.fraction },
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                    )
+                    Text(
+                        if (prog.done == prog.total) "Library fully offline"
+                        else "${prog.done} done · ${prog.running} downloading" +
+                            (if (prog.failed > 0) " · ${prog.failed} failed" else ""),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 8.dp),
+                    )
                 }
             }
-            SettingRow(
-                title = "Downloads",
-                subtitle = when (downloadCount) {
-                    0 -> "Nothing offline yet"
-                    else -> "$downloadCount track${if (downloadCount == 1) "" else "s"} downloaded"
-                },
-                trailing = {
-                    TextButton(onClick = { showDownloadAll = true }) { Text("Download library") }
-                },
-                onClick = onOpenDownloads,
-            )
         }
         item { Spacer(Modifier.height(32.dp)) }
     }

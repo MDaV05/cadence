@@ -48,6 +48,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.cadence.music.AppContainer
 import com.cadence.music.data.DownloadStatusRow
 import com.cadence.music.data.db.TrackEntity
+import com.cadence.music.data.downloads.progressOf
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -73,6 +74,7 @@ fun DownloadsScreen(
             .sortedBy { it.first.lowercase() }
     }
     val failedRows = remember(rows) { rows.filter { it.download.status == "failed" } }
+    val progress = remember(rows) { progressOf(rows.map { it.download.status }) }
     var showDownloadAll by remember { mutableStateOf(false) }
 
     Scaffold(
@@ -97,8 +99,21 @@ fun DownloadsScreen(
                 "${rows.size} items · ${formatBytes(totalBytes)} offline",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = if (progress.total > 0) 4.dp else 8.dp),
             )
+            if (progress.total > 0) {
+                LinearProgressIndicator(
+                    progress = { progress.fraction },
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                )
+                Text(
+                    "${progress.done} done · ${progress.running} downloading" +
+                        (if (progress.failed > 0) " · ${progress.failed} failed" else ""),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+            }
             if (rows.isEmpty()) {
                 Column(
                     modifier = Modifier.fillMaxSize().padding(32.dp),
