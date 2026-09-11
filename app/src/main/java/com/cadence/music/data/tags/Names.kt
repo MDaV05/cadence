@@ -1,5 +1,14 @@
 package com.cadence.music.data.tags
 
+// Attacker-controlled tags from remote media servers are unbounded in length;
+// the whitespace/delimiter-heavy regexes below scale super-linearly, so inputs
+// are truncated to this cap at every public entry point (DoS bound).
+private const val MAX_TAG_LEN = 512
+
+// artistCandidates additionally yields at most this many names: beyond 16
+// named artists, page-gating noise isn't worth an unbounded SQLite IN-list.
+private const val MAX_CANDIDATES = 16
+
 private val KNOWN_ENSEMBLES: Map<String, String> = mapOf(
     "ac/dc" to "AC/DC",
     "simon & garfunkel" to "Simon & Garfunkel",
@@ -153,7 +162,7 @@ private val ARTICLES = Regex("""^(a|an|the)\s+""", RegexOption.IGNORE_CASE)
  * like "Earth, Wind & Fire", "Simon & Garfunkel", and "AC/DC".
  */
 fun primaryArtist(raw: String): String {
-    val trimmed = raw.trim()
+    val trimmed = raw.take(MAX_TAG_LEN).trim()
     if (trimmed.isEmpty()) return ""
     findKnownEnsemble(trimmed)?.let { return it }
 
@@ -185,9 +194,11 @@ fun primaryArtist(raw: String): String {
 
 /** Every artist named in a raw tag string (lead + collaborators + featured),
  *  order-preserving, deduped case-insensitively; known ensembles stay whole.
- *  Candidates are guesses — callers must confirm a page exists before linking. */
+ *  Candidates are guesses — callers must confirm a page exists before linking.
+ *  At most [MAX_CANDIDATES] names are returned: beyond 16, the extra entries are
+ *  page-gating noise and would only grow the caller's SQLite IN-list unbounded. */
 fun artistCandidates(raw: String): List<String> {
-    val trimmed = raw.trim()
+    val trimmed = raw.take(MAX_TAG_LEN).trim()
     if (trimmed.isEmpty()) return emptyList()
     val names = mutableListOf<String>()
     addCandidate(INLINE_FEAT.replace(BRACKETED_FEAT.replace(trimmed, " "), "").trim(), names)
@@ -201,7 +212,7 @@ fun artistCandidates(raw: String): List<String> {
             .trim().removeSuffix(")").removeSuffix("]").trim()
         addCandidate(feats, names)
     }
-    return names
+    return names.take(MAX_CANDIDATES)
 }
 
 private fun addCandidate(s: String, out: MutableList<String>) {
@@ -219,7 +230,7 @@ private fun addCandidate(s: String, out: MutableList<String>) {
 
 /** Grouping key: lowercase, collapsed spaces, no leading article, no trailing (...) edition tag. */
 fun albumNormKey(album: String, artist: String): String {
-    var a = album.trim().replace(TRAILING_BRACKET_TAG, "").trim()
+    var a = album.take(MAX_TAG_LEN).trim().replace(TRAILING_BRACKET_TAG, "").trim()
     a = a.replace(Regex("""\s+"""), " ").lowercase().replace(ARTICLES, "")
     return "$a::${primaryArtist(artist).lowercase()}"
 }

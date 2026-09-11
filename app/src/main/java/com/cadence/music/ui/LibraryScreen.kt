@@ -269,10 +269,12 @@ fun TrackActionsSheet(
     // page. The raw tag is authoritative when present; blank counts as absent.
     val extraArtists by produceState<List<String>>(emptyList(), track.id) {
         value = withContext(Dispatchers.IO) {
-            val raw = track.artistRaw?.takeIf { it.isNotBlank() } ?: track.artistName
-            val candidates = artistCandidates(raw).filter { !it.equals(track.artistName, true) }
-            if (candidates.isEmpty()) emptyList()
-            else container.library.artistsWithPages(candidates)
+            runCatching {
+                val raw = track.artistRaw?.takeIf { it.isNotBlank() } ?: track.artistName
+                val candidates = artistCandidates(raw).filter { !it.equals(track.artistName, true) }
+                if (candidates.isEmpty()) emptyList()
+                else container.library.artistsWithPages(candidates)
+            }.getOrDefault(emptyList())
         }
     }
 

@@ -2,6 +2,7 @@ package com.cadence.music.data.tags
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class NamesTest {
@@ -153,5 +154,30 @@ class NamesTest {
     @Test
     fun `bracketed feat clause becomes a candidate without stray brackets`() {
         assertEquals(listOf("Drake", "21 Savage"), artistCandidates("Drake (feat. 21 Savage)"))
+    }
+
+    @Test
+    fun `attacker-length tag returns in bounded time without throwing`() {
+        // R3-01: nested-quantifier regexes blow up super-linearly on long
+        // whitespace/delimiter runs; the 512-char cap makes them O(1).
+        val started = System.nanoTime()
+        // Only the first MAX_TAG_LEN chars are inspected, so the trailing "x" is dropped.
+        assertEquals("", primaryArtist(" ".repeat(10_000) + "x"))
+        assertEquals("", primaryArtist(" ".repeat(10_000)))
+        assertEquals("A", primaryArtist("A feat. " + " ".repeat(10_000)))
+        assertTrue(albumNormKey(" ".repeat(10_000), "a".repeat(10_000)).isNotEmpty())
+        artistCandidates("a feat. " + "x ".repeat(10_000))
+        val ms = (System.nanoTime() - started) / 1_000_000
+        assertTrue("parsing took ${ms}ms", ms < 5_000)
+    }
+
+    @Test
+    fun `candidate list is capped at sixteen`() {
+        // R3-12: 40 delimiters must not fan out into an unbounded SQLite IN-list.
+        val raw = (1..41).joinToString("; ") { "Artist$it" }
+        val candidates = artistCandidates(raw)
+        assertEquals(16, candidates.size)
+        assertEquals("Artist1", candidates.first())
+        assertEquals("Artist16", candidates.last())
     }
 }
