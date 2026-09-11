@@ -296,9 +296,15 @@ class AppContainer(app: Application) {
         dao.prune()
         for ((index, p) in dao.recent().withIndex()) {
             if (index > 0) kotlinx.coroutines.delay(500)
-            val code = com.cadence.music.data.metadata.ListenBrainz.submitBlocking(token, p.artist, p.title, p.album)
+            val code = com.cadence.music.data.metadata.ListenBrainz.submitBlocking(
+                token, p.artist, p.title, p.album, listenedAtSec = p.createdAt / 1000,
+            )
             when {
                 code == 200 -> dao.delete(p.id)
+                // Auth failures mean the token is revoked/invalid — keep the queue
+                // intact (rows are timestamped) and stop; any other 4xx is a
+                // malformed row: drop it and stop the run.
+                code == 401 || code == 403 -> return
                 code in 400..499 -> { dao.delete(p.id); return }
                 else -> {} // transport / 5xx: leave queued for the next flush
             }

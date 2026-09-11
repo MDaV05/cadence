@@ -164,6 +164,8 @@ abstract class EmbyLikeSource(
                 conn.readTimeout = 30_000
                 conn.requestMethod = "POST"
                 conn.doOutput = body.isNotEmpty()
+                // R3-07: never let 3xx carry X-Emby-Token to another host.
+                conn.instanceFollowRedirects = false
                 conn.setRequestProperty("Content-Type", "application/json")
                 conn.setRequestProperty("X-Emby-Authorization", EmbyLikeAuthHeader("Cadence", "0.2.0", deviceId, null))
                 if (token().isNotEmpty()) conn.setRequestProperty("X-Emby-Token", token())
@@ -183,6 +185,7 @@ abstract class EmbyLikeSource(
                 conn.connectTimeout = 10_000
                 conn.readTimeout = 30_000
                 conn.requestMethod = "DELETE"
+                conn.instanceFollowRedirects = false // R3-07
                 conn.setRequestProperty("X-Emby-Authorization", EmbyLikeAuthHeader("Cadence", "0.2.0", deviceId, null))
                 if (token().isNotEmpty()) conn.setRequestProperty("X-Emby-Token", token())
                 try {
@@ -202,6 +205,7 @@ abstract class EmbyLikeSource(
                 conn.readTimeout = 30_000
                 conn.requestMethod = "POST"
                 conn.doOutput = true
+                conn.instanceFollowRedirects = false // R3-07: body carries credentials
                 conn.setRequestProperty("Content-Type", "application/json")
                 conn.setRequestProperty("X-Emby-Authorization", EmbyLikeAuthHeader("Cadence", "0.2.0", deviceId, null))
                 try {

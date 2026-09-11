@@ -19,6 +19,17 @@ fun sanitizeServerUrl(raw: String): String? {
 }
 
 /**
+ * Read-side entry filter (R3-05). Telegram entries are exempt: their `url`
+ * field holds chat targets ("me", "12345,67890"), not a URL — sanitizing
+ * those would corrupt or silently drop the configured library.
+ */
+fun sanitizeEntry(e: ServerEntry): ServerEntry? {
+    if (e.type == ServerType.TELEGRAM) return e
+    val url = sanitizeServerUrl(e.url) ?: return null
+    return e.copy(url = url, secondaryUrl = e.secondaryUrl?.let { sanitizeServerUrl(it) })
+}
+
+/**
  * Failover scheme guard: adopting a new active URL must never silently turn an
  * https connection into cleartext. https → https and http → http are fine;
  * https → http is refused (the URL may still be used for the current session).

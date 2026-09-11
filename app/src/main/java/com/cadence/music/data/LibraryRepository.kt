@@ -113,6 +113,8 @@ class LibraryRepository(
         val sec = entry.secondaryUrl ?: return null
         val current = activeUrls[entry.id] ?: entry.url
         val next = if (current == entry.url) sec else entry.url
+        // R3-06 symmetry: a switch must never downgrade an active https URL to cleartext.
+        if (!com.cadence.music.data.prefs.canAdoptActiveUrl(current, next)) return null
         activeUrls[entry.id] = next
         return next
     }

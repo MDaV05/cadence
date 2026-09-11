@@ -37,11 +37,19 @@ object ListenBrainz {
         }.toString()
 
     /**
-     * Fire-and-forget single listen submission (now, at submit time).
+     * Fire-and-forget single listen submission. `listenedAtSec` defaults to now;
+     * replayed queue entries pass their original createdAt instead, so a late
+     * flush does not backdate every listen to the retry time.
      * Returns the HTTP response code, or -1 on transport error.
      */
-    fun submitBlocking(token: String, artist: String, title: String, album: String?): Int {
-        val payload = buildSubmitPayload(artist, title, album, System.currentTimeMillis() / 1000)
+    fun submitBlocking(
+        token: String,
+        artist: String,
+        title: String,
+        album: String?,
+        listenedAtSec: Long = System.currentTimeMillis() / 1000,
+    ): Int {
+        val payload = buildSubmitPayload(artist, title, album, listenedAtSec)
         return try {
             val conn = URL(ENDPOINT).openConnection() as HttpURLConnection
             conn.requestMethod = "POST"

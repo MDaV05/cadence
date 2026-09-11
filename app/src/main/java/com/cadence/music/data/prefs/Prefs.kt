@@ -59,12 +59,9 @@ class Prefs(context: Context) {
             return runCatching {
                 val arr = org.json.JSONArray(sp.getString("servers_json", "[]") ?: "[]")
                 // Read-side scheme filter (R3-05): URLs flow straight into the player.
-                // Bad secondary → null it; bad/missing primary → drop the whole entry.
+                // Telegram entries exempt — their url field holds chat targets, not URLs.
                 (0 until arr.length()).map { ServerEntry.fromJson(arr.getJSONObject(it)) }
-                    .mapNotNull { e ->
-                        val url = sanitizeServerUrl(e.url) ?: return@mapNotNull null
-                        e.copy(url = url, secondaryUrl = e.secondaryUrl?.let { sanitizeServerUrl(it) })
-                    }
+                    .mapNotNull { sanitizeEntry(it) }
             }.getOrDefault(emptyList())
         }
         set(value) = sp.edit().putString(
