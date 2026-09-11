@@ -80,6 +80,7 @@ import com.cadence.music.data.prefs.LibraryMode
 import com.cadence.music.data.prefs.Prefs
 import com.cadence.music.data.prefs.ServerEntry
 import com.cadence.music.data.prefs.ServerType
+import com.cadence.music.data.prefs.sanitizeServerUrl
 import com.cadence.music.data.source.EmbySource
 import com.cadence.music.data.source.JellyfinSource
 import com.cadence.music.data.source.PlexPin
@@ -563,9 +564,6 @@ private fun ServerTypePicker(onPick: (ServerType) -> Unit, onDismiss: () -> Unit
     )
 }
 
-private fun normalizeServerUrl(raw: String): String =
-    raw.trim().let { if (it.contains("://")) it else "http://$it" }
-
 private fun newServerId(): String = java.util.UUID.randomUUID().toString().take(8)
 
 @Composable
@@ -652,16 +650,23 @@ private fun AddServerSheet(
     }
 
     suspend fun saveTyped() {
-        // Scheme-less URLs ("192.168.1.106:4533") would fail silently on Android 9+.
-        val normSecondary = secondaryUrl.trim().ifBlank { null }?.let { normalizeServerUrl(it) }
+        // Scheme-less URLs ("192.168.1.106:4533") would fail silently on Android 9+;
+        // non-http schemes (file://, content://) must never reach prefs or the player.
+        val sanitizedUrl = sanitizeServerUrl(url)
+        val sanitizedSecondary = secondaryUrl.trim().ifBlank { null }
+            ?.let { sanitizeServerUrl(it) }
+        if (sanitizedUrl == null || (secondaryUrl.isNotBlank() && sanitizedSecondary == null)) {
+            error = "Couldn't connect — check URL and credentials."
+            return
+        }
         val candidate = ServerEntry(
             id = existing?.id ?: newServerId(), type = type,
-            url = normalizeServerUrl(url), user = user.trim(),
+            url = sanitizedUrl, user = user.trim(),
             password = pass.ifBlank { existing?.password },
             token = existing?.token,
             userId = existing?.userId,
             customName = customName.trim().ifBlank { null },
-            secondaryUrl = normSecondary,
+            secondaryUrl = sanitizedSecondary,
         )
         when (type) {
             ServerType.SUBSONIC -> {
@@ -1277,13 +1282,21 @@ private fun AddServerSheet(
                     onClick = {
                         val name = plexOptions.firstOrNull { it.second == url }?.first
                             ?: existing?.user ?: "Plex"
-                        val normSecondary = secondaryUrl.trim().ifBlank { null }?.let { normalizeServerUrl(it) }
+                        val sanitizedUrl = sanitizeServerUrl(url)
+                        val sanitizedSecondary = secondaryUrl.trim().ifBlank { null }
+                            ?.let { sanitizeServerUrl(it) }
+                        if (sanitizedUrl == null ||
+                            (secondaryUrl.isNotBlank() && sanitizedSecondary == null)
+                        ) {
+                            error = "Couldn't connect — check URL and credentials."
+                            return@TextButton
+                        }
                         val candidate = ServerEntry(
                             id = existing?.id ?: newServerId(), type = ServerType.PLEX,
-                            url = normalizeServerUrl(url), user = name,
+                            url = sanitizedUrl, user = name,
                             token = plexToken ?: existing?.token,
                             customName = customName.trim().ifBlank { null },
-                            secondaryUrl = normSecondary,
+                            secondaryUrl = sanitizedSecondary,
                         )
                         busy = true; error = ""
                         scope.launch {
