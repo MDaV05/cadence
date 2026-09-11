@@ -9,7 +9,7 @@ import java.net.URLEncoder
 object MusicBrainz {
 
     private const val BASE = "https://musicbrainz.org/ws/2"
-    private val ua = "Cadence/0.1 ( https://github.com/MDaV05/cadence )"
+    private val ua = "Cadence/1.0 ( https://github.com/MDaV05/cadence )"
 
     private fun get(path: String, params: Map<String, String>): String? = try {
         val query = params.entries.joinToString("&") {
@@ -44,10 +44,17 @@ object MusicBrainz {
         }
     } catch (_: Exception) { null }
 
+    /** Escape lucene clause characters: backslash first, then double quote. */
+    internal fun escapeLucene(s: String): String =
+        s.replace("\\", "\\\\").replace("\"", "\\\"")
+
     fun searchReleaseGroup(artist: String, album: String): String? {
         val body = get(
             "/release-group",
-            mapOf("query" to "artist:\"$artist\" AND releasegroup:\"$album\"", "limit" to "1"),
+            mapOf(
+                "query" to "artist:\"${escapeLucene(artist)}\" AND releasegroup:\"${escapeLucene(album)}\"",
+                "limit" to "1",
+            ),
         ) ?: return null
         val groups = JSONObject(body).optJSONArray("release-groups") ?: return null
         val id = groups.optJSONObject(0)?.optString("id")

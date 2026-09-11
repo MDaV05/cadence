@@ -15,7 +15,15 @@ class ArtResolver(private val library: LibraryRepository) {
     private val mbCache = HashMap<String, String?>()
     private val mutex = Mutex()
 
-    suspend fun urlFor(track: TrackEntity): String? {
+    /**
+     * Reached from produceState/LaunchedEffect composition scopes: any surprise
+     * (hostile MusicBrainz JSON, MediaStore uri issues) must degrade to "no art",
+     * never crash the UI.
+     */
+    suspend fun urlFor(track: TrackEntity): String? =
+        runCatching { resolveUrlFor(track) }.getOrNull()
+
+    private suspend fun resolveUrlFor(track: TrackEntity): String? {
         // User override first: exact track cover, then album cover. File paths
         // go out as file:// so Coil's FileUriFetcher picks them up.
         library.artOverrideFor(track)?.let { return "file://$it" }
