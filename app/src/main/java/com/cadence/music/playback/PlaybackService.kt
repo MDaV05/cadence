@@ -135,12 +135,17 @@ class PlaybackService : MediaLibraryService() {
                 session: MediaSession,
                 controller: MediaSession.ControllerInfo,
             ): MediaSession.ConnectionResult {
+                val uid = controller.uid
                 val pkg = controller.packageName
-                // The session is exported; only let our own UI and platform media
-                // surfaces (lock screen, Bluetooth, Android Auto) attach.
-                // Package names can be squatted, so non-own packages must also
-                // be system apps or Play-installed (see isTrustedController).
-                val trusted = isTrustedController(pkg)
+                // The session is exported; trust must derive from the real caller, not
+                // the client-claimed packageName (a spoofable AIDL field). Primary gate:
+                // the binder UID — our own app, or the system/radio UIDs that host the
+                // lock-screen/Bluetooth/Auto surfaces — plus media3's server-side
+                // isTrusted() (platform MEDIA_CONTENT_CONTROL / notification-listener
+                // grant). Package name is only informational for the secondary check.
+                val trustedByCaller = uid == android.os.Process.myUid() ||
+                    uid == SYSTEM_UID || uid == RADIO_UID || controller.isTrusted
+                val trusted = trustedByCaller || isTrustedController(uid, pkg)
                 return if (trusted) super.onConnect(session, controller)
                 else MediaSession.ConnectionResult.reject()
             }
@@ -299,13 +304,16 @@ class PlaybackService : MediaLibraryService() {
             ) != 0
     }.getOrDefault(false)
 
-    // Companion apps (Wear, Auto) are often user apps, not system apps — but a
-    // squatted package can never come from Play (name taken by the real listing),
-    // while adb/sideloaded installs report a shell/null installer. So Play-installed
-    // controllers are trusted; anything else must be a system app.
-    private fun isTrustedController(pkg: String): Boolean {
-        if (pkg == packageName) return true
+    // Secondary check: allowlisted controller packages are honored only when the
+    // claimed name really belongs to the caller's UID (getPackagesForUid), and the
+    // package is a system app or Play-installed. Companion apps (Wear, Auto) are
+    // often user apps, not system apps — but a squatted package can never come
+    // from Play (name taken by the real listing), while adb/sideloaded installs
+    // report a shell/null installer.
+    private fun isTrustedController(uid: Int, pkg: String): Boolean {
         if (pkg !in TRUSTED_CONTROLLER_PACKAGES) return false
+        val ownerPkgs = packageManager.getPackagesForUid(uid) ?: return false
+        if (pkg !in ownerPkgs) return false
         if (isSystemApp(pkg)) return true
         if (android.os.Build.VERSION.SDK_INT >= 30) {
             val installer = runCatching {
@@ -317,6 +325,8 @@ class PlaybackService : MediaLibraryService() {
     }
 
     private companion object {
+        const val SYSTEM_UID = 1000  // android.uid.system — hosts SystemUI surfaces
+        const val RADIO_UID = 1002   // android.uid.bluetooth — AVRCP (car + headsets)
         // Platform components that legitimately bind a media session's controller.
         val TRUSTED_CONTROLLER_PACKAGES = setOf(
             "com.android.systemui",                     // lock screen / media resumption
