@@ -850,7 +850,7 @@ class LibraryRepository(
         valuesFor: (TrackEntity) -> ContentValues,
         mirror: suspend (TrackEntity) -> Unit,
     ): Boolean {
-        val denied = mutableListOf<Uri>()
+        val denied = mutableListOf<TrackEntity>()
         val written = mutableListOf<TrackEntity>()
         for (row in rows) {
             val uri = row.path?.let { Uri.parse(it) } ?: return false
@@ -860,16 +860,42 @@ class LibraryRepository(
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && e is RecoverableSecurityException) {
-                    denied.add(uri)
+                    denied.add(row)
                 } else {
                     return false
                 }
             }
         }
         if (denied.isNotEmpty()) {
-            throw WriteConsentRequired(
-                MediaStore.createWriteRequest(context.contentResolver, denied).intentSender
-            )
+            // MediaStore.createWriteRequest exists only from R; on Q a bare call throws
+            // NoSuchMethodError (an Error that escapes catch(Exception)), so the batch
+            // consent request is gated on R. runCatching doubles as belt-and-braces:
+            // any failure of the batch API falls through to the per-file path below.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                val batch = runCatching {
+                    MediaStore.createWriteRequest(
+                        context.contentResolver,
+                        denied.mapNotNull { it.path?.let { p -> Uri.parse(p) } },
+                    ).intentSender
+                }.getOrNull()
+                if (batch != null) throw WriteConsentRequired(batch)
+            }
+            // API 29 (or failed batch call): replay the denied rows one at a time so each
+            // file's RecoverableSecurityException surfaces its own consent intent; the UI
+            // retry re-runs the batch idempotently until all files are consented.
+            for (row in denied) {
+                val uri = row.path?.let { Uri.parse(it) } ?: return false
+                try {
+                    if (context.contentResolver.update(uri, valuesFor(row), null, null) <= 0) return false
+                    written.add(row)
+                } catch (e: Exception) {
+                    if (e is CancellationException) throw e
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && e is RecoverableSecurityException) {
+                        throw WriteConsentRequired(e.userAction.actionIntent.intentSender)
+                    }
+                    return false
+                }
+            }
         }
         written.forEach { mirror(it) }
         return true
