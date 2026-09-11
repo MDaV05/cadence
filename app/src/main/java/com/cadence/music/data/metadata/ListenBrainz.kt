@@ -67,9 +67,14 @@ object ListenBrainz {
         valid to user
     }.getOrDefault(false to null)
 
-    fun validateBlocking(token: String): Pair<Boolean, String?> = runCatching {
-        parseValidate(getJson("$API_BASE/validate-user-token/", token = token))
-    }.getOrDefault(false to null)
+    /**
+     * Validate a token. Returns null on transport failure (couldn't reach LB,
+     * non-200, timeout) — a non-null pair is a real verdict from the API.
+     */
+    fun validateBlocking(token: String): Pair<Boolean, String?>? {
+        val body = getJson("$API_BASE/validate-user-token/", token = token) ?: return null
+        return parseValidate(body)
+    }
 
     /** Parse recent-listens body -> listens newest first (API order preserved), max 25. */
     fun parseRecentListens(json: String?): List<LbListen> = runCatching {
@@ -117,8 +122,9 @@ object ListenBrainz {
         )
     }.getOrNull()
 
+    // Path segment, not a form field: a space must become %20, not '+'.
     private fun enc(value: String): String =
-        runCatching { URLEncoder.encode(value, "UTF-8") }.getOrDefault("")
+        runCatching { URLEncoder.encode(value, "UTF-8").replace("+", "%20") }.getOrDefault("")
 
     private fun getJson(url: String, token: String? = null): String? = runCatching {
         val conn = URL(url).openConnection() as HttpURLConnection
@@ -129,7 +135,7 @@ object ListenBrainz {
         conn.readTimeout = 15_000
         try {
             if (conn.responseCode != 200) null
-            else conn.inputStream.bufferedReader().readText()
+            else conn.inputStream.bufferedReader().use { it.readText() }
         } finally {
             conn.disconnect()
         }

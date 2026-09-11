@@ -62,6 +62,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -74,6 +75,7 @@ import com.cadence.music.AppContainer
 import com.cadence.music.data.SyncState
 import com.cadence.music.data.db.CustomThemeEntity
 import com.cadence.music.data.downloads.progressOf
+import com.cadence.music.data.metadata.ListenBrainz
 import com.cadence.music.data.prefs.LibraryMode
 import com.cadence.music.data.prefs.Prefs
 import com.cadence.music.data.prefs.ServerEntry
@@ -1512,13 +1514,18 @@ private fun CacheLimit(
 
 // ---- Playback ----
 
+private enum class LbCheckState { Idle, Checking, Linked, Invalid, Unreachable }
+
 @Composable
 private fun PlaybackTab(container: AppContainer, onOpenEqualizer: () -> Unit) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val gesture = remember { mutableStateOf(container.prefs.trackGesture) }
     val eqEnabled = remember { mutableStateOf(container.prefs.eqEnabled) }
     val rgEnabled = remember { mutableStateOf(container.prefs.rgEnabled) }
     var lbToken by remember { mutableStateOf(container.prefs.listenBrainzToken ?: "") }
+    var lbState by remember { mutableStateOf(LbCheckState.Idle) }
+    var lbUser by remember { mutableStateOf<String?>(null) }
 
     LazyColumn(Modifier.fillMaxSize()) {
         item { SectionHeader("Playback") }
@@ -1584,6 +1591,7 @@ private fun PlaybackTab(container: AppContainer, onOpenEqualizer: () -> Unit) {
                 lbToken,
                 {
                     lbToken = it
+                    lbState = LbCheckState.Idle
                     container.prefs.listenBrainzToken = it.ifBlank { null }
                 },
                 label = { Text("ListenBrainz user token") },
@@ -1598,6 +1606,52 @@ private fun PlaybackTab(container: AppContainer, onOpenEqualizer: () -> Unit) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
             )
+        }
+        item {
+            Row(
+                modifier = Modifier.padding(horizontal = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                TextButton(
+                    onClick = {
+                        val token = lbToken.trim()
+                        if (token.isBlank() || lbState == LbCheckState.Checking) return@TextButton
+                        lbState = LbCheckState.Checking
+                        lbUser = null
+                        scope.launch {
+                            val verdict = withContext(Dispatchers.IO) { ListenBrainz.validateBlocking(token) }
+                            if (verdict != null && verdict.first) lbUser = verdict.second
+                            lbState = when {
+                                verdict == null -> LbCheckState.Unreachable
+                                verdict.first -> LbCheckState.Linked
+                                else -> LbCheckState.Invalid
+                            }
+                        }
+                    },
+                    enabled = lbToken.isNotBlank() && lbState != LbCheckState.Checking,
+                ) { Text("Check token") }
+                val (label, color) = when (lbState) {
+                    LbCheckState.Idle -> null to null
+                    LbCheckState.Checking -> "Checking…" to MaterialTheme.colorScheme.onSurfaceVariant
+                    LbCheckState.Linked -> "Linked as ${lbUser ?: "you"}" to MaterialTheme.colorScheme.primary
+                    LbCheckState.Invalid -> "Token not valid — copy it again from listenbrainz.org/profile" to MaterialTheme.colorScheme.error
+                    LbCheckState.Unreachable -> "Couldn't reach ListenBrainz — check your connection" to MaterialTheme.colorScheme.onSurfaceVariant
+                }
+                if (lbState == LbCheckState.Checking) {
+                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                }
+                if (label != null) {
+                    Text(
+                        label,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = color ?: MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
         }
         item { Spacer(Modifier.height(32.dp)) }
     }
