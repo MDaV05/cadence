@@ -143,7 +143,7 @@ fun LibraryScreen(
                         selected = tab == i,
                         onClick = { tab = i },
                         modifier = Modifier.padding(horizontal = 20.dp),
-                        text = { Text(label) },
+                        text = { Text(label, style = MaterialTheme.typography.labelLarge) },
                     )
                 }
             }
@@ -936,6 +936,10 @@ private data class StatsData(
     val playsFromLb: Boolean,
 )
 
+private fun pluralPlays(n: Int): String = if (n == 1) "1 play" else "$n plays"
+
+private fun pluralTracks(n: Int): String = if (n == 1) "1 track" else "$n tracks"
+
 @Composable
 private fun statsTab(container: AppContainer, onArtistClick: (String) -> Unit) {
     val data by produceState<StatsData?>(null) {
@@ -951,8 +955,10 @@ private fun statsTab(container: AppContainer, onArtistClick: (String) -> Unit) {
             val token = container.prefs.listenBrainzToken?.trim()
             if (!token.isNullOrEmpty()) {
                 val verdict = runCatching { ListenBrainz.validateBlocking(token) }.getOrNull()
-                if (verdict != null && verdict.first) {
-                    val user = verdict.second.orEmpty()
+                val user = verdict?.takeIf { it.first }?.second?.trim()
+                // A valid token whose response lacks a user name must not build a
+                // "/user//statistics" URL — fall through to the pure-local view.
+                if (!user.isNullOrBlank()) {
                     val lbStats = runCatching { ListenBrainz.lbStatsBlocking(user) }.getOrNull()
                     if (lbStats != null) {
                         lbTotal = lbStats.totalListens
@@ -1011,8 +1017,8 @@ private fun statsTab(container: AppContainer, onArtistClick: (String) -> Unit) {
                     style = MaterialTheme.typography.headlineLarge,
                 )
                 Text(
-                    if (d.playsFromLb) "${d.totalPlays} plays"
-                    else "${d.totalPlays} plays · ${s.uniquePlayed} tracks",
+                    if (d.playsFromLb) pluralPlays(d.totalPlays.toInt())
+                    else "${pluralPlays(d.totalPlays.toInt())} · ${pluralTracks(s.uniquePlayed)}",
                     style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.padding(top = 4.dp),
                 )
@@ -1023,7 +1029,7 @@ private fun statsTab(container: AppContainer, onArtistClick: (String) -> Unit) {
                 )
                 HorizontalDivider(Modifier.padding(vertical = 12.dp))
                 Text(
-                    "${s.playsLast7Days} plays this week · ${s.weekStreak}-week streak",
+                    "${pluralPlays(s.playsLast7Days)} this week · ${s.weekStreak}-week streak",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -1054,7 +1060,7 @@ private fun statsTab(container: AppContainer, onArtistClick: (String) -> Unit) {
                         modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
                     )
                     Text(
-                        "${artist.plays} plays",
+                        pluralPlays(artist.plays),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
