@@ -784,7 +784,12 @@ class LibraryRepository(
                 put(MediaStore.Audio.Media.ARTIST, aRaw)
                 put(MediaStore.Audio.Media.ALBUM, al)
                 // Blank = leave the file's genre untouched (no genre column in the DB).
-                if (genre.isNotBlank()) put(MediaStore.Audio.Media.GENRE, genre.trim())
+                // The GENRE column only exists from Q; putting it pre-Q makes the whole
+                // update throw IllegalArgumentException, so on older APIs a non-blank
+                // genre simply isn't written (title/artist/album still save).
+                if (genre.isNotBlank() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    put(MediaStore.Audio.Media.GENRE, genre.trim())
+                }
             }
             try {
                 if (context.contentResolver.update(uri, values, null, null) <= 0) return@withContext false
