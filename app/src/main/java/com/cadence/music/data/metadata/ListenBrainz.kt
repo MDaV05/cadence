@@ -1,5 +1,6 @@
 package com.cadence.music.data.metadata
 
+import com.cadence.music.data.source.sameOrigin
 import com.cadence.music.data.stats.ArtistPlays
 import org.json.JSONArray
 import org.json.JSONObject
@@ -135,14 +136,31 @@ object ListenBrainz {
         runCatching { URLEncoder.encode(value, "UTF-8").replace("+", "%20") }.getOrDefault("")
 
     private fun getJson(url: String, token: String? = null): String? = runCatching {
-        val conn = URL(url).openConnection() as HttpURLConnection
-        conn.requestMethod = "GET"
-        conn.setRequestProperty("User-Agent", USER_AGENT)
-        if (token != null) conn.setRequestProperty("Authorization", "Token $token")
-        conn.connectTimeout = 10_000
-        conn.readTimeout = 15_000
+        // R3-07: no auto-follow — the Authorization token must never leave the origin.
+        val open = { u: URL ->
+            (u.openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                setRequestProperty("User-Agent", USER_AGENT)
+                if (token != null) setRequestProperty("Authorization", "Token $token")
+                connectTimeout = 10_000
+                readTimeout = 15_000
+                instanceFollowRedirects = false
+            }
+        }
+        var conn = open(URL(url))
         try {
-            if (conn.responseCode != 200) null
+            var code = conn.responseCode
+            var hops = 0
+            while (code in 300..399 && hops < 3) {
+                val loc = conn.getHeaderField("Location") ?: break
+                val next = URL(conn.getURL(), loc)
+                if (!sameOrigin(conn.getURL().toString(), next.toString())) break
+                conn.disconnect()
+                conn = open(next)
+                code = conn.responseCode
+                hops++
+            }
+            if (code != 200) null
             else conn.inputStream.bufferedReader().use { it.readText() }
         } finally {
             conn.disconnect()

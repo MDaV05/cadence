@@ -37,11 +37,28 @@ class SubsonicSource(private val configProvider: () -> ServerConfig?) : MusicSou
     // All network I/O happens here so callers can't accidentally block the main thread.
     private suspend fun get(endpoint: String, params: Map<String, String> = emptyMap()): JSONObject =
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            val conn = URL(url(endpoint, params)).openConnection() as HttpURLConnection
-            conn.connectTimeout = 10_000
-            conn.readTimeout = 30_000
+            // R3-07: no auto-follow — the u/t/s credential query must never ride to another host.
+            val open = { url: URL ->
+                (url.openConnection() as HttpURLConnection).apply {
+                    connectTimeout = 10_000
+                    readTimeout = 30_000
+                    instanceFollowRedirects = false
+                }
+            }
+            var conn = open(URL(url(endpoint, params)))
             try {
-                if (conn.responseCode !in 200..299) throw IOException("${conn.responseCode} $endpoint")
+                var code = conn.responseCode
+                var hops = 0
+                while (code in 300..399 && hops < 3) {
+                    val loc = conn.getHeaderField("Location") ?: break
+                    val next = URL(conn.getURL(), loc)
+                    if (!sameOrigin(conn.getURL().toString(), next.toString())) break
+                    conn.disconnect()
+                    conn = open(next)
+                    code = conn.responseCode
+                    hops++
+                }
+                if (code !in 200..299) throw IOException("$code $endpoint")
                 val body = conn.inputStream.bufferedReader().readText()
                 val resp = JSONObject(body).getJSONObject("subsonic-response")
                 if (resp.getString("status") != "ok") {

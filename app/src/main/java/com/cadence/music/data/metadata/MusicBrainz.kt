@@ -1,5 +1,6 @@
 package com.cadence.music.data.metadata
 
+import com.cadence.music.data.source.sameOrigin
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
@@ -14,12 +15,29 @@ object MusicBrainz {
         val query = params.entries.joinToString("&") {
             "${it.key}=${URLEncoder.encode(it.value, "UTF-8")}"
         }
-        val conn = URL("$BASE$path?$query&fmt=json").openConnection() as HttpURLConnection
-        conn.setRequestProperty("User-Agent", ua)
-        conn.connectTimeout = 10_000
-        conn.readTimeout = 15_000
+        // R3-07: no auto-follow — requests must stay on the pinned origin.
+        val open = { u: URL ->
+            (u.openConnection() as HttpURLConnection).apply {
+                setRequestProperty("User-Agent", ua)
+                connectTimeout = 10_000
+                readTimeout = 15_000
+                instanceFollowRedirects = false
+            }
+        }
+        var conn = open(URL("$BASE$path?$query&fmt=json"))
         try {
-            if (conn.responseCode != 200) null
+            var code = conn.responseCode
+            var hops = 0
+            while (code in 300..399 && hops < 3) {
+                val loc = conn.getHeaderField("Location") ?: break
+                val next = URL(conn.getURL(), loc)
+                if (!sameOrigin(conn.getURL().toString(), next.toString())) break
+                conn.disconnect()
+                conn = open(next)
+                code = conn.responseCode
+                hops++
+            }
+            if (code != 200) null
             else conn.inputStream.bufferedReader().readText()
         } finally {
             conn.disconnect()

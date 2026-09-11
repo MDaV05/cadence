@@ -166,17 +166,33 @@ class PlexSource(private val entry: ServerEntry, private val deviceId: String) :
     protected suspend fun get(path: String): org.json.JSONObject? =
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             runCatching {
+                // R3-07: no auto-follow — X-Plex-Token query credential must stay on-origin.
                 val sep = if (path.contains("?")) "&" else "?"
-                val conn = java.net.URL("${base()}/$path${sep}X-Plex-Token=${token()}")
-                    .openConnection() as java.net.HttpURLConnection
-                conn.connectTimeout = 10_000
-                conn.readTimeout = 30_000
-                conn.setRequestProperty("Accept", "application/json")
-                conn.setRequestProperty("X-Plex-Product", "Cadence")
-                conn.setRequestProperty("X-Plex-Client-Identifier", deviceId)
-                conn.setRequestProperty("X-Plex-Version", "0.2.0")
+                val open = { url: java.net.URL ->
+                    (url.openConnection() as java.net.HttpURLConnection).apply {
+                        connectTimeout = 10_000
+                        readTimeout = 30_000
+                        setRequestProperty("Accept", "application/json")
+                        setRequestProperty("X-Plex-Product", "Cadence")
+                        setRequestProperty("X-Plex-Client-Identifier", deviceId)
+                        setRequestProperty("X-Plex-Version", "0.2.0")
+                        instanceFollowRedirects = false
+                    }
+                }
+                var conn = open(java.net.URL("${base()}/$path${sep}X-Plex-Token=${token()}"))
                 try {
-                    if (conn.responseCode !in 200..299) return@runCatching null
+                    var code = conn.responseCode
+                    var hops = 0
+                    while (code in 300..399 && hops < 3) {
+                        val loc = conn.getHeaderField("Location") ?: break
+                        val next = java.net.URL(conn.getURL(), loc)
+                        if (!sameOrigin(conn.getURL().toString(), next.toString())) break
+                        conn.disconnect()
+                        conn = open(next)
+                        code = conn.responseCode
+                        hops++
+                    }
+                    if (code !in 200..299) return@runCatching null
                     org.json.JSONObject(conn.inputStream.bufferedReader().readText())
                 } finally {
                     conn.disconnect()

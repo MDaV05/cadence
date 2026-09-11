@@ -1,5 +1,6 @@
 package com.cadence.music.data.update
 
+import com.cadence.music.data.source.sameOrigin
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -44,13 +45,31 @@ fun pickApkAsset(assets: List<ReleaseAsset>, tag: String): ReleaseAsset? =
 /** Thin Android shell (HTTP + org.json) — covered by build, not unit tests. */
 suspend fun fetchLatest(): ReleaseInfo? = withContext(Dispatchers.IO) {
     runCatching {
-        val conn = URL("https://api.github.com/repos/MDaV05/cadence/releases/latest").openConnection() as HttpURLConnection
-        conn.connectTimeout = 10_000
-        conn.readTimeout = 30_000
-        conn.setRequestProperty("Accept", "application/vnd.github+json")
-        conn.setRequestProperty("User-Agent", "Cadence")
+        // R3-07: no auto-follow — release JSON (and the asset URLs inside it) must
+        // come from api.github.com itself, never a redirect target.
+        val open = { u: URL ->
+            (u.openConnection() as HttpURLConnection).apply {
+                connectTimeout = 10_000
+                readTimeout = 30_000
+                setRequestProperty("Accept", "application/vnd.github+json")
+                setRequestProperty("User-Agent", "Cadence")
+                instanceFollowRedirects = false
+            }
+        }
+        var conn = open(URL("https://api.github.com/repos/MDaV05/cadence/releases/latest"))
         try {
-            if (conn.responseCode !in 200..299) return@runCatching null
+            var code = conn.responseCode
+            var hops = 0
+            while (code in 300..399 && hops < 3) {
+                val loc = conn.getHeaderField("Location") ?: break
+                val next = URL(conn.getURL(), loc)
+                if (!sameOrigin(conn.getURL().toString(), next.toString())) break
+                conn.disconnect()
+                conn = open(next)
+                code = conn.responseCode
+                hops++
+            }
+            if (code !in 200..299) return@runCatching null
             val root = JSONObject(conn.inputStream.bufferedReader().readText())
             if (root.optBoolean("prerelease")) return@runCatching null
             val arr = root.optJSONArray("assets") ?: return@runCatching null

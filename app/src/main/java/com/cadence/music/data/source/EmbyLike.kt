@@ -125,13 +125,30 @@ abstract class EmbyLikeSource(
     protected suspend fun get(path: String): org.json.JSONObject? =
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             runCatching {
-                val conn = java.net.URL("${base()}/$path").openConnection() as java.net.HttpURLConnection
-                conn.connectTimeout = 10_000
-                conn.readTimeout = 30_000
-                conn.setRequestProperty("X-Emby-Authorization", EmbyLikeAuthHeader("Cadence", "0.2.0", deviceId, null))
-                if (token().isNotEmpty()) conn.setRequestProperty("X-Emby-Token", token())
+                // R3-07: no auto-follow — X-Emby-Token must never ride to another host.
+                val open = { url: java.net.URL ->
+                    (url.openConnection() as java.net.HttpURLConnection).apply {
+                        connectTimeout = 10_000
+                        readTimeout = 30_000
+                        setRequestProperty("X-Emby-Authorization", EmbyLikeAuthHeader("Cadence", "0.2.0", deviceId, null))
+                        if (token().isNotEmpty()) setRequestProperty("X-Emby-Token", token())
+                        instanceFollowRedirects = false
+                    }
+                }
+                var conn = open(java.net.URL("${base()}/$path"))
                 try {
-                    if (conn.responseCode !in 200..299) return@runCatching null
+                    var code = conn.responseCode
+                    var hops = 0
+                    while (code in 300..399 && hops < 3) {
+                        val loc = conn.getHeaderField("Location") ?: break
+                        val next = java.net.URL(conn.getURL(), loc)
+                        if (!sameOrigin(conn.getURL().toString(), next.toString())) break
+                        conn.disconnect()
+                        conn = open(next)
+                        code = conn.responseCode
+                        hops++
+                    }
+                    if (code !in 200..299) return@runCatching null
                     org.json.JSONObject(conn.inputStream.bufferedReader().readText())
                 } finally {
                     conn.disconnect()
