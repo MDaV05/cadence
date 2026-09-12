@@ -15,6 +15,8 @@ data class Track(
     // Server-side starred/favorite state (Subsonic only).
     val starred: Boolean = false,
     val albumArtist: String? = null,
+    // First genre tag (local MediaStore reads only; server sources null for now).
+    val genre: String? = null,
 )
 
 data class Album(

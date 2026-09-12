@@ -10,13 +10,16 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -29,19 +32,24 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import coil.compose.AsyncImage
 import com.cadence.music.AppContainer
+import com.cadence.music.data.db.TrackEntity
 import com.cadence.music.data.metadata.ListenBrainz
 import com.cadence.music.data.stats.ArtistPlays
+import com.cadence.music.data.stats.GenrePlays
 import com.cadence.music.data.stats.ListeningStats
 import com.cadence.music.data.stats.computeStats
 import com.cadence.music.data.stats.formatListenMinutes
 import com.cadence.music.data.stats.mergeRecentPlays
 import com.cadence.music.data.stats.relativeTime
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 
 /**
@@ -52,8 +60,11 @@ import kotlinx.coroutines.withContext
  */
 private data class StatsData(
     val stats: ListeningStats,
+    val topSongs: List<TrackEntity>,
     val topArtists: List<ArtistPlays>,
+    val genres: List<GenrePlays>,
     val recents: List<Pair<Long, Pair<String, String>>>, // (timestampMs, (artist, title))
+    val artistImages: Map<String, String?>, // artist name -> cached picture url
     val totalPlays: Long,
     val playsFromLb: Boolean,
 )
@@ -69,6 +80,11 @@ fun StatsScreen(container: AppContainer, onArtistClick: (String) -> Unit = {}) {
             val dao = container.database.trackDao()
             val local = computeStats(dao.playRows(), System.currentTimeMillis())
             val localTop = dao.topArtists()
+            val topSongs = dao.topSongs()
+            val genres = dao.topGenres()
+            val artistImages = runCatching {
+                container.library.artistTiles().first().associate { it.name to it.imageUrl }
+            }.getOrDefault(emptyMap())
             val localRecents = dao.recentlyPlayed()
                 .map { (it.lastPlayed ?: 0L) to (it.artistName to it.title) }
             var lbTotal: Long? = null
@@ -93,8 +109,11 @@ fun StatsScreen(container: AppContainer, onArtistClick: (String) -> Unit = {}) {
             }
             StatsData(
                 stats = local,
+                topSongs = topSongs,
                 topArtists = lbTop ?: localTop,
+                genres = genres,
                 recents = mergeRecentPlays(localRecents, lbRecents, cap = 6),
+                artistImages = artistImages,
                 totalPlays = lbTotal ?: local.totalPlays.toLong(),
                 playsFromLb = lbTotal != null,
             )
@@ -140,36 +159,73 @@ fun StatsScreen(container: AppContainer, onArtistClick: (String) -> Unit = {}) {
                     contentPadding = PaddingValues(bottom = 32.dp),
                 ) {
                     item { StatsHero(d) }
+                    if (d.topSongs.isNotEmpty()) {
+                        item { StatsSectionLabel("Top songs") }
+                        itemsIndexed(d.topSongs) { i, track ->
+                            TopSongRow(rank = i + 1, track = track, container = container) {
+                                container.player.playNow(listOf(track.toTrack()))
+                            }
+                        }
+                    }
                     if (d.topArtists.isNotEmpty()) {
                         item { StatsSectionLabel("Top artists") }
                         itemsIndexed(d.topArtists) { i, artist ->
                             Row(
                                 Modifier.fillMaxWidth()
-                                    .heightIn(min = 48.dp)
+                                    .heightIn(min = 56.dp)
                                     .clickable { onArtistClick(artist.name) }
                                     .padding(horizontal = 16.dp, vertical = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                Text(
-                                    "${i + 1}",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.width(32.dp),
-                                    textAlign = TextAlign.Center,
-                                    maxLines = 1,
+                                RankBadge("${i + 1}")
+                                ArtistAvatar(
+                                    name = artist.name,
+                                    imageUrl = d.artistImages[artist.name],
                                 )
                                 Text(
                                     artist.name,
                                     style = MaterialTheme.typography.bodyLarge,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .padding(horizontal = 12.dp),
                                 )
                                 Text(
                                     pluralPlays(artist.plays),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
+                            }
+                        }
+                    }
+                    if (d.genres.isNotEmpty()) {
+                        item { StatsSectionLabel("Top genres") }
+                        item {
+                            LazyRow(
+                                contentPadding = PaddingValues(horizontal = 16.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                itemsIndexed(d.genres) { _, genre ->
+                                    Column(
+                                        Modifier
+                                            .clip(RoundedCornerShape(16.dp))
+                                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                                            .padding(horizontal = 16.dp, vertical = 10.dp),
+                                    ) {
+                                        Text(
+                                            genre.name,
+                                            style = MaterialTheme.typography.labelLarge,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                        Text(
+                                            pluralPlays(genre.plays),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -214,6 +270,106 @@ fun StatsScreen(container: AppContainer, onArtistClick: (String) -> Unit = {}) {
                 }
             }
         }
+    }
+}
+
+/** Rank numeral in a fixed column so rows align regardless of digit count. */
+@Composable
+private fun RankBadge(label: String) {
+    Text(
+        label,
+        style = MaterialTheme.typography.titleMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.width(32.dp),
+        textAlign = TextAlign.Center,
+        maxLines = 1,
+    )
+}
+
+/** Circular artist photo with an initials fallback when no image is cached. */
+@Composable
+private fun ArtistAvatar(name: String, imageUrl: String?) {
+    Box(
+        Modifier
+            .size(44.dp)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.primaryContainer),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (imageUrl != null) {
+            AsyncImage(
+                model = imageUrl,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else {
+            Text(
+                name.firstOrNull()?.uppercase() ?: "?",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+            )
+        }
+    }
+}
+
+/** Ranked song row: cover art, title/artist, play count; tap plays the track. */
+@Composable
+private fun TopSongRow(
+    rank: Int,
+    track: TrackEntity,
+    container: AppContainer,
+    onPlay: () -> Unit,
+) {
+    val art by produceState<String?>(null, track.id) {
+        value = container.artResolver.urlFor(track)
+    }
+    Row(
+        Modifier.fillMaxWidth()
+            .heightIn(min = 56.dp)
+            .clickable(onClick = onPlay)
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        RankBadge("$rank")
+        Box(
+            Modifier
+                .size(44.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+        ) {
+            if (art != null) {
+                AsyncImage(
+                    model = art,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+        }
+        Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+            Text(
+                track.title,
+                style = MaterialTheme.typography.bodyLarge,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (track.artistName.isNotBlank()) {
+                Text(
+                    track.artistName,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        Text(
+            pluralPlays(track.playCount),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.width(16.dp))
     }
 }
 

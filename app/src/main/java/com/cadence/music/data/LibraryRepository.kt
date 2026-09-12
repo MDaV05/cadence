@@ -465,6 +465,7 @@ class LibraryRepository(
                     albumMediaId = t.albumMediaId,
                     playCount = prev?.playCount ?: 0,
                     lastPlayed = prev?.lastPlayed,
+                    genre = t.genre,
                     starred = prev?.starred ?: false,
                 )
             }
@@ -619,6 +620,7 @@ class LibraryRepository(
                 path = prev?.path,
                 durationMs = t.durationMs,
                 trackNumber = 0,
+                genre = t.genre,
                 replayGainDb = prev?.replayGainDb,
                 albumMediaId = prev?.albumMediaId,
                 playCount = prev?.playCount ?: 0,

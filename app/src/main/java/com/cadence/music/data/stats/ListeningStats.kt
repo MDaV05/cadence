@@ -6,6 +6,9 @@ data class PlayRow(val playCount: Int, val durationMs: Long, val lastPlayed: Lon
 /** Projected top-artist row: display name and summed play count. */
 data class ArtistPlays(val name: String, val plays: Int)
 
+/** Projected top-genre row: genre tag text and summed play count. */
+data class GenrePlays(val name: String, val plays: Int)
+
 data class ListeningStats(
     val totalMinutes: Long,
     val totalPlays: Int,
