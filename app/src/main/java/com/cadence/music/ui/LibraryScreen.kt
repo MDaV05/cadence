@@ -586,11 +586,16 @@ private fun LyricsEditorDialog(container: AppContainer, track: TrackEntity, onDi
     val scope = rememberCoroutineScope()
     var text by remember { mutableStateOf("") }
     var loaded by remember { mutableStateOf(false) }
+    var loadFailed by remember { mutableStateOf(false) }
     LaunchedEffect(track.id) {
-        text = withContext(Dispatchers.IO) {
-            container.database.lyricsDao().byTrackId(track.id)?.syncedLrc.orEmpty()
-        }
-        loaded = true
+        runCatching {
+            withContext(Dispatchers.IO) {
+                container.database.lyricsDao().byTrackId(track.id)?.syncedLrc.orEmpty()
+            }
+        }.onSuccess {
+            text = it
+            loaded = true
+        }.onFailure { loadFailed = true }
     }
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -598,19 +603,32 @@ private fun LyricsEditorDialog(container: AppContainer, track: TrackEntity, onDi
         text = {
             OutlinedTextField(
                 text, { text = it },
-                label = { Text(if (loaded) "Plain text" else "Loading…") },
+                label = {
+                    Text(
+                        when {
+                            loaded -> "Plain text"
+                            loadFailed -> "Couldn't load lyrics"
+                            else -> "Loading…"
+                        }
+                    )
+                },
                 enabled = loaded,
                 minLines = 6,
             )
         },
         confirmButton = {
-            TextButton(onClick = {
-                scope.launch {
-                    container.library.saveUserLyrics(track.id, text)
-                    Toast.makeText(context, "Lyrics saved", Toast.LENGTH_SHORT).show()
-                    onDismiss()
-                }
-            }) { Text("Save") }
+            // Enabled only once the existing lyrics are in the field — tapping
+            // Save mid-load would overwrite them with an empty string.
+            TextButton(
+                enabled = loaded,
+                onClick = {
+                    scope.launch {
+                        container.library.saveUserLyrics(track.id, text)
+                        Toast.makeText(context, "Lyrics saved", Toast.LENGTH_SHORT).show()
+                        onDismiss()
+                    }
+                },
+            ) { Text("Save") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
