@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.15.2
+
+- **Playlists moved into Library**: The Library screen now has a fourth Playlists tab (browser, create, rename, delete), keeping everything musical in one place.
+- **Stats screen on the bottom bar**: A full listening-stats page replaces the old Playlists shortcut — a big hero with hours listened, plays and unique tracks, week plays and streak, Top Songs with cover art (tap to play), Top Artists with photos, Top Genres, and ListenBrainz totals when a token is set.
+- **Liked Songs**: A pinned card at the top of the Playlists tab, live-counting every liked track. Like is now available on every song, including local files, Telegram and Plex — and for Navidrome/Subsonic/Jellyfin/Emby tracks it syncs with the server's own star, both ways.
+- **UI audit fixes**: Settings no longer renders under the status bar; the lyrics editor can no longer wipe lyrics when saving mid-load; the no-op Lyrics button on Now Playing opens full lyrics; tab positions survive back-navigation; a bigger seek-bar touch target; Now Playing scrolls on short screens; lyrics overlay respects system bars; lists no longer carry double bottom padding; plus smaller polish (ellipsis truncation, empty states, pluralization).
+
 ## 0.15.1
 
 Security-focused release from a full third-party-style audit (14 confirmed findings, all fixed and re-verified):
