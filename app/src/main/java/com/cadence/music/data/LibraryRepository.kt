@@ -625,9 +625,10 @@ class LibraryRepository(
                 albumMediaId = prev?.albumMediaId,
                 playCount = prev?.playCount ?: 0,
                 lastPlayed = prev?.lastPlayed,
-                // OR-preserve: a star made offline survives until the server
-                // confirms the unstar on a later sync.
-                starred = t.starred || (prev?.starred ?: false),
+                // Server sources own the like flag (un-star on Navidrome's web UI
+                // must clear here); local/telegram/plex tracks keep the local flag
+                // because their worlds have no server truth to defer to.
+                starred = mergedStarred(sourceId, t.starred, prev?.starred ?: false),
             )
         }
         db.withTransaction {
@@ -673,6 +674,12 @@ class LibraryRepository(
 
     fun playlists(): Flow<List<com.cadence.music.data.db.PlaylistWithCount>> =
         db.playlistDao().observeAll()
+
+    // ---- Liked songs ----
+
+    fun observeLikedCount(): Flow<Int> = db.trackDao().observeLikedCount()
+
+    suspend fun likedTracks(): List<TrackEntity> = db.trackDao().likedTracks()
 
     suspend fun playlist(id: Long) = db.playlistDao().byId(id)
 
@@ -1041,3 +1048,13 @@ data class SyncResult(val albumsFetched: Int, val tracksFetched: Int)
  *  that they bump when tracks inside the album change. */
 internal fun albumUnchanged(existing: AlbumEntity?, remoteToken: String?): Boolean =
     existing != null && remoteToken != null && existing.remoteCreated == remoteToken
+
+/**
+ * Who owns the like ("starred") flag after a sync. Server-backed sources
+ * (Subsonic/Jellyfin/Emby) defer to the server value — an un-star made on the
+ * server's own UI must clear locally. Local, Telegram and Plex tracks have no
+ * like-capable server truth, so the local flag always survives.
+ */
+internal fun mergedStarred(sourceId: String, serverStarred: Boolean, prevStarred: Boolean): Boolean =
+    if (sourceId == "local" || sourceId == "telegram" || sourceId == "plex") prevStarred
+    else serverStarred

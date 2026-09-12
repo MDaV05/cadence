@@ -46,8 +46,6 @@ import com.cadence.music.data.stats.GenrePlays
 import com.cadence.music.data.stats.ListeningStats
 import com.cadence.music.data.stats.computeStats
 import com.cadence.music.data.stats.formatListenMinutes
-import com.cadence.music.data.stats.mergeRecentPlays
-import com.cadence.music.data.stats.relativeTime
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
@@ -63,7 +61,6 @@ private data class StatsData(
     val topSongs: List<TrackEntity>,
     val topArtists: List<ArtistPlays>,
     val genres: List<GenrePlays>,
-    val recents: List<Pair<Long, Pair<String, String>>>, // (timestampMs, (artist, title))
     val artistImages: Map<String, String?>, // artist name -> cached picture url
     val totalPlays: Long,
     val playsFromLb: Boolean,
@@ -85,11 +82,8 @@ fun StatsScreen(container: AppContainer, onArtistClick: (String) -> Unit = {}) {
             val artistImages = runCatching {
                 container.library.artistTiles().first().associate { it.name to it.imageUrl }
             }.getOrDefault(emptyMap())
-            val localRecents = dao.recentlyPlayed()
-                .map { (it.lastPlayed ?: 0L) to (it.artistName to it.title) }
             var lbTotal: Long? = null
             var lbTop: List<ArtistPlays>? = null
-            var lbRecents: List<Pair<Long, Pair<String, String>>> = emptyList()
             val token = container.prefs.listenBrainzToken?.trim()
             if (!token.isNullOrEmpty()) {
                 val verdict = runCatching { ListenBrainz.validateBlocking(token) }.getOrNull()
@@ -102,9 +96,6 @@ fun StatsScreen(container: AppContainer, onArtistClick: (String) -> Unit = {}) {
                         lbTotal = lbStats.totalListens
                         if (lbStats.topArtists.isNotEmpty()) lbTop = lbStats.topArtists
                     }
-                    lbRecents = runCatching { ListenBrainz.recentListensBlocking(user) }
-                        .getOrDefault(emptyList())
-                        .map { (it.listenedAtSec * 1000) to (it.artist to it.title) }
                 }
             }
             StatsData(
@@ -112,7 +103,6 @@ fun StatsScreen(container: AppContainer, onArtistClick: (String) -> Unit = {}) {
                 topSongs = topSongs,
                 topArtists = lbTop ?: localTop,
                 genres = genres,
-                recents = mergeRecentPlays(localRecents, lbRecents, cap = 6),
                 artistImages = artistImages,
                 totalPlays = lbTotal ?: local.totalPlays.toLong(),
                 playsFromLb = lbTotal != null,
@@ -135,7 +125,7 @@ fun StatsScreen(container: AppContainer, onArtistClick: (String) -> Unit = {}) {
                 contentAlignment = Alignment.Center,
             ) { CircularProgressIndicator(Modifier.size(28.dp)) }
 
-            d.totalPlays == 0L && d.topArtists.isEmpty() && d.recents.isEmpty() -> Column(
+            d.totalPlays == 0L && d.topArtists.isEmpty() && d.topSongs.isEmpty() -> Column(
                 Modifier.fillMaxSize().padding(32.dp),
                 verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -151,9 +141,6 @@ fun StatsScreen(container: AppContainer, onArtistClick: (String) -> Unit = {}) {
             }
 
             else -> {
-                // One clock reading for all relative labels; a screen-lifetime
-                // staleness of minutes is irrelevant for "5m"-style labels.
-                val now = remember { System.currentTimeMillis() }
                 LazyColumn(
                     Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(bottom = 32.dp),
@@ -226,44 +213,6 @@ fun StatsScreen(container: AppContainer, onArtistClick: (String) -> Unit = {}) {
                                         )
                                     }
                                 }
-                            }
-                        }
-                    }
-                    if (d.recents.isNotEmpty()) {
-                        item { StatsSectionLabel("Recently played") }
-                        itemsIndexed(d.recents) { _, recent ->
-                            val (ts, artistTitle) = recent
-                            val (artist, title) = artistTitle
-                            Row(
-                                Modifier.fillMaxWidth()
-                                    .heightIn(min = 48.dp)
-                                    .clickable(enabled = artist.isNotBlank()) { onArtistClick(artist) }
-                                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Column(Modifier.weight(1f)) {
-                                    Text(
-                                        title,
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                    if (artist.isNotBlank()) {
-                                        Text(
-                                            artist,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                        )
-                                    }
-                                }
-                                Text(
-                                    relativeTime(ts, now),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(start = 8.dp),
-                                )
                             }
                         }
                     }

@@ -11,6 +11,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -29,6 +30,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -56,13 +58,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.cadence.music.AppContainer
 import com.cadence.music.data.db.PlaylistTrackRow
 import com.cadence.music.data.db.PlaylistWithCount
+import com.cadence.music.data.db.TrackEntity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -133,29 +139,66 @@ suspend fun savePlaylistCover(context: Context, playlistId: Long, uri: Uri): Str
  * this composable owns the list, the empty state and the rename/delete dialogs.
  */
 @Composable
-fun PlaylistsContent(container: AppContainer, onOpen: (Long) -> Unit, modifier: Modifier = Modifier) {
+fun PlaylistsContent(
+    container: AppContainer,
+    onOpen: (Long) -> Unit,
+    modifier: Modifier = Modifier,
+    onOpenLiked: () -> Unit = {},
+) {
     val scope = rememberCoroutineScope()
     val playlists by container.library.playlists()
         .collectAsStateWithLifecycle(initialValue = emptyList())
+    val likedCount by container.library.observeLikedCount()
+        .collectAsStateWithLifecycle(initialValue = 0)
     var renameTarget by remember { mutableStateOf<PlaylistWithCount?>(null) }
     var deleteTarget by remember { mutableStateOf<PlaylistWithCount?>(null) }
 
-    if (playlists.isEmpty()) {
-        Column(
-            modifier = modifier.fillMaxSize().padding(32.dp),
-            verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.CenterHorizontally,
+    Column(modifier = modifier.fillMaxSize()) {
+        // Pinned smart playlist: a live view over the liked flag, not a real
+        // playlist row — server stars (Navidrome etc.) appear and disappear here
+        // through sync without any import step.
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onOpenLiked)
+                .padding(horizontal = 16.dp, vertical = 8.dp),
         ) {
-            Text("No playlists yet", style = MaterialTheme.typography.titleMedium)
-            Text(
-                "Tap + to create one, then long-press any song to add it.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 4.dp),
-            )
+            Box(
+                Modifier
+                    .size(56.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(MaterialTheme.colorScheme.primaryContainer),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Filled.Favorite, null, tint = MaterialTheme.colorScheme.primary)
+            }
+            Column(Modifier.weight(1f).padding(start = 14.dp)) {
+                Text("Liked Songs", maxLines = 1)
+                Text(
+                    if (likedCount == 1) "1 song" else "$likedCount songs",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
-    } else {
-        LazyColumn(modifier = modifier.fillMaxSize()) {
+
+        if (playlists.isEmpty()) {
+            Column(
+                modifier = Modifier.fillMaxSize().padding(32.dp),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text("No playlists yet", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "Tap + to create one, then long-press any song to add it.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
+        } else {
+            LazyColumn(Modifier.fillMaxSize()) {
             items(playlists, key = { it.id }) { p ->
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -182,6 +225,7 @@ fun PlaylistsContent(container: AppContainer, onOpen: (Long) -> Unit, modifier: 
                 }
             }
         }
+    }
     }
 
     renameTarget?.let { p ->
@@ -394,6 +438,120 @@ fun PlaylistDetailScreen(container: AppContainer, playlistId: Long, onBack: () -
                             }
                         }) {
                             Icon(Icons.Filled.Close, "Remove", Modifier.padding(start = 4.dp))
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Liked Songs: a live view over every track whose like flag is set — server
+ * stars (Navidrome/Subsonic/Jellyfin/Emby) and locally liked tracks together.
+ * Tapping a row plays the whole liked list from that point.
+ */
+@Composable
+fun LikedSongsScreen(container: AppContainer, onArtistClick: (String) -> Unit = {}) {
+    val player = container.player
+    val scope = rememberCoroutineScope()
+    var liked by remember { mutableStateOf<List<TrackEntity>>(emptyList()) }
+    LaunchedEffect(Unit) { liked = container.library.likedTracks() }
+
+    Column(Modifier.fillMaxSize().statusBarsPadding()) {
+        Text(
+            "Liked Songs",
+            style = MaterialTheme.typography.headlineMedium,
+            modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 4.dp),
+        )
+        if (liked.isEmpty()) {
+            Column(
+                Modifier.fillMaxSize().padding(32.dp),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Icon(
+                    Icons.Filled.Favorite,
+                    null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    "No liked songs yet",
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+                Text(
+                    "Tap the heart on any song and it will show up here.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
+        } else {
+            LazyColumn(
+                Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(bottom = 32.dp),
+            ) {
+                itemsIndexed(liked) { index, track ->
+                    val art by produceState<String?>(null, track.id) {
+                        value = container.artResolver.urlFor(track)
+                    }
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                player.playNow(liked.map { it.toTrack() }, index)
+                            }
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(
+                            Modifier
+                                .size(44.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant),
+                        ) {
+                            if (art != null) {
+                                AsyncImage(
+                                    art,
+                                    contentDescription = null,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+                            }
+                        }
+                        Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                            Text(
+                                track.title,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            if (track.artistName.isNotBlank()) {
+                                Text(
+                                    track.artistName,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.clickable { onArtistClick(track.artistName) },
+                                )
+                            }
+                        }
+                        IconButton(
+                            onClick = {
+                                scope.launch {
+                                    container.library.toggleStar(track)
+                                    liked = container.library.likedTracks()
+                                }
+                            },
+                        ) {
+                            Icon(
+                                Icons.Filled.Favorite,
+                                "Unlike ${track.title}",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp),
+                            )
                         }
                     }
                 }
