@@ -332,11 +332,11 @@ fun NowPlayingScreen(
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                // Star toggle — server tracks only; reflects and updates the
-                // Subsonic favorite state.
+                // Like toggle — every track has one. Server-backed sources
+                // (Subsonic/Jellyfin/Emby) sync the star to the server; local,
+                // Telegram and Plex tracks keep it local-only.
                 val scope = rememberCoroutineScope()
-                // Stars route to subsonic/jellyfin/emby only; plex starring unsupported v1.
-                if (currentTrack?.sourceId.let { it != null && it != "local" && it != "plex" } == true) {
+                if (currentTrack != null) {
                     val starred = currentTrack?.starred == true
                     IconButton(onClick = {
                         val t = currentTrack ?: return@IconButton
@@ -349,16 +349,17 @@ fun NowPlayingScreen(
                     }) {
                         Icon(
                             if (starred) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
-                            "Star",
+                            if (starred) "Unlike" else "Like",
                             Modifier.size(22.dp),
                             tint = if (starred) MaterialTheme.colorScheme.primary
                             else MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                     Spacer(Modifier.size(28.dp))
-                    // Download the playing song; hides once queued (progress lives on Downloads).
+                    // Download the playing song; hides once queued (progress lives on
+                    // Downloads). Local files are already on the device — no download.
                     var downloadQueued by remember(state.title) { mutableStateOf(false) }
-                    if (currentTrack?.path == null && !downloadQueued) {
+                    if (currentTrack?.path == null && currentTrack?.sourceId != "local" && !downloadQueued) {
                         IconButton(onClick = {
                             val t = currentTrack ?: return@IconButton
                             container.library.enqueueDownload(t)

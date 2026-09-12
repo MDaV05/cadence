@@ -33,6 +33,8 @@ import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.Album
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlaylistAdd
@@ -98,6 +100,7 @@ fun LibraryScreen(
     onArtistClick: (String) -> Unit = {},
     onAlbumClick: (String) -> Unit = {},
     onOpenPlaylist: (Long) -> Unit = {},
+    onOpenLiked: () -> Unit = {},
 ) {
     val player = container.player
     val tracks by container.library.tracks().collectAsStateWithLifecycle(initialValue = emptyList())
@@ -154,7 +157,7 @@ fun LibraryScreen(
                 0 -> songsTab(container, onArtistClick, onAlbumClick, player)
                 1 -> albumsTab(albumGroups, container, onAlbumClick)
                 2 -> artistsTab(artists, onArtistClick)
-                3 -> PlaylistsContent(container, onOpen = onOpenPlaylist)
+                3 -> PlaylistsContent(container, onOpen = onOpenPlaylist, onOpenLiked = onOpenLiked)
             }
         }
     }
@@ -426,6 +429,25 @@ fun TrackActionsSheet(
                     onDismiss = { showNew = false },
                 )
             } else {
+                // Like toggle — syncs to the server for server-backed sources;
+                // local/telegram/plex tracks keep the like on-device only.
+                ListItem(
+                    headlineContent = { Text(if (track.starred) "Unlike" else "Like") },
+                    leadingContent = {
+                        Icon(
+                            if (track.starred) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
+                            null,
+                            tint = if (track.starred) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    },
+                    modifier = Modifier.clickable {
+                        scope.launch {
+                            container.library.toggleStar(track)
+                            close()
+                        }
+                    },
+                )
                 if (track.sourceId != "local" && track.path == null) {
                     ListItem(
                         headlineContent = { Text("Download for offline") },

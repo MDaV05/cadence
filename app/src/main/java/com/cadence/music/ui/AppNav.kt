@@ -232,6 +232,11 @@ fun AppNav(initialSettingsTab: Int = 0, onDeepLinkConsumed: () -> Unit = {}) {
                 navController.navigate("album/${Uri.encode(name)}")
             }, onOpenPlaylist = { id ->
                 navController.navigate("playlist/$id")
+            }, onOpenLiked = {
+                navController.navigate("liked")
+            }) }
+            composable("liked") { LikedSongsScreen(container, onArtistClick = { name ->
+                navController.navigate("artist/${Uri.encode(name)}")
             }) }
             composable("stats") { StatsScreen(container, onArtistClick = { name ->
                 navController.navigate("artist/${Uri.encode(name)}")

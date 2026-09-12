@@ -102,6 +102,13 @@ interface TrackDao {
     @Query("SELECT * FROM tracks WHERE lastPlayed IS NOT NULL ORDER BY lastPlayed DESC LIMIT 10")
     suspend fun recentlyPlayed(): List<TrackEntity>
 
+    /** Liked ("starred") tracks, newest play first — backs the Liked Songs view. */
+    @Query("SELECT * FROM tracks WHERE starred = 1 ORDER BY lastPlayed DESC")
+    suspend fun likedTracks(): List<TrackEntity>
+
+    @Query("SELECT COUNT(*) FROM tracks WHERE starred = 1")
+    fun observeLikedCount(): Flow<Int>
+
     /** Played-only projection for local listening stats. */
     @Query("SELECT playCount, durationMs, lastPlayed FROM tracks WHERE playCount > 0")
     suspend fun playRows(): List<PlayRow>
