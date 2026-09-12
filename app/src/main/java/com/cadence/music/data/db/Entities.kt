@@ -35,6 +35,9 @@ data class TrackEntity(
     val albumMediaId: Long? = null,
     val playCount: Int = 0,
     val lastPlayed: Long? = null,
+    // First genre tag of the track (local MediaStore reads; server sources do
+    // not provide one yet). Powers the stats screen's top-genres section.
+    val genre: String? = null,
     // Server-side starred/favorite (Subsonic); local tracks never star.
     val starred: Boolean = false,
 )

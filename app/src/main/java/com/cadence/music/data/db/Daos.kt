@@ -11,6 +11,7 @@ import androidx.room.Transaction
 import androidx.room.Upsert
 import androidx.sqlite.db.SupportSQLiteQuery
 import com.cadence.music.data.stats.ArtistPlays
+import com.cadence.music.data.stats.GenrePlays
 import com.cadence.music.data.stats.PlayRow
 import kotlinx.coroutines.flow.Flow
 
@@ -85,6 +86,18 @@ interface TrackDao {
 
     @Query("SELECT * FROM tracks WHERE playCount > 0 ORDER BY playCount DESC, lastPlayed DESC LIMIT 10")
     suspend fun mostPlayed(): List<TrackEntity>
+
+    /** Five most-played tracks for the stats screen. */
+    @Query("SELECT * FROM tracks WHERE playCount > 0 ORDER BY playCount DESC, lastPlayed DESC LIMIT 5")
+    suspend fun topSongs(): List<TrackEntity>
+
+    /** Most-played genres (local tags only; server tracks carry no genre yet). */
+    @Query(
+        "SELECT genre AS name, SUM(playCount) AS plays FROM tracks " +
+            "WHERE genre IS NOT NULL AND genre != '' AND playCount > 0 " +
+            "GROUP BY genre ORDER BY plays DESC LIMIT 5"
+    )
+    suspend fun topGenres(): List<GenrePlays>
 
     @Query("SELECT * FROM tracks WHERE lastPlayed IS NOT NULL ORDER BY lastPlayed DESC LIMIT 10")
     suspend fun recentlyPlayed(): List<TrackEntity>
