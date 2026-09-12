@@ -227,4 +227,42 @@ class ListeningStatsTest {
         assertEquals("1.0 days", formatListenMinutes(1_559))
         assertEquals("1.1 days", formatListenMinutes(1_600))
     }
+
+    // ---- relativeTime ----
+
+    @Test
+    fun `future and sub-minute timestamps read as now`() {
+        assertEquals("now", relativeTime(NOW + 5_000L, NOW))
+        assertEquals("now", relativeTime(NOW, NOW))
+        assertEquals("now", relativeTime(NOW - 59_999L, NOW))
+    }
+
+    @Test
+    fun `minutes render as Xm`() {
+        assertEquals("1m", relativeTime(NOW - 60_000L, NOW))
+        assertEquals("5m", relativeTime(NOW - 5 * 60_000L, NOW))
+        assertEquals("59m", relativeTime(NOW - 59 * 60_000L, NOW))
+    }
+
+    @Test
+    fun `hours render as Xh`() {
+        assertEquals("1h", relativeTime(NOW - 3_600_000L, NOW))
+        assertEquals("5h", relativeTime(NOW - 5 * 3_600_000L, NOW))
+        assertEquals("23h", relativeTime(NOW - 23 * 3_600_000L, NOW))
+    }
+
+    @Test
+    fun `days under a week render as Xd`() {
+        assertEquals("1d", relativeTime(NOW - DAY, NOW))
+        assertEquals("3d", relativeTime(NOW - 3 * DAY, NOW))
+        assertEquals("6d", relativeTime(NOW - 6 * DAY, NOW))
+    }
+
+    @Test
+    fun `a week or older renders the UTC calendar date`() {
+        // NOW is Wed 2026-09-09 12:00 UTC; 8 days back is Sep 1.
+        assertEquals("Sep 1", relativeTime(NOW - 8 * DAY, NOW))
+        // 2026-01-04 12:00 UTC against Sep 9 2026 — calendar date, not relative.
+        assertEquals("Jan 4", relativeTime(1_767_528_000_000L, NOW))
+    }
 }

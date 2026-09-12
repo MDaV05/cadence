@@ -15,15 +15,15 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.QueueMusic
-import androidx.compose.material.icons.automirrored.outlined.QueueMusic
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.Insights
 import androidx.compose.material.icons.outlined.LibraryMusic
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
@@ -84,10 +84,18 @@ fun AppNav(initialSettingsTab: Int = 0, onDeepLinkConsumed: () -> Unit = {}) {
         if (current != null && current != "settings") deepLinkTab = 0
     }
 
+    // One-shot hint: the Home "Playlists" quick tile wants Library to open on its
+    // Playlists tab. Set right before navigating, consumed by LibraryScreen's
+    // initialTab, cleared once Library is left — mirroring deepLinkTab above.
+    var libraryStartTab by remember { mutableIntStateOf(0) }
+    androidx.compose.runtime.LaunchedEffect(current) {
+        if (current != null && current != "library") libraryStartTab = 0
+    }
+
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         bottomBar = {
-            val hasNavBar = current in listOf("home", "library", "playlists", "search", "settings")
+            val hasNavBar = current in listOf("home", "library", "stats", "search", "settings")
             Column(
                 modifier = if (!hasNavBar) Modifier.navigationBarsPadding() else Modifier,
             ) {
@@ -167,10 +175,10 @@ fun AppNav(initialSettingsTab: Int = 0, onDeepLinkConsumed: () -> Unit = {}) {
                             colors = itemColors,
                         )
                         NavigationBarItem(
-                            selected = current == "playlists",
-                            onClick = { navController.navigate("playlists") { launchSingleTop = true; popUpTo(navController.graph.startDestinationId) { saveState = true }; restoreState = true } },
-                            icon = { Icon(if (current == "playlists") Icons.AutoMirrored.Filled.QueueMusic else Icons.AutoMirrored.Outlined.QueueMusic, null) },
-                            label = { Text("Playlists") },
+                            selected = current == "stats",
+                            onClick = { navController.navigate("stats") { launchSingleTop = true; popUpTo(navController.graph.startDestinationId) { saveState = true }; restoreState = true } },
+                            icon = { Icon(if (current == "stats") Icons.Filled.Insights else Icons.Outlined.Insights, null) },
+                            label = { Text("Stats") },
                             colors = itemColors,
                         )
                         NavigationBarItem(
@@ -206,22 +214,23 @@ fun AppNav(initialSettingsTab: Int = 0, onDeepLinkConsumed: () -> Unit = {}) {
             }, onOpenLibrary = {
                 navController.navigate("library") { launchSingleTop = true; popUpTo(navController.graph.startDestinationId) { saveState = true }; restoreState = true }
             }, onOpenPlaylists = {
-                navController.navigate("playlists") { launchSingleTop = true; popUpTo(navController.graph.startDestinationId) { saveState = true }; restoreState = true }
+                libraryStartTab = 3
+                navController.navigate("library") { launchSingleTop = true; popUpTo(navController.graph.startDestinationId) { saveState = true }; restoreState = true }
             }, onOpenSearch = {
                 navController.navigate("search") { launchSingleTop = true; popUpTo(navController.graph.startDestinationId) { saveState = true }; restoreState = true }
             }, onOpenDownloads = {
                 navController.navigate("downloads") { launchSingleTop = true; popUpTo(navController.graph.startDestinationId) { saveState = true }; restoreState = true }
             }) }
-            composable("library") { LibraryScreen(container, onArtistClick = { name ->
+            composable("library") { LibraryScreen(container, initialTab = libraryStartTab, onArtistClick = { name ->
                 navController.navigate("artist/${Uri.encode(name)}")
             }, onAlbumClick = { name ->
                 navController.navigate("album/${Uri.encode(name)}")
+            }, onOpenPlaylist = { id ->
+                navController.navigate("playlist/$id")
             }) }
-            composable("playlists") {
-                PlaylistsScreen(container, onOpen = { id ->
-                    navController.navigate("playlist/$id")
-                })
-            }
+            composable("stats") { StatsScreen(container, onArtistClick = { name ->
+                navController.navigate("artist/${Uri.encode(name)}")
+            }) }
             composable("playlist/{id}") { entry ->
                 val id = entry.arguments?.getString("id")?.toLongOrNull() ?: return@composable
                 PlaylistDetailScreen(container, id, onBack = { navController.popBackStack() })

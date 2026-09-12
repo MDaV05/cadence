@@ -25,7 +25,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
@@ -36,7 +35,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -129,83 +127,61 @@ suspend fun savePlaylistCover(context: Context, playlistId: Long, uri: Uri): Str
     return out.absolutePath
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * Playlist browser, embedded as the Library screen's 4th tab. No Scaffold/FAB of
+ * its own — the host (LibraryScreen) owns the "+" FAB and its NewPlaylistDialog;
+ * this composable owns the list, the empty state and the rename/delete dialogs.
+ */
 @Composable
-fun PlaylistsScreen(container: AppContainer, onOpen: (Long) -> Unit = {}) {
+fun PlaylistsContent(container: AppContainer, onOpen: (Long) -> Unit, modifier: Modifier = Modifier) {
     val scope = rememberCoroutineScope()
     val playlists by container.library.playlists()
         .collectAsStateWithLifecycle(initialValue = emptyList())
-    var showNew by remember { mutableStateOf(false) }
     var renameTarget by remember { mutableStateOf<PlaylistWithCount?>(null) }
     var deleteTarget by remember { mutableStateOf<PlaylistWithCount?>(null) }
 
-    Scaffold(
-        floatingActionButton = {
-            FloatingActionButton(onClick = { showNew = true }) {
-                Icon(Icons.Filled.Add, "New playlist")
-            }
-        },
-    ) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding)) {
+    if (playlists.isEmpty()) {
+        Column(
+            modifier = modifier.fillMaxSize().padding(32.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text("No playlists yet", style = MaterialTheme.typography.titleMedium)
             Text(
-                "Playlists",
-                style = MaterialTheme.typography.headlineMedium,
-                modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 4.dp),
+                "Tap + to create one, then long-press any song to add it.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp),
             )
-            if (playlists.isEmpty()) {
-                Column(
-                    modifier = Modifier.fillMaxSize().padding(32.dp),
-                    verticalArrangement = Arrangement.Center,
-                    horizontalAlignment = Alignment.CenterHorizontally,
+        }
+    } else {
+        LazyColumn(modifier = modifier.fillMaxSize()) {
+            items(playlists, key = { it.id }) { p ->
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onOpen(p.id) }
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
                 ) {
-                    Text("No playlists yet", style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        "Tap + to create one, then long-press any song to add it.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 4.dp),
-                    )
-                }
-            } else {
-                LazyColumn {
-                    items(playlists, key = { it.id }) { p ->
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { onOpen(p.id) }
-                                .padding(horizontal = 16.dp, vertical = 8.dp),
-                        ) {
-                            PlaylistCover(container, p.id, p.coverPath, 56.dp, 12.dp)
-                            Column(Modifier.weight(1f).padding(start = 14.dp)) {
-                                Text(p.name, maxLines = 1)
-                                Text(
-                                    if (p.trackCount == 1) "1 song" else "${p.trackCount} songs",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                            IconButton(onClick = { renameTarget = p }) {
-                                Icon(Icons.Filled.Edit, "Rename ${p.name}")
-                            }
-                            IconButton(onClick = { deleteTarget = p }) {
-                                Icon(Icons.Filled.Delete, "Delete ${p.name}")
-                            }
-                        }
+                    PlaylistCover(container, p.id, p.coverPath, 56.dp, 12.dp)
+                    Column(Modifier.weight(1f).padding(start = 14.dp)) {
+                        Text(p.name, maxLines = 1)
+                        Text(
+                            if (p.trackCount == 1) "1 song" else "${p.trackCount} songs",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    IconButton(onClick = { renameTarget = p }) {
+                        Icon(Icons.Filled.Edit, "Rename ${p.name}")
+                    }
+                    IconButton(onClick = { deleteTarget = p }) {
+                        Icon(Icons.Filled.Delete, "Delete ${p.name}")
                     }
                 }
             }
         }
-    }
-
-    if (showNew) {
-        NewPlaylistDialog(
-            onCreate = { name ->
-                showNew = false
-                if (name.isNotBlank()) scope.launch { container.library.createPlaylist(name) }
-            },
-            onDismiss = { showNew = false },
-        )
     }
 
     renameTarget?.let { p ->
