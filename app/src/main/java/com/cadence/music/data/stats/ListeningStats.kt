@@ -89,3 +89,22 @@ fun formatListenMinutes(min: Long): String = when {
 
 /** Render a value already scaled to tenths as "X.Y". */
 private fun tenths(v: Long): String = "${v / 10}.${v % 10}"
+
+/**
+ * Compact relative label for a recent-play timestamp against [now] (epoch millis):
+ * "now" under a minute, "Xm" under an hour, "Xh" under a day, "Xd" under a week,
+ * else the calendar date ("MMM d", e.g. "Jan 4"). Dates render in UTC, matching
+ * the UTC week anchoring of the streak math; future timestamps clamp to "now".
+ */
+fun relativeTime(tsMillis: Long, now: Long): String {
+    val delta = (now - tsMillis).coerceAtLeast(0)
+    return when {
+        delta < 60_000L -> "now"
+        delta < 3_600_000L -> "${delta / 60_000L}m"
+        delta < DAY_MS -> "${delta / 3_600_000L}h"
+        delta < WEEK_MS -> "${delta / DAY_MS}d"
+        else -> java.text.SimpleDateFormat("MMM d", java.util.Locale.US).apply {
+            timeZone = java.util.TimeZone.getTimeZone("UTC")
+        }.format(tsMillis)
+    }
+}
