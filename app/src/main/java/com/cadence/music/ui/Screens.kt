@@ -55,6 +55,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -150,7 +151,7 @@ fun SettingsScreen(
     onOpenEqualizer: () -> Unit = {},
     onOpenDownloads: () -> Unit = {},
 ) {
-    var tab by remember(initialTab) { mutableIntStateOf(initialTab) }
+    var tab by rememberSaveable(initialTab) { mutableIntStateOf(initialTab) }
     val tabs = listOf("Appearance", "Server", "Storage", "Playback", "About")
 
     // No Scaffold of its own and the nav Scaffold zeroes insets — pad manually
