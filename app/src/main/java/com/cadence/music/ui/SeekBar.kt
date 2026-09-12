@@ -53,7 +53,9 @@ fun SeekBar(
 
     Spacer(
         modifier
-            .height(28.dp)
+            // 48dp interactive height (a11y minimum); the bar itself stays a slim
+            // 28dp visual because drawBehind centers on size.height / 2.
+            .height(48.dp)
             .semantics {
                 contentDescription = "Seek bar"
                 progressBarRangeInfo = ProgressBarRangeInfo(value.coerceIn(0f, 1f), 0f..1f)

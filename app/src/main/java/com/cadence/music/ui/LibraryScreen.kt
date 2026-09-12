@@ -108,7 +108,7 @@ fun LibraryScreen(
 
     // Seeded from the entry argument so a "Playlists" quick-tile visit can land on
     // tab 3; keyed like SettingsScreen's initialTab so a fresh entry re-seeds.
-    var tab by remember(initialTab) { mutableIntStateOf(initialTab) }
+    var tab by rememberSaveable(initialTab) { mutableIntStateOf(initialTab) }
     var showNewPlaylist by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
@@ -231,9 +231,6 @@ fun TrackRow(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
-                modifier = Modifier.clickable {
-                    if (track.artistName.isNotBlank()) onArtistClick(track.artistName)
-                },
             )
         }
         // A running download replaces the duration with a live spinner — the
@@ -816,7 +813,7 @@ private fun songsTab(
                 )
             }
         }
-        LazyColumn(Modifier.fillMaxSize()) {
+        LazyColumn(Modifier.fillMaxSize().padding(bottom = 96.dp)) {
             items(
                 count = pagingItems.itemCount,
                 key = pagingItems.itemKey { it.id },

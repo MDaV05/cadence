@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -205,7 +206,11 @@ fun AppNav(initialSettingsTab: Int = 0, onDeepLinkConsumed: () -> Unit = {}) {
             startDestination = "home",
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding),
+                .padding(padding)
+                // The outer Scaffold already applied the bottom-bar inset; without
+                // this, inner Scaffolds re-apply it and every tab list ends in
+                // dead space above the nav bar (audit F11).
+                .consumeWindowInsets(padding),
         ) {
             composable("home") { HomeScreen(container, onArtistClick = { name ->
                 navController.navigate("artist/${Uri.encode(name)}")
