@@ -432,7 +432,7 @@ fun NowPlayingScreen(
                 horizontalArrangement = Arrangement.Center,
             ) {
                 if (lyrics.isNotEmpty() || unsynced != null) {
-                    TextButton(onClick = { showQueue = false }) { Text("Lyrics") }
+                    TextButton(onClick = { showFullLyrics = true }) { Text("Lyrics") }
                 }
                 TextButton(onClick = { showQueue = true }) {
                     Icon(Icons.AutoMirrored.Filled.QueueMusic, null, Modifier.size(18.dp))
