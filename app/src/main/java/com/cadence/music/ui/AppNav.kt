@@ -17,6 +17,8 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -28,6 +30,9 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Insights
 import androidx.compose.material.icons.outlined.LibraryMusic
@@ -108,53 +113,15 @@ fun AppNav(initialSettingsTab: Int = 0, onDeepLinkConsumed: () -> Unit = {}) {
                 modifier = if (!hasNavBar) Modifier.navigationBarsPadding() else Modifier,
             ) {
                 val np by container.player.state.collectAsStateWithLifecycle()
+                val skinLayout = com.cadence.music.ui.theme.LocalSkin.current.layout
                 // Hidden on now-playing — the full screen already shows the track.
                 if (np.title.isNotEmpty() && current != "nowplaying") {
-                    val queue by container.player.queueItems.collectAsStateWithLifecycle()
-                    val queueIdx by container.player.queueIndexFlow.collectAsStateWithLifecycle()
-                    androidx.compose.material3.Surface(
-                        color = MaterialTheme.colorScheme.surfaceVariant,
-                        shape = MaterialTheme.shapes.large,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 8.dp, vertical = 4.dp)
-                            .clickable(
-                                role = androidx.compose.ui.semantics.Role.Button,
-                                onClickLabel = "Open now playing",
-                                onClick = { navController.navigate("nowplaying") { launchSingleTop = true } },
-                            ),
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(start = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            TrackArt(
-                                container,
-                                queue.getOrNull(queueIdx)?.mediaId,
-                                Modifier
-                                    .padding(vertical = 8.dp)
-                                    .size(40.dp),
-                            )
-                            Column(Modifier.weight(1f).padding(start = 10.dp)) {
-                                Text(np.title, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
-                                Text(
-                                    np.artist,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                )
-                            }
-                            Crossfade(targetState = np.isPlaying, label = "miniPlay") { playing ->
-                                IconButton(onClick = { container.player.togglePlayPause() }) {
-                                    Icon(
-                                        if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                                        "Play/pause",
-                                        tint = MaterialTheme.colorScheme.primary,
-                                    )
-                                }
-                            }
-                        }
-                    }
+                    MiniPlayer(
+                        container = container,
+                        np = np,
+                        layout = skinLayout,
+                        onOpenNowPlaying = { navController.navigate("nowplaying") { launchSingleTop = true } },
+                    )
                 }
                 if (hasNavBar) {
                     val tabs = listOf(
@@ -164,34 +131,85 @@ fun AppNav(initialSettingsTab: Int = 0, onDeepLinkConsumed: () -> Unit = {}) {
                         NavDest("search", "Search", Icons.Outlined.Search, Icons.Filled.Search),
                         NavDest("settings", "Settings", Icons.Outlined.Settings, Icons.Filled.Settings),
                     )
-                    if (com.cadence.music.ui.theme.LocalSkin.current.layout ==
-                        com.cadence.music.ui.theme.SkinLayout.TURNTABLE
-                    ) {
-                        FloatingPillNav(current, tabs) { route ->
-                            navController.navigate(route) { launchSingleTop = true; popUpTo(navController.graph.startDestinationId) { saveState = true }; restoreState = true }
+                    when (skinLayout) {
+                        com.cadence.music.ui.theme.SkinLayout.TURNTABLE -> {
+                            FloatingPillNav(current, tabs) { route ->
+                                navController.navigate(route) { launchSingleTop = true; popUpTo(navController.graph.startDestinationId) { saveState = true }; restoreState = true }
+                            }
                         }
-                    } else {
-                        val itemColors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = MaterialTheme.colorScheme.primary,
-                            selectedTextColor = MaterialTheme.colorScheme.primary,
-                            indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
-                            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        NavigationBar(
-                            containerColor = MaterialTheme.colorScheme.background,
-                            tonalElevation = 0.dp,
-                        ) {
-                            tabs.forEach { tab ->
-                                NavigationBarItem(
-                                    selected = current == tab.route,
-                                    onClick = {
-                                        navController.navigate(tab.route) { launchSingleTop = true; popUpTo(navController.graph.startDestinationId) { saveState = true }; restoreState = true }
-                                    },
-                                    icon = { Icon(if (current == tab.route) tab.filled else tab.outlined, null) },
-                                    label = { Text(tab.label) },
-                                    colors = itemColors,
-                                )
+                        com.cadence.music.ui.theme.SkinLayout.SPOTIFY -> {
+                            val itemColors = NavigationBarItemDefaults.colors(
+                                selectedIconColor = MaterialTheme.colorScheme.primary,
+                                selectedTextColor = MaterialTheme.colorScheme.primary,
+                                indicatorColor = Color.Transparent,
+                                unselectedIconColor = Color(0xFFB3B3B3),
+                                unselectedTextColor = Color(0xFFB3B3B3),
+                            )
+                            NavigationBar(
+                                containerColor = Color(0xFF121212),
+                                tonalElevation = 0.dp,
+                            ) {
+                                tabs.forEach { tab ->
+                                    NavigationBarItem(
+                                        selected = current == tab.route,
+                                        onClick = {
+                                            navController.navigate(tab.route) { launchSingleTop = true; popUpTo(navController.graph.startDestinationId) { saveState = true }; restoreState = true }
+                                        },
+                                        icon = { Icon(if (current == tab.route) tab.filled else tab.outlined, null) },
+                                        label = { Text(tab.label, style = MaterialTheme.typography.labelSmall) },
+                                        colors = itemColors,
+                                    )
+                                }
+                            }
+                        }
+                        com.cadence.music.ui.theme.SkinLayout.APPLE -> {
+                            val itemColors = NavigationBarItemDefaults.colors(
+                                selectedIconColor = MaterialTheme.colorScheme.primary,
+                                selectedTextColor = MaterialTheme.colorScheme.primary,
+                                indicatorColor = Color.Transparent,
+                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                            )
+                            NavigationBar(
+                                containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
+                                tonalElevation = 0.dp,
+                            ) {
+                                tabs.forEach { tab ->
+                                    NavigationBarItem(
+                                        selected = current == tab.route,
+                                        onClick = {
+                                            navController.navigate(tab.route) { launchSingleTop = true; popUpTo(navController.graph.startDestinationId) { saveState = true }; restoreState = true }
+                                        },
+                                        icon = { Icon(if (current == tab.route) tab.filled else tab.outlined, null) },
+                                        label = { Text(tab.label, style = MaterialTheme.typography.labelSmall) },
+                                        colors = itemColors,
+                                    )
+                                }
+                            }
+                        }
+                        com.cadence.music.ui.theme.SkinLayout.STANDARD -> {
+                            val itemColors = NavigationBarItemDefaults.colors(
+                                selectedIconColor = MaterialTheme.colorScheme.primary,
+                                selectedTextColor = MaterialTheme.colorScheme.primary,
+                                indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            NavigationBar(
+                                containerColor = MaterialTheme.colorScheme.background,
+                                tonalElevation = 0.dp,
+                            ) {
+                                tabs.forEach { tab ->
+                                    NavigationBarItem(
+                                        selected = current == tab.route,
+                                        onClick = {
+                                            navController.navigate(tab.route) { launchSingleTop = true; popUpTo(navController.graph.startDestinationId) { saveState = true }; restoreState = true }
+                                        },
+                                        icon = { Icon(if (current == tab.route) tab.filled else tab.outlined, null) },
+                                        label = { Text(tab.label) },
+                                        colors = itemColors,
+                                    )
+                                }
                             }
                         }
                     }
@@ -309,6 +327,184 @@ fun AppNav(initialSettingsTab: Int = 0, onDeepLinkConsumed: () -> Unit = {}) {
                     },
                     onBack = { navController.popBackStack() },
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun MiniPlayer(
+    container: AppContainer,
+    np: com.cadence.music.playback.NowPlaying,
+    layout: com.cadence.music.ui.theme.SkinLayout,
+    onOpenNowPlaying: () -> Unit,
+) {
+    val queue by container.player.queueItems.collectAsStateWithLifecycle()
+    val queueIdx by container.player.queueIndexFlow.collectAsStateWithLifecycle()
+    val mediaId = queue.getOrNull(queueIdx)?.mediaId
+
+    when (layout) {
+        com.cadence.music.ui.theme.SkinLayout.SPOTIFY -> {
+            androidx.compose.material3.Surface(
+                color = Color(0xFF282828),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 3.dp)
+                    .clickable(
+                        role = androidx.compose.ui.semantics.Role.Button,
+                        onClickLabel = "Open now playing",
+                        onClick = onOpenNowPlaying,
+                    ),
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    TrackArt(
+                        container,
+                        mediaId,
+                        Modifier.size(38.dp),
+                        RoundedCornerShape(4.dp),
+                    )
+                    Column(
+                        Modifier
+                            .weight(1f)
+                            .padding(start = 10.dp, end = 6.dp)
+                    ) {
+                        Text(
+                            np.title,
+                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            np.artist,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFFB3B3B3),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    Crossfade(targetState = np.isPlaying, label = "miniPlaySpotify") { playing ->
+                        IconButton(onClick = { container.player.togglePlayPause() }) {
+                            Icon(
+                                if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                                "Play/pause",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(28.dp),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        com.cadence.music.ui.theme.SkinLayout.APPLE -> {
+            androidx.compose.material3.Surface(
+                color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.95f),
+                shape = RoundedCornerShape(14.dp),
+                border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)),
+                shadowElevation = 4.dp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 4.dp)
+                    .clickable(
+                        role = androidx.compose.ui.semantics.Role.Button,
+                        onClickLabel = "Open now playing",
+                        onClick = onOpenNowPlaying,
+                    ),
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    TrackArt(
+                        container,
+                        mediaId,
+                        Modifier.size(40.dp),
+                        RoundedCornerShape(8.dp),
+                    )
+                    Column(
+                        Modifier
+                            .weight(1f)
+                            .padding(start = 10.dp, end = 6.dp)
+                    ) {
+                        Text(
+                            np.title,
+                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            np.artist,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    Crossfade(targetState = np.isPlaying, label = "miniPlayApple") { playing ->
+                        IconButton(onClick = { container.player.togglePlayPause() }) {
+                            Icon(
+                                if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                                "Play/pause",
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                    }
+                    IconButton(onClick = { container.player.next() }) {
+                        Icon(
+                            Icons.Filled.SkipNext,
+                            "Next",
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                }
+            }
+        }
+        else -> {
+            androidx.compose.material3.Surface(
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                shape = MaterialTheme.shapes.large,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                    .clickable(
+                        role = androidx.compose.ui.semantics.Role.Button,
+                        onClickLabel = "Open now playing",
+                        onClick = onOpenNowPlaying,
+                    ),
+            ) {
+                Row(
+                    modifier = Modifier.padding(start = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    TrackArt(
+                        container,
+                        mediaId,
+                        Modifier
+                            .padding(vertical = 8.dp)
+                            .size(40.dp),
+                    )
+                    Column(Modifier.weight(1f).padding(start = 10.dp)) {
+                        Text(np.title, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
+                        Text(
+                            np.artist,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                        )
+                    }
+                    Crossfade(targetState = np.isPlaying, label = "miniPlay") { playing ->
+                        IconButton(onClick = { container.player.togglePlayPause() }) {
+                            Icon(
+                                if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                                "Play/pause",
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                    }
+                }
             }
         }
     }

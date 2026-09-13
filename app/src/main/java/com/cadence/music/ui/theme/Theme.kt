@@ -32,7 +32,7 @@ import com.cadence.music.data.db.CustomThemeEntity
  * full geometric grotesque (Outfit); SERIF_DISPLAY pairs an expressive serif
  * (Fraunces) for display/title text with the platform sans for dense UI.
  */
-enum class SkinFont { DEFAULT, GEOMETRIC, SERIF_DISPLAY }
+enum class SkinFont { DEFAULT, GEOMETRIC, SERIF_DISPLAY, SANS, MONO }
 
 /**
  * Corner personality of a skin, delivered through MaterialTheme.shapes so
@@ -43,13 +43,14 @@ enum class SkinCorners { SOFT, PILL, SHARP }
 /**
  * Layout skin. STANDARD keeps the single shared composition; TURNTABLE swaps
  * the bottom navigation for a floating pill and renders Now Playing as a
- * spinning record. Screens branch only on this — everything else stays shared.
+ * spinning record; SPOTIFY adapts the nav, mini player, and now playing sheet;
+ * APPLE adapts the floating mini player, ambient blur, and Cupertino controls.
  */
-enum class SkinLayout { STANDARD, TURNTABLE }
+enum class SkinLayout { STANDARD, TURNTABLE, SPOTIFY, APPLE }
 
 /**
  * A theme: accent + background colors for light and dark, plus optional skin
- * personality (type, corners, layout). Custom user themes only pick colors.
+ * personality (type, corners, layout). Custom user themes also specify these.
  */
 data class ThemeSpec(
     val id: String,
@@ -64,29 +65,78 @@ data class ThemeSpec(
 )
 
 fun customToSpec(e: CustomThemeEntity) = ThemeSpec(
-    id = "custom:${e.name}", name = e.name,
-    accentLight = e.accentLight, accentDark = e.accentDark,
-    bgLight = e.bgLight, bgDark = e.bgDark,
+    id = "custom:${e.name}",
+    name = e.name,
+    accentLight = e.accentLight,
+    accentDark = e.accentDark,
+    bgLight = e.bgLight,
+    bgDark = e.bgDark,
+    font = runCatching { SkinFont.valueOf(e.font) }.getOrDefault(SkinFont.DEFAULT),
+    corners = runCatching { SkinCorners.valueOf(e.corners) }.getOrDefault(SkinCorners.SOFT),
+    layout = runCatching { SkinLayout.valueOf(e.layout) }.getOrDefault(SkinLayout.STANDARD),
 )
 
-// Built-in presets. Iris is the Cadence brand (sharp, blue-leaning violet).
-// Two presets are full skins: Spotify (geometric type, pill corners) and
-// Analog (serif display, sharp corners, turntable layout).
+// Exactly 5 curated built-in presets with distinct identities:
+// 1. Iris: signature Cadence modern brand violet
+// 2. Spotify: streaming dark, geometric type, pill controls, Spotify layout
+// 3. Apple Music: Cupertino crisp red, clean sans, soft corners, Apple layout
+// 4. Analog: warm sienna/cream, Fraunces serif display, sharp corners, turntable vinyl
+// 5. Studio: electric cyan, JetBrains Mono typography, sharp corners, hardware aesthetic
 val BUILTIN_THEMES = listOf(
-    ThemeSpec("iris", "Iris", 0xFF6B4EE8.toInt(), 0xFF9D8BFF.toInt(), 0xFFFAFAFC.toInt(), 0xFF0E0E13.toInt()),
-    ThemeSpec("applemusic", "Apple Music", 0xFFFA2D48.toInt(), 0xFFFC5163.toInt(), 0xFFFFFFFF.toInt(), 0xFF000000.toInt()),
     ThemeSpec(
-        "spotify", "Spotify", 0xFF1DB954.toInt(), 0xFF1ED760.toInt(), 0xFFFFFFFF.toInt(), 0xFF121212.toInt(),
-        font = SkinFont.GEOMETRIC, corners = SkinCorners.PILL,
+        id = "iris",
+        name = "Iris",
+        accentLight = 0xFF6B4EE8.toInt(),
+        accentDark = 0xFF9D8BFF.toInt(),
+        bgLight = 0xFFFAFAFC.toInt(),
+        bgDark = 0xFF0E0E13.toInt(),
+        font = SkinFont.DEFAULT,
+        corners = SkinCorners.SOFT,
+        layout = SkinLayout.STANDARD,
     ),
-    ThemeSpec("ocean", "Ocean", 0xFF1B74D3.toInt(), 0xFF7FB2F0.toInt(), 0xFFFAFBFC.toInt(), 0xFF0C1116.toInt()),
-    ThemeSpec("rose", "Rose", 0xFFC6406E.toInt(), 0xFFEF9BB6.toInt(), 0xFFFCFAFB.toInt(), 0xFF140D10.toInt()),
-    ThemeSpec("forest", "Forest", 0xFF2E7D4F.toInt(), 0xFF93CBA9.toInt(), 0xFFFAFBF9.toInt(), 0xFF0C120E.toInt()),
-    ThemeSpec("amber", "Amber", 0xFFB4690E.toInt(), 0xFFE5B258.toInt(), 0xFFFCFBF8.toInt(), 0xFF12100B.toInt()),
-    ThemeSpec("mono", "Mono", 0xFF3D3D3D.toInt(), 0xFFC9C9C9.toInt(), 0xFFFAFAFA.toInt(), 0xFF101010.toInt()),
     ThemeSpec(
-        "analog", "Analog", 0xFFA8431C.toInt(), 0xFFE5734A.toInt(), 0xFFF5EFE5.toInt(), 0xFF171310.toInt(),
-        font = SkinFont.SERIF_DISPLAY, corners = SkinCorners.SHARP, layout = SkinLayout.TURNTABLE,
+        id = "spotify",
+        name = "Spotify",
+        accentLight = 0xFF1DB954.toInt(),
+        accentDark = 0xFF1ED760.toInt(),
+        bgLight = 0xFFFFFFFF.toInt(),
+        bgDark = 0xFF121212.toInt(),
+        font = SkinFont.GEOMETRIC,
+        corners = SkinCorners.PILL,
+        layout = SkinLayout.SPOTIFY,
+    ),
+    ThemeSpec(
+        id = "applemusic",
+        name = "Apple Music",
+        accentLight = 0xFFFA2D48.toInt(),
+        accentDark = 0xFFFC5163.toInt(),
+        bgLight = 0xFFFFFFFF.toInt(),
+        bgDark = 0xFF000000.toInt(),
+        font = SkinFont.SANS,
+        corners = SkinCorners.SOFT,
+        layout = SkinLayout.APPLE,
+    ),
+    ThemeSpec(
+        id = "analog",
+        name = "Analog",
+        accentLight = 0xFFA8431C.toInt(),
+        accentDark = 0xFFE5734A.toInt(),
+        bgLight = 0xFFF5EFE5.toInt(),
+        bgDark = 0xFF171310.toInt(),
+        font = SkinFont.SERIF_DISPLAY,
+        corners = SkinCorners.SHARP,
+        layout = SkinLayout.TURNTABLE,
+    ),
+    ThemeSpec(
+        id = "studio",
+        name = "Studio",
+        accentLight = 0xFF0099B8.toInt(),
+        accentDark = 0xFF00E5FF.toInt(),
+        bgLight = 0xFFF4F6F8.toInt(),
+        bgDark = 0xFF0A0D10.toInt(),
+        font = SkinFont.MONO,
+        corners = SkinCorners.SHARP,
+        layout = SkinLayout.STANDARD,
     ),
 )
 
@@ -120,29 +170,53 @@ private val SerifDisplayFamily = FontFamily(
         variationSettings = FontVariation.Settings(FontVariation.weight(700), FontVariation.Setting("opsz", 44f))),
 )
 
+// Inter — clean, optical grotesque sans for Apple Music and modern UI
+private val SansFamily = FontFamily(
+    Font(R.font.inter, FontWeight.Normal),
+    Font(R.font.inter, FontWeight.Medium,
+        variationSettings = FontVariation.Settings(FontVariation.weight(500))),
+    Font(R.font.inter, FontWeight.SemiBold,
+        variationSettings = FontVariation.Settings(FontVariation.weight(600))),
+    Font(R.font.inter, FontWeight.Bold,
+        variationSettings = FontVariation.Settings(FontVariation.weight(700))),
+)
+
+// JetBrains Mono — precision monospace for Studio / synth interfaces
+private val MonoFamily = FontFamily(
+    Font(R.font.jetbrainsmono, FontWeight.Normal),
+    Font(R.font.jetbrainsmono, FontWeight.Medium,
+        variationSettings = FontVariation.Settings(FontVariation.weight(500))),
+    Font(R.font.jetbrainsmono, FontWeight.SemiBold,
+        variationSettings = FontVariation.Settings(FontVariation.weight(600))),
+    Font(R.font.jetbrainsmono, FontWeight.Bold,
+        variationSettings = FontVariation.Settings(FontVariation.weight(700))),
+)
+
 private fun TextStyle.withFamily(family: FontFamily) = copy(fontFamily = family)
 
-private fun typographyFor(font: SkinFont): Typography {
+private fun Typography.withAllFamily(family: FontFamily) = Typography(
+    displayLarge = displayLarge.withFamily(family),
+    displayMedium = displayMedium.withFamily(family),
+    displaySmall = displaySmall.withFamily(family),
+    headlineLarge = headlineLarge.withFamily(family),
+    headlineMedium = headlineMedium.withFamily(family),
+    headlineSmall = headlineSmall.withFamily(family),
+    titleLarge = titleLarge.withFamily(family),
+    titleMedium = titleMedium.withFamily(family),
+    titleSmall = titleSmall.withFamily(family),
+    bodyLarge = bodyLarge.withFamily(family),
+    bodyMedium = bodyMedium.withFamily(family),
+    bodySmall = bodySmall.withFamily(family),
+    labelLarge = labelLarge.withFamily(family),
+    labelMedium = labelMedium.withFamily(family),
+    labelSmall = labelSmall.withFamily(family),
+)
+
+internal fun typographyFor(font: SkinFont): Typography {
     val base = Typography()
     return when (font) {
         SkinFont.DEFAULT -> base
-        SkinFont.GEOMETRIC -> Typography(
-            displayLarge = base.displayLarge.withFamily(GeometricFamily),
-            displayMedium = base.displayMedium.withFamily(GeometricFamily),
-            displaySmall = base.displaySmall.withFamily(GeometricFamily),
-            headlineLarge = base.headlineLarge.withFamily(GeometricFamily),
-            headlineMedium = base.headlineMedium.withFamily(GeometricFamily),
-            headlineSmall = base.headlineSmall.withFamily(GeometricFamily),
-            titleLarge = base.titleLarge.withFamily(GeometricFamily),
-            titleMedium = base.titleMedium.withFamily(GeometricFamily),
-            titleSmall = base.titleSmall.withFamily(GeometricFamily),
-            bodyLarge = base.bodyLarge.withFamily(GeometricFamily),
-            bodyMedium = base.bodyMedium.withFamily(GeometricFamily),
-            bodySmall = base.bodySmall.withFamily(GeometricFamily),
-            labelLarge = base.labelLarge.withFamily(GeometricFamily),
-            labelMedium = base.labelMedium.withFamily(GeometricFamily),
-            labelSmall = base.labelSmall.withFamily(GeometricFamily),
-        )
+        SkinFont.GEOMETRIC -> base.withAllFamily(GeometricFamily)
         SkinFont.SERIF_DISPLAY -> Typography(
             displayLarge = base.displayLarge.withFamily(SerifDisplayFamily),
             displayMedium = base.displayMedium.withFamily(SerifDisplayFamily),
@@ -153,6 +227,8 @@ private fun typographyFor(font: SkinFont): Typography {
             titleLarge = base.titleLarge.withFamily(SerifDisplayFamily),
             titleMedium = base.titleMedium.withFamily(SerifDisplayFamily),
         )
+        SkinFont.SANS -> base.withAllFamily(SansFamily)
+        SkinFont.MONO -> base.withAllFamily(MonoFamily)
     }
 }
 
@@ -161,7 +237,7 @@ private fun typographyFor(font: SkinFont): Typography {
  * (8–24dp; a couple of large surfaces land 2dp off), PILL gives fully
  * rounded buttons and chips via shapes.small, SHARP flattens everything.
  */
-private fun shapesFor(corners: SkinCorners): Shapes = when (corners) {
+internal fun shapesFor(corners: SkinCorners): Shapes = when (corners) {
     SkinCorners.SOFT -> Shapes(
         extraSmall = RoundedCornerShape(8.dp),
         small = RoundedCornerShape(10.dp),
@@ -188,7 +264,7 @@ private fun shapesFor(corners: SkinCorners): Shapes = when (corners) {
 private fun lighten(c: Color, f: Float) = lerp(c, Color.White, f)
 private fun darken(c: Color, f: Float) = lerp(c, Color.Black, f)
 
-private fun schemeFor(spec: ThemeSpec, dark: Boolean): ColorScheme {
+internal fun schemeFor(spec: ThemeSpec, dark: Boolean): ColorScheme {
     val accent = Color(if (dark) spec.accentDark else spec.accentLight)
     val bg = Color(if (dark) spec.bgDark else spec.bgLight)
     val onAccent = if (accent.luminance() > 0.55f) Color.Black else Color.White
