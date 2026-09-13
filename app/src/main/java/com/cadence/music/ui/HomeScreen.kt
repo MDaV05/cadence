@@ -23,8 +23,15 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.LibraryMusic
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.ui.unit.sp
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -183,41 +190,95 @@ private fun greeting(): String {
 
 @Composable
 private fun GreetingBanner(total: Int, onShuffleAll: () -> Unit, modifier: Modifier = Modifier) {
-    Box(
-        modifier
-            .fillMaxWidth()
-            .clip(MaterialTheme.shapes.extraLarge)
-            .background(
-                Brush.linearGradient(
-                    listOf(
-                        MaterialTheme.colorScheme.primary.copy(alpha = 0.22f),
-                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f),
+    val skinLayout = com.cadence.music.ui.theme.LocalSkin.current.layout
+    if (skinLayout == com.cadence.music.ui.theme.SkinLayout.APPLE) {
+        val dateFormat = remember { SimpleDateFormat("EEEE, MMMM d", Locale.US) }
+        val dateText = remember { dateFormat.format(Date()).uppercase() }
+        Column(
+            modifier = modifier
+                .fillMaxWidth()
+                .padding(horizontal = 4.dp, vertical = 6.dp)
+        ) {
+            Text(
+                dateText,
+                style = MaterialTheme.typography.labelMedium.copy(
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.sp,
+                ),
+                color = MaterialTheme.colorScheme.primary,
+            )
+            Spacer(Modifier.height(4.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f).padding(end = 12.dp)) {
+                    Text(
+                        "Listen Now",
+                        style = MaterialTheme.typography.headlineLarge.copy(
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = (-0.5).sp,
+                        ),
+                    )
+                    Text(
+                        "$total tracks in your library",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                FilledTonalButton(
+                    onClick = onShuffleAll,
+                    shape = RoundedCornerShape(percent = 50),
+                    colors = ButtonDefaults.filledTonalButtonColors(
+                        containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                        contentColor = MaterialTheme.colorScheme.primary,
+                    ),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                ) {
+                    Icon(Icons.Filled.Shuffle, null, Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Shuffle", style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold))
+                }
+            }
+        }
+    } else {
+        Box(
+            modifier
+                .fillMaxWidth()
+                .clip(MaterialTheme.shapes.extraLarge)
+                .background(
+                    Brush.linearGradient(
+                        listOf(
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.22f),
+                            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f),
+                        )
                     )
                 )
-            )
-            .padding(20.dp),
-    ) {
-        Column {
-            Text(
-                greeting(),
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold,
-            )
-            Text(
-                "$total tracks in your library",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.height(14.dp))
-            Button(
-                onClick = onShuffleAll,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                ),
-            ) {
-                Icon(Icons.Filled.Shuffle, null, Modifier.padding(end = 6.dp).size(18.dp))
-                Text("Shuffle all")
+                .padding(20.dp),
+        ) {
+            Column {
+                Text(
+                    greeting(),
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    "$total tracks in your library",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(14.dp))
+                Button(
+                    onClick = onShuffleAll,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                    ),
+                ) {
+                    Icon(Icons.Filled.Shuffle, null, Modifier.padding(end = 6.dp).size(18.dp))
+                    Text("Shuffle all")
+                }
             }
         }
     }
@@ -230,10 +291,14 @@ private fun QuickTile(
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
+    val isApple = com.cadence.music.ui.theme.LocalSkin.current.layout == com.cadence.music.ui.theme.SkinLayout.APPLE
+    val shape = if (isApple) RoundedCornerShape(12.dp) else MaterialTheme.shapes.large
+    val bg = if (isApple) MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.7f)
+             else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
     Box(
         modifier
-            .clip(MaterialTheme.shapes.large)
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
+            .clip(shape)
+            .background(bg)
             .clickable(onClick = onClick)
             .padding(vertical = 18.dp),
         contentAlignment = Alignment.Center,

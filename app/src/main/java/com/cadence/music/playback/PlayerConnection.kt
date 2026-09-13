@@ -238,7 +238,13 @@ class PlayerConnection(
     }
 
     fun togglePlayPause() {
-        controller?.takeIf { it.isPlaying }?.pause() ?: controller?.play()
+        val c = controller ?: return
+        if (c.isPlaying) {
+            c.pause()
+        } else {
+            if (c.playbackState == Player.STATE_ENDED) c.seekTo(0)
+            c.play()
+        }
     }
 
     fun seekTo(positionMs: Long) {

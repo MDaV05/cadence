@@ -1,6 +1,12 @@
 package com.cadence.music.ui
 
+import android.content.Context
+import android.media.AudioManager
 import android.widget.Toast
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -17,6 +23,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -29,6 +36,10 @@ import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
+import androidx.compose.material.icons.automirrored.filled.VolumeDown
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material.icons.filled.Airplay
+import androidx.compose.material.icons.filled.Album
 import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Download
@@ -36,16 +47,22 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.FormatQuote
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.RepeatOne
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -53,8 +70,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.ui.unit.sp
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -245,8 +265,8 @@ fun NowPlayingScreen(
 
     val gradientColors = when {
         apple -> listOf(
-            (accent ?: primary).copy(alpha = 0.55f),
-            (accent ?: primary).copy(alpha = 0.22f),
+            (accent ?: primary).copy(alpha = 0.65f),
+            (accent ?: primary).copy(alpha = 0.28f),
             bg,
             bg,
         )
@@ -296,9 +316,57 @@ fun NowPlayingScreen(
                                 )
                             }
                         }
+                    } else if (apple) {
+                        Box(
+                            Modifier
+                                .width(36.dp)
+                                .height(5.dp)
+                                .clip(CircleShape)
+                                .background(Color.White.copy(alpha = 0.35f))
+                        )
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (turntable) {
+                        if (apple) {
+                            var showMenu by remember { mutableStateOf(false) }
+                            Box {
+                                IconButton(onClick = { showMenu = true }) {
+                                    Icon(
+                                        Icons.Filled.MoreHoriz,
+                                        "Options",
+                                        Modifier.size(24.dp),
+                                        tint = MaterialTheme.colorScheme.onSurface,
+                                    )
+                                }
+                                DropdownMenu(
+                                    expanded = showMenu,
+                                    onDismissRequest = { showMenu = false }
+                                ) {
+                                    DropdownMenuItem(
+                                        text = { Text("Sleep timer") },
+                                        leadingIcon = { Icon(Icons.Filled.Bedtime, null) },
+                                        onClick = { showMenu = false; showSleepDialog = true }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("View album") },
+                                        leadingIcon = { Icon(Icons.Filled.Album, null) },
+                                        enabled = currentTrack?.albumName?.isNotBlank() == true,
+                                        onClick = {
+                                            showMenu = false
+                                            currentTrack?.albumName?.let(onAlbumClick)
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("View artist") },
+                                        leadingIcon = { Icon(Icons.Filled.Person, null) },
+                                        enabled = currentTrack?.artistName?.isNotBlank() == true,
+                                        onClick = {
+                                            showMenu = false
+                                            currentTrack?.artistName?.let(onArtistClick)
+                                        }
+                                    )
+                                }
+                            }
+                        } else if (turntable) {
                             IconButton(onClick = { showQueue = true }) {
                                 Icon(
                                     Icons.AutoMirrored.Filled.QueueMusic,
@@ -479,66 +547,34 @@ fun NowPlayingScreen(
                     }
                 }
             } else if (apple) {
-                // Apple Music layout: centered bold title + primary accent artist
-                Text(
-                    state.title.ifEmpty { "Nothing playing" },
-                    style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(top = 24.dp),
-                )
-                Text(
-                    trackArtist ?: state.artist,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = primary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    textAlign = TextAlign.Center,
+                // Apple Music Title Row: Left-aligned bold title + artist, Star favorite on right
+                Row(
                     modifier = Modifier
-                        .padding(top = 2.dp)
-                        .clickable(enabled = trackArtist != null) { trackArtist?.let(onArtistClick) },
-                )
-
-                SeekBar(
-                    value = if (duration > 0) position.toFloat() / duration else 0f,
-                    onSeekFinished = { fraction -> player.seekTo((fraction * duration).toLong()) },
-                    modifier = Modifier.fillMaxWidth().padding(top = 20.dp),
-                )
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Text(formatDuration(position), style = MaterialTheme.typography.bodySmall)
-                    Text(formatDuration(duration), style = MaterialTheme.typography.bodySmall)
-                }
-
-                Row(
-                    Modifier.fillMaxWidth().padding(top = 16.dp),
-                    horizontalArrangement = Arrangement.Center,
+                        .fillMaxWidth()
+                        .padding(top = 28.dp, bottom = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    IconButton(onClick = { player.previous() }) {
-                        Icon(Icons.Filled.SkipPrevious, "Previous", Modifier.size(40.dp))
-                    }
-                    Spacer(Modifier.size(28.dp))
-                    IconButton(onClick = { player.togglePlayPause() }) {
-                        Icon(
-                            if (state.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                            "Play/pause",
-                            Modifier.size(56.dp),
-                            tint = primary,
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            state.title.ifEmpty { "Nothing playing" },
+                            style = MaterialTheme.typography.titleLarge.copy(
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = (-0.5).sp,
+                            ),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            trackArtist ?: state.artist,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier
+                                .padding(top = 2.dp)
+                                .clickable(enabled = trackArtist != null) { trackArtist?.let(onArtistClick) },
                         )
                     }
-                    Spacer(Modifier.size(28.dp))
-                    IconButton(onClick = { player.next() }) {
-                        Icon(Icons.Filled.SkipNext, "Next", Modifier.size(40.dp))
-                    }
-                }
-
-                Row(
-                    Modifier.fillMaxWidth().padding(top = 16.dp),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
                     if (currentTrack != null) {
                         IconButton(onClick = {
                             val t = currentTrack ?: return@IconButton
@@ -550,43 +586,182 @@ fun NowPlayingScreen(
                             }
                         }) {
                             Icon(
-                                if (starred) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
-                                if (starred) "Unlike" else "Like",
-                                Modifier.size(22.dp),
-                                tint = if (starred) primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                if (starred) Icons.Filled.Star else Icons.Outlined.StarBorder,
+                                if (starred) "Favorited" else "Favorite",
+                                Modifier.size(26.dp),
+                                tint = if (starred) primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                             )
                         }
-                        Spacer(Modifier.size(20.dp))
                     }
+                }
+
+                SeekBar(
+                    value = if (duration > 0) position.toFloat() / duration else 0f,
+                    onSeekFinished = { fraction -> player.seekTo((fraction * duration).toLong()) },
+                    modifier = Modifier.fillMaxWidth().padding(top = 20.dp),
+                )
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(
+                        formatDuration(position),
+                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    val remaining = (duration - position).coerceAtLeast(0L)
+                    Text(
+                        "-${formatDuration(remaining)}",
+                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+
+                // Apple Music Transport Row
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(top = 20.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     IconButton(onClick = { player.toggleShuffle() }) {
                         Icon(
-                            Icons.Filled.Shuffle, "Shuffle", Modifier.size(22.dp),
-                            tint = if (state.shuffle) primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            Icons.Filled.Shuffle,
+                            "Shuffle",
+                            Modifier.size(24.dp),
+                            tint = if (state.shuffle) primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                         )
                     }
-                    Spacer(Modifier.size(20.dp))
+                    IconButton(onClick = { player.previous() }) {
+                        Icon(
+                            Icons.Filled.SkipPrevious,
+                            "Previous",
+                            Modifier.size(42.dp),
+                            tint = MaterialTheme.colorScheme.onSurface,
+                        )
+                    }
+                    IconButton(
+                        onClick = { player.togglePlayPause() },
+                        modifier = Modifier.size(64.dp),
+                    ) {
+                        Icon(
+                            if (state.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                            "Play/pause",
+                            Modifier.size(54.dp),
+                            tint = MaterialTheme.colorScheme.onSurface,
+                        )
+                    }
+                    IconButton(onClick = { player.next() }) {
+                        Icon(
+                            Icons.Filled.SkipNext,
+                            "Next",
+                            Modifier.size(42.dp),
+                            tint = MaterialTheme.colorScheme.onSurface,
+                        )
+                    }
                     IconButton(onClick = { player.cycleRepeat() }) {
                         Icon(
                             if (state.repeatMode == Player.REPEAT_MODE_ONE) Icons.Filled.RepeatOne else Icons.Filled.Repeat,
-                            "Repeat", Modifier.size(22.dp),
-                            tint = if (state.repeatMode != Player.REPEAT_MODE_OFF) primary
-                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                            "Repeat",
+                            Modifier.size(24.dp),
+                            tint = if (state.repeatMode != Player.REPEAT_MODE_OFF) primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                         )
                     }
-                    if (lyrics.isNotEmpty() || unsynced != null) {
-                        Spacer(Modifier.size(20.dp))
-                        IconButton(onClick = { showFullLyrics = true }) {
-                            Icon(
-                                Icons.Filled.FormatQuote, "Lyrics", Modifier.size(22.dp),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                    Spacer(Modifier.size(20.dp))
-                    IconButton(onClick = { showQueue = true }) {
+                }
+
+                // Apple Music In-Player Volume Slider
+                val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
+                var currentVol by remember {
+                    mutableIntStateOf(runCatching { audioManager.getStreamVolume(AudioManager.STREAM_MUSIC) }.getOrDefault(0))
+                }
+                val maxVol = remember {
+                    runCatching { audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC) }.getOrDefault(15)
+                }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 4.dp, vertical = 20.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.VolumeDown,
+                        "Volume down",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Slider(
+                        value = if (maxVol > 0) (currentVol.toFloat() / maxVol).coerceIn(0f, 1f) else 0f,
+                        onValueChange = { fraction ->
+                            val target = (fraction * maxVol).roundToInt()
+                            currentVol = target
+                            runCatching { audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, target, 0) }
+                        },
+                        colors = SliderDefaults.colors(
+                            thumbColor = Color.White,
+                            activeTrackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
+                            inactiveTrackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f),
+                        ),
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(horizontal = 12.dp),
+                    )
+                    Icon(
+                        Icons.AutoMirrored.Filled.VolumeUp,
+                        "Volume up",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+
+                // Apple Music Bottom Utilities
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    val hasLyrics = lyrics.isNotEmpty() || unsynced != null
+                    IconButton(
+                        onClick = { if (hasLyrics) showFullLyrics = true },
+                        enabled = hasLyrics,
+                        modifier = if (showFullLyrics) {
+                            Modifier
+                                .size(40.dp)
+                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.25f), CircleShape)
+                        } else Modifier.size(40.dp)
+                    ) {
                         Icon(
-                            Icons.AutoMirrored.Filled.QueueMusic, "Queue", Modifier.size(22.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            Icons.Filled.FormatQuote,
+                            "Lyrics",
+                            Modifier.size(24.dp),
+                            tint = if (hasLyrics) MaterialTheme.colorScheme.onSurface
+                            else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.35f),
+                        )
+                    }
+
+                    IconButton(
+                        onClick = { showSleepDialog = true },
+                        modifier = Modifier.size(40.dp),
+                    ) {
+                        Icon(
+                            Icons.Filled.Airplay,
+                            "Output",
+                            Modifier.size(22.dp),
+                            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f),
+                        )
+                    }
+
+                    IconButton(
+                        onClick = { showQueue = true },
+                        modifier = Modifier.size(40.dp),
+                    ) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.QueueMusic,
+                            "Queue",
+                            Modifier.size(24.dp),
+                            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f),
                         )
                     }
                 }
@@ -773,49 +948,51 @@ fun NowPlayingScreen(
 
             // Current lyric line preview under transport
             val unsyncedText = unsynced
-            if (!showQueue && lyrics.isNotEmpty() && currentLine >= 0) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        lyrics[currentLine].text,
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.primary,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.weight(1f, fill = false),
-                    )
-                    TextButton(onClick = { showFullLyrics = true }) {
-                        Text("Full screen", style = MaterialTheme.typography.labelMedium)
+            if (!spotify && !apple) {
+                if (!showQueue && lyrics.isNotEmpty() && currentLine >= 0) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            lyrics[currentLine].text,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.primary,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
+                        TextButton(onClick = { showFullLyrics = true }) {
+                            Text("Full screen", style = MaterialTheme.typography.labelMedium)
+                        }
                     }
-                }
-            } else if (!showQueue && unsyncedText != null) {
-                // Unsynced static block: no per-line timing, plain styling.
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
+                } else if (!showQueue && unsyncedText != null) {
+                    // Unsynced static block: no per-line timing, plain styling.
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            unsyncedText,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
+                        TextButton(onClick = { showFullLyrics = true }) {
+                            Text("Full screen", style = MaterialTheme.typography.labelMedium)
+                        }
+                    }
+                } else if (!showQueue && lyrics.isNotEmpty()) {
                     Text(
-                        unsyncedText,
-                        style = MaterialTheme.typography.bodyMedium,
+                        "Lyrics available",
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false),
                     )
-                    TextButton(onClick = { showFullLyrics = true }) {
-                        Text("Full screen", style = MaterialTheme.typography.labelMedium)
-                    }
                 }
-            } else if (!showQueue && lyrics.isNotEmpty()) {
-                Text(
-                    "Lyrics available",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
             }
         }
     }
@@ -1058,12 +1235,45 @@ private fun NpCover(
             Modifier.size(310.dp),
             RoundedCornerShape(8.dp),
         )
-        com.cadence.music.ui.theme.SkinLayout.APPLE -> TrackArt(
-            container,
-            mediaId,
-            Modifier.size(300.dp),
-            RoundedCornerShape(16.dp),
-        )
+        com.cadence.music.ui.theme.SkinLayout.APPLE -> {
+            val targetScale = if (playing) 1.0f else 0.84f
+            val scale by animateFloatAsState(
+                targetValue = targetScale,
+                animationSpec = spring(
+                    dampingRatio = 0.75f,
+                    stiffness = 250f,
+                ),
+                label = "appleArtScale",
+            )
+            val shadowElevation = if (playing) 18.dp else 4.dp
+            val elevation by animateDpAsState(
+                targetValue = shadowElevation,
+                animationSpec = tween(durationMillis = 350),
+                label = "appleArtElevation",
+            )
+            Box(
+                modifier = Modifier.size(310.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                androidx.compose.material3.Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    shadowElevation = elevation,
+                    modifier = Modifier
+                        .size(310.dp)
+                        .graphicsLayer {
+                            scaleX = scale
+                            scaleY = scale
+                        },
+                ) {
+                    TrackArt(
+                        container,
+                        mediaId,
+                        Modifier.fillMaxSize(),
+                        RoundedCornerShape(14.dp),
+                    )
+                }
+            }
+        }
         com.cadence.music.ui.theme.SkinLayout.STANDARD -> TrackArt(
             container,
             mediaId,

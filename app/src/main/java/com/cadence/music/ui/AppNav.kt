@@ -18,10 +18,17 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableLongStateOf
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Insights
@@ -167,23 +174,30 @@ fun AppNav(initialSettingsTab: Int = 0, onDeepLinkConsumed: () -> Unit = {}) {
                                 selectedIconColor = MaterialTheme.colorScheme.primary,
                                 selectedTextColor = MaterialTheme.colorScheme.primary,
                                 indicatorColor = Color.Transparent,
-                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                unselectedIconColor = Color(0xFF8E8E93),
+                                unselectedTextColor = Color(0xFF8E8E93),
                             )
-                            NavigationBar(
-                                containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
-                                tonalElevation = 0.dp,
-                            ) {
-                                tabs.forEach { tab ->
-                                    NavigationBarItem(
-                                        selected = current == tab.route,
-                                        onClick = {
-                                            navController.navigate(tab.route) { launchSingleTop = true; popUpTo(navController.graph.startDestinationId) { saveState = true }; restoreState = true }
-                                        },
-                                        icon = { Icon(if (current == tab.route) tab.filled else tab.outlined, null) },
-                                        label = { Text(tab.label, style = MaterialTheme.typography.labelSmall) },
-                                        colors = itemColors,
-                                    )
+                            Column {
+                                HorizontalDivider(
+                                    thickness = 0.5.dp,
+                                    color = Color.White.copy(alpha = 0.12f),
+                                )
+                                NavigationBar(
+                                    containerColor = Color(0xFA161618),
+                                    tonalElevation = 0.dp,
+                                ) {
+                                    tabs.forEach { tab ->
+                                        val label = if (tab.route == "home") "Listen Now" else tab.label
+                                        NavigationBarItem(
+                                            selected = current == tab.route,
+                                            onClick = {
+                                                navController.navigate(tab.route) { launchSingleTop = true; popUpTo(navController.graph.startDestinationId) { saveState = true }; restoreState = true }
+                                            },
+                                            icon = { Icon(if (current == tab.route) tab.filled else tab.outlined, null) },
+                                            label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+                                            colors = itemColors,
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -400,11 +414,26 @@ private fun MiniPlayer(
             }
         }
         com.cadence.music.ui.theme.SkinLayout.APPLE -> {
+            var position by remember { mutableLongStateOf(0L) }
+            var duration by remember { mutableLongStateOf(0L) }
+            LaunchedEffect(np.isPlaying) {
+                while (currentCoroutineContext().isActive && np.isPlaying) {
+                    position = container.player.controller?.currentPosition ?: 0L
+                    duration = container.player.controller?.duration?.takeIf { it != androidx.media3.common.C.TIME_UNSET && it > 0L } ?: 0L
+                    delay(500)
+                }
+            }
+            LaunchedEffect(np.title) {
+                position = container.player.controller?.currentPosition ?: 0L
+                duration = container.player.controller?.duration?.takeIf { it != androidx.media3.common.C.TIME_UNSET && it > 0L } ?: 0L
+            }
+            val progress = if (duration > 0L) (position.toFloat() / duration).coerceIn(0f, 1f) else 0f
+
             androidx.compose.material3.Surface(
-                color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.95f),
+                color = Color(0xFF1C1C1E).copy(alpha = 0.95f),
                 shape = RoundedCornerShape(14.dp),
-                border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)),
-                shadowElevation = 4.dp,
+                border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.12f)),
+                shadowElevation = 6.dp,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 12.dp, vertical = 4.dp)
@@ -414,49 +443,66 @@ private fun MiniPlayer(
                         onClick = onOpenNowPlaying,
                     ),
             ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    TrackArt(
-                        container,
-                        mediaId,
-                        Modifier.size(40.dp),
-                        RoundedCornerShape(8.dp),
-                    )
-                    Column(
-                        Modifier
-                            .weight(1f)
-                            .padding(start = 10.dp, end = 6.dp)
+                Column {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(
-                            np.title,
-                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
+                        TrackArt(
+                            container,
+                            mediaId,
+                            Modifier.size(42.dp),
+                            RoundedCornerShape(8.dp),
                         )
-                        Text(
-                            np.artist,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                    Crossfade(targetState = np.isPlaying, label = "miniPlayApple") { playing ->
-                        IconButton(onClick = { container.player.togglePlayPause() }) {
+                        Column(
+                            Modifier
+                                .weight(1f)
+                                .padding(start = 10.dp, end = 6.dp)
+                        ) {
+                            Text(
+                                np.title,
+                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                np.artist,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFF8E8E93),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        Crossfade(targetState = np.isPlaying, label = "miniPlayApple") { playing ->
+                            IconButton(onClick = { container.player.togglePlayPause() }) {
+                                Icon(
+                                    if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                                    "Play/pause",
+                                    tint = MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.size(26.dp),
+                                )
+                            }
+                        }
+                        IconButton(onClick = { container.player.next() }) {
                             Icon(
-                                if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                                "Play/pause",
-                                tint = MaterialTheme.colorScheme.primary,
+                                Icons.Filled.SkipNext,
+                                "Next",
+                                tint = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.size(26.dp),
                             )
                         }
                     }
-                    IconButton(onClick = { container.player.next() }) {
-                        Icon(
-                            Icons.Filled.SkipNext,
-                            "Next",
-                            tint = MaterialTheme.colorScheme.primary,
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(2.dp)
+                            .background(Color.White.copy(alpha = 0.08f))
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(progress)
+                                .fillMaxHeight()
+                                .background(MaterialTheme.colorScheme.primary)
                         )
                     }
                 }
