@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.15.3
+
+- **Artist pictures fixed**: Your custom artist photo now shows everywhere — Library grid, Stats Top Artists, and the artist page — instead of only on the artist page. It also updates live when changed.
+- **Correct artist bios and photos**: Artist bios and pictures now resolve through MusicBrainz, which links every artist to its exact Wikipedia article. No more rockets, proteins, or Greek letters standing in for musicians — unknown artists get a clean initials placeholder instead of a wrong page. Old wrong entries are wiped once on update.
+- **Attribution**: Artist pages now show a "Photo & bio via Wikipedia" link to the source article.
+
 ## 0.15.2
 
 - **Playlists moved into Library**: The Library screen now has a fourth Playlists tab (browser, create, rename, delete), keeping everything musical in one place.
