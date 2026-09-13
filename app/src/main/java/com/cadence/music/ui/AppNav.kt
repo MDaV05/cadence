@@ -2,7 +2,10 @@ package com.cadence.music.ui
 
 import android.net.Uri
 import androidx.compose.animation.Crossfade
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
@@ -14,6 +17,8 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
@@ -46,6 +51,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.navigation.compose.NavHost
@@ -150,52 +157,43 @@ fun AppNav(initialSettingsTab: Int = 0, onDeepLinkConsumed: () -> Unit = {}) {
                     }
                 }
                 if (hasNavBar) {
-                    val itemColors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = MaterialTheme.colorScheme.primary,
-                        selectedTextColor = MaterialTheme.colorScheme.primary,
-                        indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
-                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    val tabs = listOf(
+                        NavDest("home", "Home", Icons.Outlined.Home, Icons.Filled.Home),
+                        NavDest("library", "Library", Icons.Outlined.LibraryMusic, Icons.Filled.LibraryMusic),
+                        NavDest("stats", "Stats", Icons.Outlined.Insights, Icons.Filled.Insights),
+                        NavDest("search", "Search", Icons.Outlined.Search, Icons.Filled.Search),
+                        NavDest("settings", "Settings", Icons.Outlined.Settings, Icons.Filled.Settings),
                     )
-                    NavigationBar(
-                        containerColor = MaterialTheme.colorScheme.background,
-                        tonalElevation = 0.dp,
+                    if (com.cadence.music.ui.theme.LocalSkin.current.layout ==
+                        com.cadence.music.ui.theme.SkinLayout.TURNTABLE
                     ) {
-                        NavigationBarItem(
-                            selected = current == "home",
-                            onClick = { navController.navigate("home") { launchSingleTop = true; popUpTo(navController.graph.startDestinationId) { saveState = true }; restoreState = true } },
-                            icon = { Icon(if (current == "home") Icons.Filled.Home else Icons.Outlined.Home, null) },
-                            label = { Text("Home") },
-                            colors = itemColors,
+                        FloatingPillNav(current, tabs) { route ->
+                            navController.navigate(route) { launchSingleTop = true; popUpTo(navController.graph.startDestinationId) { saveState = true }; restoreState = true }
+                        }
+                    } else {
+                        val itemColors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = MaterialTheme.colorScheme.primary,
+                            selectedTextColor = MaterialTheme.colorScheme.primary,
+                            indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        NavigationBarItem(
-                            selected = current == "library",
-                            onClick = { navController.navigate("library") { launchSingleTop = true; popUpTo(navController.graph.startDestinationId) { saveState = true }; restoreState = true } },
-                            icon = { Icon(if (current == "library") Icons.Filled.LibraryMusic else Icons.Outlined.LibraryMusic, null) },
-                            label = { Text("Library") },
-                            colors = itemColors,
-                        )
-                        NavigationBarItem(
-                            selected = current == "stats",
-                            onClick = { navController.navigate("stats") { launchSingleTop = true; popUpTo(navController.graph.startDestinationId) { saveState = true }; restoreState = true } },
-                            icon = { Icon(if (current == "stats") Icons.Filled.Insights else Icons.Outlined.Insights, null) },
-                            label = { Text("Stats") },
-                            colors = itemColors,
-                        )
-                        NavigationBarItem(
-                            selected = current == "search",
-                            onClick = { navController.navigate("search") { launchSingleTop = true; popUpTo(navController.graph.startDestinationId) { saveState = true }; restoreState = true } },
-                            icon = { Icon(if (current == "search") Icons.Filled.Search else Icons.Outlined.Search, null) },
-                            label = { Text("Search") },
-                            colors = itemColors,
-                        )
-                        NavigationBarItem(
-                            selected = current == "settings",
-                            onClick = { navController.navigate("settings") { launchSingleTop = true; popUpTo(navController.graph.startDestinationId) { saveState = true }; restoreState = true } },
-                            icon = { Icon(if (current == "settings") Icons.Filled.Settings else Icons.Outlined.Settings, null) },
-                            label = { Text("Settings") },
-                            colors = itemColors,
-                        )
+                        NavigationBar(
+                            containerColor = MaterialTheme.colorScheme.background,
+                            tonalElevation = 0.dp,
+                        ) {
+                            tabs.forEach { tab ->
+                                NavigationBarItem(
+                                    selected = current == tab.route,
+                                    onClick = {
+                                        navController.navigate(tab.route) { launchSingleTop = true; popUpTo(navController.graph.startDestinationId) { saveState = true }; restoreState = true }
+                                    },
+                                    icon = { Icon(if (current == tab.route) tab.filled else tab.outlined, null) },
+                                    label = { Text(tab.label) },
+                                    colors = itemColors,
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -311,6 +309,69 @@ fun AppNav(initialSettingsTab: Int = 0, onDeepLinkConsumed: () -> Unit = {}) {
                     },
                     onBack = { navController.popBackStack() },
                 )
+            }
+        }
+    }
+}
+
+private data class NavDest(
+    val route: String,
+    val label: String,
+    val outlined: androidx.compose.ui.graphics.vector.ImageVector,
+    val filled: androidx.compose.ui.graphics.vector.ImageVector,
+)
+
+/**
+ * TURNTABLE skin navigation: an icons-only pill floating above the bottom
+ * edge instead of the standard Material bar. Same routes, same state-restore
+ * behavior — only the composition differs.
+ */
+@Composable
+private fun FloatingPillNav(
+    current: String?,
+    tabs: List<NavDest>,
+    onSelect: (String) -> Unit,
+) {
+    androidx.compose.material3.Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
+            .padding(horizontal = 24.dp, vertical = 12.dp),
+        shape = RoundedCornerShape(percent = 50),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        tonalElevation = 2.dp,
+        shadowElevation = 8.dp,
+    ) {
+        Row(
+            Modifier.padding(horizontal = 6.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            tabs.forEach { tab ->
+                val selected = current == tab.route
+                Box(
+                    Modifier
+                        .weight(1f)
+                        .clip(CircleShape)
+                        .background(
+                            if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
+                            else Color.Transparent,
+                        )
+                        .clickable(
+                            role = androidx.compose.ui.semantics.Role.Button,
+                            onClickLabel = tab.label,
+                        ) { onSelect(tab.route) }
+                        .padding(vertical = 12.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        if (selected) tab.filled else tab.outlined,
+                        tab.label,
+                        Modifier.size(22.dp),
+                        tint = if (selected) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
     }

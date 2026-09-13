@@ -1,11 +1,13 @@
 package com.cadence.music.ui
 
 import android.widget.Toast
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -25,7 +27,6 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Bedtime
@@ -61,11 +62,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
@@ -117,6 +122,9 @@ fun NowPlayingScreen(
 
     val bg = MaterialTheme.colorScheme.background
     val primary = MaterialTheme.colorScheme.primary
+    // TURNTABLE skin (Analog): vinyl disc art, circular transport, queue in header.
+    val turntable = com.cadence.music.ui.theme.LocalSkin.current.layout ==
+        com.cadence.music.ui.theme.SkinLayout.TURNTABLE
 
     // Ambient tint from the current album art — background gradient only.
     // Controls stay on MaterialTheme colors so they're always visible.
@@ -246,10 +254,22 @@ fun NowPlayingScreen(
                         .fillMaxWidth()
                         .statusBarsPadding()
                         .padding(horizontal = 8.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.Start,
+                    horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
                     IconButton(onClick = onBack) {
                         Icon(Icons.Filled.Close, contentDescription = "Close player")
+                    }
+                    // The turntable skin drops the body's queue text button;
+                    // expose the sheet from the header instead.
+                    if (turntable) {
+                        IconButton(onClick = { showQueue = true }) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.QueueMusic,
+                                "Queue",
+                                Modifier.size(22.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                 }
             },
@@ -267,13 +287,13 @@ fun NowPlayingScreen(
         if (horizontal) {
             HorizontalPager(state = pagerState, modifier = Modifier.fillMaxWidth()) { page ->
                 Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    TrackArt(container, queueSnapshot.getOrNull(queueIdx + page - 1)?.mediaId, Modifier.size(280.dp))
+                    NpCover(container, queueSnapshot.getOrNull(queueIdx + page - 1)?.mediaId, turntable, state.isPlaying)
                 }
             }
         } else {
             VerticalPager(state = pagerState, modifier = Modifier.fillMaxWidth()) { page ->
                 Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    TrackArt(container, queueSnapshot.getOrNull(queueIdx + page - 1)?.mediaId, Modifier.size(280.dp))
+                    NpCover(container, queueSnapshot.getOrNull(queueIdx + page - 1)?.mediaId, turntable, state.isPlaying)
                 }
             }
         }
@@ -417,13 +437,36 @@ fun NowPlayingScreen(
                     Icon(Icons.Filled.SkipPrevious, "Previous", Modifier.size(36.dp))
                 }
                 Spacer(Modifier.size(16.dp))
-                IconButton(onClick = { player.togglePlayPause() }) {
-                    Icon(
-                        if (state.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                        "Play/pause",
-                        Modifier.size(48.dp),
-                        tint = MaterialTheme.colorScheme.primary,
-                    )
+                if (turntable) {
+                    // Filled circular play control — the record's hub in miniature.
+                    Box(
+                        Modifier
+                            .size(64.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primary)
+                            .clickable(
+                                role = androidx.compose.ui.semantics.Role.Button,
+                                onClickLabel = if (state.isPlaying) "Pause" else "Play",
+                                onClick = { player.togglePlayPause() },
+                            ),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            if (state.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                            "Play/pause",
+                            Modifier.size(32.dp),
+                            tint = MaterialTheme.colorScheme.onPrimary,
+                        )
+                    }
+                } else {
+                    IconButton(onClick = { player.togglePlayPause() }) {
+                        Icon(
+                            if (state.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                            "Play/pause",
+                            Modifier.size(48.dp),
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                    }
                 }
                 Spacer(Modifier.size(16.dp))
                 IconButton(onClick = { player.next() }) {
@@ -438,10 +481,12 @@ fun NowPlayingScreen(
                 if (lyrics.isNotEmpty() || unsynced != null) {
                     TextButton(onClick = { showFullLyrics = true }) { Text("Lyrics") }
                 }
-                TextButton(onClick = { showQueue = true }) {
-                    Icon(Icons.AutoMirrored.Filled.QueueMusic, null, Modifier.size(18.dp))
-                    Spacer(Modifier.size(6.dp))
-                    Text("Queue")
+                if (!turntable) {
+                    TextButton(onClick = { showQueue = true }) {
+                        Icon(Icons.AutoMirrored.Filled.QueueMusic, null, Modifier.size(18.dp))
+                        Spacer(Modifier.size(6.dp))
+                        Text("Queue")
+                    }
                 }
             }
 
@@ -558,7 +603,7 @@ fun NowPlayingScreen(
                         TrackArt(
                             container,
                             item.mediaId,
-                            Modifier.size(44.dp).clip(RoundedCornerShape(8.dp)),
+                            Modifier.size(44.dp).clip(MaterialTheme.shapes.extraSmall),
                         )
                         Column(Modifier.weight(1f).padding(start = 12.dp)) {
                             Text(
@@ -679,9 +724,18 @@ fun NowPlayingScreen(
     }
 }
 
-/** Album cover for a queue/media id; placeholder box while unresolved or missing. */
+/**
+ * Album cover for a queue/media id; placeholder box while unresolved or
+ * missing. extraSmall is the "content thumbnail" radius — skins keep real
+ * artwork square-ish (PILL's full-round small is for chips/buttons).
+ */
 @Composable
-internal fun TrackArt(container: AppContainer, mediaId: String?, modifier: Modifier = Modifier) {
+internal fun TrackArt(
+    container: AppContainer,
+    mediaId: String?,
+    modifier: Modifier = Modifier,
+    shape: Shape = MaterialTheme.shapes.extraSmall,
+) {
     var model by remember(mediaId) { mutableStateOf<Any?>(null) }
     LaunchedEffect(mediaId) {
         model = null
@@ -692,7 +746,7 @@ internal fun TrackArt(container: AppContainer, mediaId: String?, modifier: Modif
     }
     Box(
         modifier
-            .clip(RoundedCornerShape(10.dp))
+            .clip(shape)
             .background(MaterialTheme.colorScheme.surfaceVariant),
         contentAlignment = Alignment.Center,
     ) {
@@ -704,5 +758,87 @@ internal fun TrackArt(container: AppContainer, mediaId: String?, modifier: Modif
                 modifier = Modifier.matchParentSize(),
             )
         }
+    }
+}
+
+/** Now Playing art: square cover, or a spinning vinyl in the TURNTABLE skin. */
+@Composable
+private fun NpCover(container: AppContainer, mediaId: String?, turntable: Boolean, playing: Boolean) {
+    if (turntable) VinylDisc(container, mediaId, playing)
+    else TrackArt(container, mediaId, Modifier.size(280.dp))
+}
+
+/**
+ * TURNTABLE skin art: the cover rendered as a spinning record — circular art
+ * under etched groove rings, an accent hub label with a spindle hole, and a
+ * fixed light sheen so the grooves read as reflective while the disc turns.
+ * ~45°/s (one turn per 8s): calm enough to track the label, fast enough to
+ * read as "playing". Pauses freeze wherever the disc stopped, like lifting
+ * a real needle.
+ */
+@Composable
+private fun VinylDisc(
+    container: AppContainer,
+    mediaId: String?,
+    playing: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    var spin by remember { mutableFloatStateOf(0f) }
+    LaunchedEffect(playing) {
+        if (!playing) return@LaunchedEffect
+        var last = withFrameNanos { it }
+        while (currentCoroutineContext().isActive) {
+            withFrameNanos { now ->
+                spin = (spin + (now - last) / 1_000_000_000f * 45f) % 360f
+                last = now
+            }
+        }
+    }
+    Box(modifier.size(300.dp), contentAlignment = Alignment.Center) {
+        Box(
+            Modifier
+                .size(300.dp)
+                .clip(CircleShape)
+                .graphicsLayer { rotationZ = spin },
+            contentAlignment = Alignment.Center,
+        ) {
+            TrackArt(container, mediaId, Modifier.matchParentSize(), CircleShape)
+            Canvas(Modifier.matchParentSize()) {
+                val r = size.minDimension / 2f
+                for (g in floatArrayOf(0.975f, 0.94f, 0.90f, 0.86f, 0.81f, 0.76f, 0.70f, 0.64f)) {
+                    drawCircle(Color.Black.copy(alpha = 0.09f), radius = r * g, style = Stroke(width = 1.5.dp.toPx()))
+                }
+            }
+            // Hub label — a small accent disc with the spindle hole at center.
+            Box(
+                Modifier
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primary),
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(
+                    Modifier
+                        .size(6.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.background),
+                )
+            }
+        }
+        // Sheen sits outside the rotating layer: light stays put, record turns.
+        Box(
+            Modifier
+                .size(300.dp)
+                .clip(CircleShape)
+                .background(
+                    Brush.linearGradient(
+                        listOf(
+                            Color.White.copy(alpha = 0.10f),
+                            Color.Transparent,
+                            Color.White.copy(alpha = 0.06f),
+                        ),
+                    )
+                ),
+        )
     }
 }
