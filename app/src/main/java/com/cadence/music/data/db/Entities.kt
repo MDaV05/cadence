@@ -52,7 +52,7 @@ data class PlaylistEntity(
     val coverPath: String? = null,
 )
 
-/** User-created theme: accent + background colors for light and dark. */
+/** User-created theme: accent + background colors for light and dark, plus skin personality. */
 @Entity(tableName = "custom_themes")
 data class CustomThemeEntity(
     @PrimaryKey val name: String,
@@ -60,6 +60,9 @@ data class CustomThemeEntity(
     val accentDark: Int,
     val bgLight: Int,
     val bgDark: Int,
+    val font: String = "DEFAULT",
+    val corners: String = "SOFT",
+    val layout: String = "STANDARD",
 )
 
 @Entity(

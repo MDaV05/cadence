@@ -17,14 +17,22 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Button
+import androidx.compose.material3.Surface
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
@@ -97,6 +105,9 @@ import com.cadence.music.ui.theme.SkinFont
 import com.cadence.music.ui.theme.SkinLayout
 import com.cadence.music.ui.theme.ThemeSpec
 import com.cadence.music.ui.theme.customToSpec
+import com.cadence.music.ui.theme.schemeFor
+import com.cadence.music.ui.theme.shapesFor
+import com.cadence.music.ui.theme.typographyFor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -314,9 +325,16 @@ private fun skinTraits(spec: ThemeSpec): String? {
         when (spec.font) {
             SkinFont.GEOMETRIC -> add("geometric type")
             SkinFont.SERIF_DISPLAY -> add("serif type")
+            SkinFont.SANS -> add("sans type")
+            SkinFont.MONO -> add("mono type")
             SkinFont.DEFAULT -> {}
         }
-        if (spec.layout != SkinLayout.STANDARD) add("turntable layout")
+        when (spec.layout) {
+            SkinLayout.TURNTABLE -> add("turntable layout")
+            SkinLayout.SPOTIFY -> add("spotify layout")
+            SkinLayout.APPLE -> add("apple music layout")
+            SkinLayout.STANDARD -> {}
+        }
     }
     return parts.joinToString(" · ").ifEmpty { null }
 }
@@ -357,6 +375,193 @@ private fun HexField(label: String, value: String, onChange: (String) -> Unit) {
     )
 }
 
+private data class PalettePreset(
+    val name: String,
+    val accentLight: String,
+    val accentDark: String,
+    val bgLight: String,
+    val bgDark: String,
+    val font: SkinFont = SkinFont.DEFAULT,
+    val corners: SkinCorners = SkinCorners.SOFT,
+    val layout: SkinLayout = SkinLayout.STANDARD,
+)
+
+private val PALETTE_PRESETS = listOf(
+    PalettePreset("Cadence Violet", "6B4EE8", "9D8BFF", "FAFAFC", "0E0E13", SkinFont.DEFAULT, SkinCorners.SOFT, SkinLayout.STANDARD),
+    PalettePreset("Spotify Green", "1DB954", "1ED760", "FFFFFF", "121212", SkinFont.GEOMETRIC, SkinCorners.PILL, SkinLayout.SPOTIFY),
+    PalettePreset("Apple Crimson", "FA2D48", "FC5163", "FFFFFF", "000000", SkinFont.SANS, SkinCorners.SOFT, SkinLayout.APPLE),
+    PalettePreset("Analog Sienna", "A8431C", "E5734A", "F5EFE5", "171310", SkinFont.SERIF_DISPLAY, SkinCorners.SHARP, SkinLayout.TURNTABLE),
+    PalettePreset("Studio Cyan", "0099B8", "00E5FF", "F4F6F8", "0A0D10", SkinFont.MONO, SkinCorners.SHARP, SkinLayout.STANDARD),
+    PalettePreset("Cyberpunk Gold", "D97706", "FBBF24", "FAF8F5", "181510", SkinFont.MONO, SkinCorners.SHARP, SkinLayout.STANDARD),
+    PalettePreset("Nordic Frost", "4C8EA8", "88C0D0", "ECEFF4", "2E3440", SkinFont.SANS, SkinCorners.SOFT, SkinLayout.STANDARD),
+    PalettePreset("Sunset Coral", "E11D48", "FB7185", "FFF5F5", "1C1014", SkinFont.GEOMETRIC, SkinCorners.PILL, SkinLayout.SPOTIFY),
+)
+
+@Composable
+private fun LiveThemePreview(
+    spec: ThemeSpec,
+    previewDark: Boolean,
+    onToggleDark: (Boolean) -> Unit,
+) {
+    val previewScheme = schemeFor(spec, previewDark)
+    val previewTypography = typographyFor(spec.font)
+    val previewShapes = shapesFor(spec.corners)
+
+    MaterialTheme(
+        colorScheme = previewScheme,
+        typography = previewTypography,
+        shapes = previewShapes,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(MaterialTheme.shapes.large)
+                .background(MaterialTheme.colorScheme.background)
+                .border(
+                    BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)),
+                    shape = MaterialTheme.shapes.large,
+                )
+                .padding(14.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "LIVE PREVIEW",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold,
+                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    FilterChip(
+                        selected = !previewDark,
+                        onClick = { onToggleDark(false) },
+                        label = { Text("Light", style = MaterialTheme.typography.labelSmall) },
+                    )
+                    FilterChip(
+                        selected = previewDark,
+                        onClick = { onToggleDark(true) },
+                        label = { Text("Dark", style = MaterialTheme.typography.labelSmall) },
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(8.dp))
+
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                shape = MaterialTheme.shapes.medium,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(
+                                if (spec.layout == SkinLayout.TURNTABLE) CircleShape
+                                else MaterialTheme.shapes.small
+                            )
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            Icons.Filled.PlayArrow,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+
+                    Spacer(Modifier.size(10.dp))
+
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            text = if (spec.name.isNotBlank()) spec.name else "Cadence Track",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            text = "${spec.layout.name.lowercase().replaceFirstChar { it.uppercase() }} · ${spec.font.name.lowercase().replaceFirstChar { it.uppercase() }}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                        )
+                    }
+
+                    IconButton(
+                        onClick = {},
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(if (spec.corners == SkinCorners.PILL) CircleShape else MaterialTheme.shapes.small)
+                            .background(MaterialTheme.colorScheme.primary),
+                    ) {
+                        Icon(
+                            Icons.Filled.PlayArrow,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onPrimary,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(8.dp))
+
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Surface(
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    shape = MaterialTheme.shapes.small,
+                ) {
+                    Text(
+                        text = spec.font.name.lowercase().replaceFirstChar { it.uppercase() },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                    )
+                }
+                Surface(
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                    shape = MaterialTheme.shapes.small,
+                ) {
+                    Text(
+                        text = spec.corners.name.lowercase().replaceFirstChar { it.uppercase() },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                    )
+                }
+                Surface(
+                    color = MaterialTheme.colorScheme.surface,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
+                    shape = MaterialTheme.shapes.small,
+                ) {
+                    Text(
+                        text = spec.layout.name.lowercase().replaceFirstChar { it.uppercase() },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun NewThemeDialog(container: AppContainer, onDismiss: () -> Unit) {
     val scope = rememberCoroutineScope()
@@ -365,13 +570,159 @@ private fun NewThemeDialog(container: AppContainer, onDismiss: () -> Unit) {
     var aD by remember { mutableStateOf("9D8BFF") }
     var bL by remember { mutableStateOf("FAFAFC") }
     var bD by remember { mutableStateOf("0E0E13") }
+    var font by remember { mutableStateOf(SkinFont.DEFAULT) }
+    var corners by remember { mutableStateOf(SkinCorners.SOFT) }
+    var layout by remember { mutableStateOf(SkinLayout.STANDARD) }
+    var previewDark by remember { mutableStateOf(true) }
+
     val valid = name.isNotBlank() && listOf(aL, aD, bL, bD).all { parseHex(it) != null }
+
+    val tempSpec = ThemeSpec(
+        id = "preview",
+        name = name.ifBlank { "Custom Theme" },
+        accentLight = parseHex(aL) ?: 0xFF6B4EE8.toInt(),
+        accentDark = parseHex(aD) ?: 0xFF9D8BFF.toInt(),
+        bgLight = parseHex(bL) ?: 0xFFFAFAFC.toInt(),
+        bgDark = parseHex(bD) ?: 0xFF0E0E13.toInt(),
+        font = font,
+        corners = corners,
+        layout = layout,
+    )
+
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("New theme") },
+        title = { Text("Theme Studio") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(name, { name = it }, label = { Text("Name") }, singleLine = true)
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                LiveThemePreview(
+                    spec = tempSpec,
+                    previewDark = previewDark,
+                    onToggleDark = { previewDark = it },
+                )
+
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Theme Name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+
+                Text(
+                    "Palette Presets",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    items(PALETTE_PRESETS) { p ->
+                        FilterChip(
+                            selected = aL.equals(p.accentLight, ignoreCase = true) &&
+                                bD.equals(p.bgDark, ignoreCase = true),
+                            onClick = {
+                                if (name.isBlank()) name = p.name
+                                aL = p.accentLight
+                                aD = p.accentDark
+                                bL = p.bgLight
+                                bD = p.bgDark
+                                font = p.font
+                                corners = p.corners
+                                layout = p.layout
+                            },
+                            label = { Text(p.name, style = MaterialTheme.typography.labelSmall) },
+                            leadingIcon = {
+                                parseHex(p.accentDark)?.let { c ->
+                                    Box(Modifier.size(12.dp).clip(CircleShape).background(Color(c)))
+                                }
+                            },
+                        )
+                    }
+                }
+
+                Text(
+                    "Layout Engine",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    items(SkinLayout.values()) { l ->
+                        val label = when (l) {
+                            SkinLayout.STANDARD -> "Standard"
+                            SkinLayout.SPOTIFY -> "Spotify"
+                            SkinLayout.APPLE -> "Apple Music"
+                            SkinLayout.TURNTABLE -> "Turntable"
+                        }
+                        FilterChip(
+                            selected = layout == l,
+                            onClick = { layout = l },
+                            label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+                        )
+                    }
+                }
+
+                Text(
+                    "Typography",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    items(SkinFont.values()) { f ->
+                        val label = when (f) {
+                            SkinFont.DEFAULT -> "Default"
+                            SkinFont.GEOMETRIC -> "Outfit (Geometric)"
+                            SkinFont.SANS -> "Inter (Sans)"
+                            SkinFont.MONO -> "JetBrains (Mono)"
+                            SkinFont.SERIF_DISPLAY -> "Fraunces (Serif)"
+                        }
+                        FilterChip(
+                            selected = font == f,
+                            onClick = { font = f },
+                            label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+                        )
+                    }
+                }
+
+                Text(
+                    "Corner Geometry",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    itemsCorners@ for (c in SkinCorners.values()) {
+                        val label = when (c) {
+                            SkinCorners.SOFT -> "Soft"
+                            SkinCorners.PILL -> "Pill"
+                            SkinCorners.SHARP -> "Sharp"
+                        }
+                        FilterChip(
+                            selected = corners == c,
+                            onClick = { corners = c },
+                            label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+                        )
+                    }
+                }
+
+                Text(
+                    "Custom Colors (Hex)",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                )
                 HexField("Accent — light mode", aL, { aL = it })
                 HexField("Accent — dark mode", aD, { aD = it })
                 HexField("Background — light mode", bL, { bL = it })
@@ -379,23 +730,29 @@ private fun NewThemeDialog(container: AppContainer, onDismiss: () -> Unit) {
             }
         },
         confirmButton = {
-            TextButton(enabled = valid, onClick = {
-                scope.launch {
-                    container.database.themeDao().upsert(
-                        CustomThemeEntity(
-                            name = name.trim(),
-                            accentLight = parseHex(aL)!!,
-                            accentDark = parseHex(aD)!!,
-                            bgLight = parseHex(bL)!!,
-                            bgDark = parseHex(bD)!!,
+            TextButton(
+                enabled = valid,
+                onClick = {
+                    scope.launch {
+                        container.database.themeDao().upsert(
+                            CustomThemeEntity(
+                                name = name.trim(),
+                                accentLight = parseHex(aL)!!,
+                                accentDark = parseHex(aD)!!,
+                                bgLight = parseHex(bL)!!,
+                                bgDark = parseHex(bD)!!,
+                                font = font.name,
+                                corners = corners.name,
+                                layout = layout.name,
+                            )
                         )
-                    )
-                    container.loadCustomThemes()
-                    container.prefs.themeId = "custom:${name.trim()}"
-                    container.refreshTheme()
-                }
-                onDismiss()
-            }) { Text("Create") }
+                        container.loadCustomThemes()
+                        container.prefs.themeId = "custom:${name.trim()}"
+                        container.refreshTheme()
+                    }
+                    onDismiss()
+                },
+            ) { Text("Create Theme") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
