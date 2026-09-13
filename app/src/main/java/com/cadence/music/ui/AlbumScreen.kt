@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AddPhotoAlternate
@@ -214,7 +213,7 @@ fun AlbumScreen(
                     AsyncImage(
                         model = art,
                         contentDescription = null,
-                        modifier = Modifier.size(96.dp).clip(RoundedCornerShape(12.dp)),
+                        modifier = Modifier.size(96.dp).clip(MaterialTheme.shapes.small),
                     )
                     Column(Modifier.weight(1f)) {
                         Text(

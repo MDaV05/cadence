@@ -22,7 +22,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
@@ -84,7 +84,7 @@ fun PlaylistCover(
     playlistId: Long,
     coverPath: String?,
     size: Dp,
-    corner: Dp,
+    shape: Shape,
     modifier: Modifier = Modifier,
 ) {
     val fallback by produceState<String?>(null, playlistId, coverPath) {
@@ -96,7 +96,7 @@ fun PlaylistCover(
     Box(
         modifier
             .size(size)
-            .clip(RoundedCornerShape(corner))
+            .clip(shape)
             .background(MaterialTheme.colorScheme.surfaceVariant),
         contentAlignment = Alignment.Center,
     ) {
@@ -167,7 +167,7 @@ fun PlaylistsContent(
             Box(
                 Modifier
                     .size(56.dp)
-                    .clip(RoundedCornerShape(12.dp))
+                    .clip(MaterialTheme.shapes.small)
                     .background(MaterialTheme.colorScheme.primaryContainer),
                 contentAlignment = Alignment.Center,
             ) {
@@ -207,7 +207,7 @@ fun PlaylistsContent(
                         .clickable { onOpen(p.id) }
                         .padding(horizontal = 16.dp, vertical = 8.dp),
                 ) {
-                    PlaylistCover(container, p.id, p.coverPath, 56.dp, 12.dp)
+                    PlaylistCover(container, p.id, p.coverPath, 56.dp, MaterialTheme.shapes.small)
                     Column(Modifier.weight(1f).padding(start = 14.dp)) {
                         Text(p.name, maxLines = 1)
                         Text(
@@ -356,7 +356,7 @@ fun PlaylistDetailScreen(container: AppContainer, playlistId: Long, onBack: () -
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
                 ) {
-                    PlaylistCover(container, playlistId, coverPath, 96.dp, 20.dp)
+                    PlaylistCover(container, playlistId, coverPath, 96.dp, MaterialTheme.shapes.large)
                     Column(Modifier.weight(1f).padding(start = 16.dp)) {
                         Text(
                             if (trackCount == 1) "1 song" else "$trackCount songs",
@@ -509,7 +509,7 @@ fun LikedSongsScreen(container: AppContainer, onArtistClick: (String) -> Unit = 
                         Box(
                             Modifier
                                 .size(44.dp)
-                                .clip(RoundedCornerShape(8.dp))
+                                .clip(MaterialTheme.shapes.extraSmall)
                                 .background(MaterialTheme.colorScheme.surfaceVariant),
                         ) {
                             if (art != null) {

@@ -20,7 +20,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -196,7 +195,7 @@ fun StatsScreen(container: AppContainer, onArtistClick: (String) -> Unit = {}) {
                                 itemsIndexed(d.genres) { _, genre ->
                                     Column(
                                         Modifier
-                                            .clip(RoundedCornerShape(16.dp))
+                                            .clip(MaterialTheme.shapes.large)
                                             .background(MaterialTheme.colorScheme.surfaceVariant)
                                             .padding(horizontal = 16.dp, vertical = 10.dp),
                                     ) {
@@ -284,7 +283,7 @@ private fun TopSongRow(
         Box(
             Modifier
                 .size(44.dp)
-                .clip(RoundedCornerShape(8.dp))
+                .clip(MaterialTheme.shapes.extraSmall)
                 .background(MaterialTheme.colorScheme.surfaceVariant),
         ) {
             if (art != null) {
@@ -329,7 +328,7 @@ private fun StatsHero(d: StatsData) {
     Column(
         Modifier.fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 12.dp)
-            .clip(RoundedCornerShape(24.dp))
+            .clip(MaterialTheme.shapes.extraLarge)
             .background(
                 Brush.linearGradient(
                     listOf(
