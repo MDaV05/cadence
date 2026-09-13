@@ -65,8 +65,12 @@ interface TrackDao {
     @Query("UPDATE tracks SET title = :t, artistName = :a, artistRaw = :raw, albumName = :al, albumNorm = :n WHERE id = :id")
     suspend fun updateMetadata(id: Long, t: String, a: String, raw: String?, al: String, n: String)
 
-    /** One artist-tile row per distinct artist name, with its cached picture if any. */
-    @RawQuery(observedEntities = [TrackEntity::class, ArtistInfoEntity::class])
+    /**
+     * One artist-tile row per distinct artist name, image preferring the user's
+     * override (artist_override) over the cached Wikipedia picture — so a set
+     * picture shows everywhere without waiting for a refresh.
+     */
+    @RawQuery(observedEntities = [TrackEntity::class, ArtistInfoEntity::class, ArtistOverrideEntity::class])
     fun observeArtistTilesFor(query: SupportSQLiteQuery): Flow<List<ArtistTile>>
 
     @Query("SELECT * FROM tracks WHERE artistName = :name ORDER BY albumName, trackNumber")
@@ -169,6 +173,10 @@ interface ArtistInfoDao {
     /** Drops never-resolved rows; returns the count. Misses are no longer cached, so these are stale. */
     @Query("DELETE FROM artist_info WHERE bio IS NULL AND imageUrl IS NULL")
     suspend fun deleteNullRows(): Int
+
+    /** One-shot v3 repair: wipes the whole cache (pre-strict-resolver rows are wrong). */
+    @Query("DELETE FROM artist_info")
+    suspend fun deleteAll(): Int
 }
 
 @Dao

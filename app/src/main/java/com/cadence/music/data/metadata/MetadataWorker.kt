@@ -75,7 +75,10 @@ class MetadataWorker(appContext: Context, params: WorkerParameters) :
             if (info?.bio == null && info?.imageUrl == null) continue
             withContext(Dispatchers.IO) {
                 db.artistInfoDao().upsert(
-                    ArtistInfoEntity(name = name, bio = info?.bio, imageUrl = info?.imageUrl),
+                    ArtistInfoEntity(
+                        name = name, bio = info?.bio, imageUrl = info?.imageUrl,
+                        pageUrl = info?.sourcePageUrl,
+                    ),
                 )
             }
             if (info?.imageUrl != null) {

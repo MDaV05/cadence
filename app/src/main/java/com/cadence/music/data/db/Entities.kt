@@ -99,6 +99,8 @@ data class ArtistInfoEntity(
     val bio: String?,
     val imageUrl: String?,
     val fetchedAt: Long = System.currentTimeMillis(),
+    // en-wiki article the bio/picture came from; powers the attribution link.
+    val pageUrl: String? = null,
 )
 
 /** User-picked track cover (file path under filesDir/covers); wins over everything. */

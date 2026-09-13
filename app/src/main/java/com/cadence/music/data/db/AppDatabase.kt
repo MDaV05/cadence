@@ -25,7 +25,7 @@ import com.cadence.music.data.tags.primaryArtist
         AlbumArtOverrideEntity::class,
         ArtistOverrideEntity::class,
     ],
-    version = 14,
+    version = 15,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -200,6 +200,13 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_14_15 = object : Migration(14, 15) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Source-article link for cached artist bios (attribution).
+                db.execSQL("ALTER TABLE artist_info ADD COLUMN pageUrl TEXT")
+            }
+        }
+
         private val MIGRATION_13_14 = object : Migration(13, 14) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 // First genre tag per track (local MediaStore reads). Null for server
@@ -222,6 +229,7 @@ abstract class AppDatabase : RoomDatabase() {
                     MIGRATION_11_12,
                     MIGRATION_12_13,
                     MIGRATION_13_14,
+                    MIGRATION_14_15,
                 )
                 // No paths exist from schema 1/2 (they predate exported schemas);
                 // those dev-only installs rebuild destructively instead of crashing.

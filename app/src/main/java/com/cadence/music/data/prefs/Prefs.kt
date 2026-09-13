@@ -230,6 +230,11 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("artist_repair_v2", false)
         set(value) = sp.edit().putBoolean("artist_repair_v2", value).apply()
 
+    /** One-shot: wiped every cached artist bio/picture (they predate the strict resolver). */
+    var artistRepairV3: Boolean
+        get() = sp.getBoolean("artist_repair_v3", false)
+        set(value) = sp.edit().putBoolean("artist_repair_v3", value).apply()
+
     /** Last update tag a heads-up notification was posted for; "" = none yet. */
     var lastNotifiedTag: String
         get() = sp.getString("update_notified_tag", null) ?: ""

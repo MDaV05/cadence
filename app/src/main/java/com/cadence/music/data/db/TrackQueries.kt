@@ -160,8 +160,9 @@ object TrackQueries {
         activePrefixes: Set<String> = emptySet(),
     ): SupportSQLiteQuery {
         val (activeSql, activeArgs) = activeFilter(activePrefixes)
-        val select = "SELECT DISTINCT t.artistName AS name, a.imageUrl AS imageUrl FROM tracks t " +
-            "LEFT JOIN artist_info a ON a.name = t.artistName WHERE t.artistName != ''"
+        val select = "SELECT DISTINCT t.artistName AS name, COALESCE('file://' || o.imagePath, a.imageUrl) AS imageUrl FROM tracks t " +
+            "LEFT JOIN artist_info a ON a.name = t.artistName " +
+            "LEFT JOIN artist_override o ON o.name = t.artistName WHERE t.artistName != ''"
         if (sources == null) {
             return SimpleSQLiteQuery(
                 "$select$activeSql ORDER BY t.artistName COLLATE NOCASE",

@@ -5,6 +5,7 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -152,6 +153,7 @@ fun ArtistScreen(
                         container.database.artistInfoDao().upsert(
                             com.cadence.music.data.db.ArtistInfoEntity(
                                 name = currentName, bio = fetched?.bio, imageUrl = fetched?.imageUrl,
+                                pageUrl = fetched?.sourcePageUrl,
                             )
                         )
                         container.library.artistDisplayInfo(currentName) ?: fetched
@@ -274,13 +276,34 @@ fun ArtistScreen(
 
             info?.bio?.let { bio ->
                 item(span = { GridItemSpan(maxLineSpan) }) {
-                    Text(
-                        bio,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 6,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    Column {
+                        Text(
+                            bio,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 6,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        // Attribution: the bio/picture come from the artist's
+                        // Wikipedia article (Commons licenses ask for credit).
+                        info?.sourcePageUrl?.let { url ->
+                            Text(
+                                "Photo & bio via Wikipedia",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier
+                                    .padding(top = 4.dp)
+                                    .clickable {
+                                        context.startActivity(
+                                            android.content.Intent(
+                                                android.content.Intent.ACTION_VIEW,
+                                                Uri.parse(url),
+                                            )
+                                        )
+                                    },
+                            )
+                        }
+                    }
                 }
             }
 
