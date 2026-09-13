@@ -84,6 +84,10 @@ val BUILTIN_THEMES = listOf(
     ThemeSpec("forest", "Forest", 0xFF2E7D4F.toInt(), 0xFF93CBA9.toInt(), 0xFFFAFBF9.toInt(), 0xFF0C120E.toInt()),
     ThemeSpec("amber", "Amber", 0xFFB4690E.toInt(), 0xFFE5B258.toInt(), 0xFFFCFBF8.toInt(), 0xFF12100B.toInt()),
     ThemeSpec("mono", "Mono", 0xFF3D3D3D.toInt(), 0xFFC9C9C9.toInt(), 0xFFFAFAFA.toInt(), 0xFF101010.toInt()),
+    ThemeSpec(
+        "analog", "Analog", 0xFFA8431C.toInt(), 0xFFE5734A.toInt(), 0xFFF5EFE5.toInt(), 0xFF171310.toInt(),
+        font = SkinFont.SERIF_DISPLAY, corners = SkinCorners.SHARP, layout = SkinLayout.TURNTABLE,
+    ),
 )
 
 /** The ThemeSpec active in CadenceTheme — lets screens branch on skin layout. */
