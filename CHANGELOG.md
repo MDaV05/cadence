@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.15.4
+
+- **Curated Skin Packs & Theme Studio**: Choose from 5 distinct visual experiences (Iris, Spotify, Apple Music, Analog Turntable, and Studio) complete with custom typography (Outfit geometric font), custom corner radius shaping, and live theme preview cards in Settings.
+- **Authentic Apple Music Experience**: Complete 1:1 Apple Music visual fidelity across primary app surfaces:
+  - Dynamic spring artwork scaling (1.0 playing / 0.84 paused with animated elevation shadow)
+  - Centered iOS drag grabber pill and overflow menu
+  - Left-aligned bold track title + artist with Cupertino Red star favorite toggle
+  - Live scrubber with negative remaining time display (`-X:XX`)
+  - Cupertino transport glyphs and in-player hardware volume slider (`AudioManager.STREAM_MUSIC`)
+  - Bottom utility bar (lyrics quote, AirPlay/output, queue)
+  - Floating squircle mini-player with Cupertino Red progress bar
+  - Frosted dark navigation bar with "Listen Now" tab and Cupertino Red active tint
+  - "Listen Now" home screen header with uppercase date tracking label and pill shuffle button
+- **Authentic Spotify Experience**: Full 1:1 Spotify layout across Now Playing (heart button, green scrubber & play circle, rounded cover art), Mini Player, and bottom navigation bar.
+- **Analog Turntable Experience**: Dedicated turntable vinyl player layout with spinning disc animation, tone arm aesthetic, and dedicated controls.
+- **Playback Polish**: Fixed replay when tapping Play at the end of a track (`STATE_ENDED`), seamlessly rewinding to start.
+
 ## 0.15.3
 
 - **Artist pictures fixed**: Your custom artist photo now shows everywhere — Library grid, Stats Top Artists, and the artist page — instead of only on the artist page. It also updates live when changed.
