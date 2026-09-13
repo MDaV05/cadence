@@ -18,7 +18,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
@@ -93,6 +92,9 @@ import com.cadence.music.data.update.UpdateStatus.Idle
 import com.cadence.music.data.update.UpdateStatus.UpToDate
 import com.cadence.music.playback.EqManager
 import com.cadence.music.ui.theme.BUILTIN_THEMES
+import com.cadence.music.ui.theme.SkinCorners
+import com.cadence.music.ui.theme.SkinFont
+import com.cadence.music.ui.theme.SkinLayout
 import com.cadence.music.ui.theme.ThemeSpec
 import com.cadence.music.ui.theme.customToSpec
 import kotlinx.coroutines.Dispatchers
@@ -275,6 +277,14 @@ private fun ThemeCard(
         ThemeSwatch(spec.bgDark, spec.accentDark)
         Column(Modifier.weight(1f).padding(start = 12.dp)) {
             Text(spec.name)
+            // Skins carry more than colors — say what they change.
+            skinTraits(spec)?.let {
+                Text(
+                    it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             if (selected) {
                 Text(
                     "Active",
@@ -294,12 +304,29 @@ private fun ThemeCard(
     }
 }
 
+private fun skinTraits(spec: ThemeSpec): String? {
+    val parts = buildList {
+        when (spec.corners) {
+            SkinCorners.PILL -> add("pill corners")
+            SkinCorners.SHARP -> add("sharp corners")
+            SkinCorners.SOFT -> {}
+        }
+        when (spec.font) {
+            SkinFont.GEOMETRIC -> add("geometric type")
+            SkinFont.SERIF_DISPLAY -> add("serif type")
+            SkinFont.DEFAULT -> {}
+        }
+        if (spec.layout != SkinLayout.STANDARD) add("turntable layout")
+    }
+    return parts.joinToString(" · ").ifEmpty { null }
+}
+
 @Composable
 private fun ThemeSwatch(bg: Int, accent: Int) {
     Box(
         Modifier
             .size(28.dp)
-            .clip(RoundedCornerShape(8.dp))
+            .clip(MaterialTheme.shapes.extraSmall)
             .background(Color(bg)),
         contentAlignment = Alignment.Center,
     ) {
@@ -962,7 +989,7 @@ private fun AddServerSheet(
                                             Row(
                                                 Modifier
                                                     .fillMaxWidth()
-                                                    .clip(RoundedCornerShape(8.dp))
+                                                    .clip(MaterialTheme.shapes.extraSmall)
                                                     .clickable {
                                                         tgSelectedChatIds = if (isChecked) {
                                                             tgSelectedChatIds - chat.id

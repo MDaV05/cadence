@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Search
@@ -187,7 +186,7 @@ private fun GreetingBanner(total: Int, onShuffleAll: () -> Unit, modifier: Modif
     Box(
         modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(24.dp))
+            .clip(MaterialTheme.shapes.extraLarge)
             .background(
                 Brush.linearGradient(
                     listOf(
@@ -233,7 +232,7 @@ private fun QuickTile(
 ) {
     Box(
         modifier
-            .clip(RoundedCornerShape(18.dp))
+            .clip(MaterialTheme.shapes.large)
             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
             .clickable(onClick = onClick)
             .padding(vertical = 18.dp),
@@ -277,7 +276,7 @@ private fun ShelfCard(container: AppContainer, track: TrackEntity, onClick: () -
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(1f)
-                .clip(RoundedCornerShape(14.dp))
+                .clip(MaterialTheme.shapes.medium)
                 .background(MaterialTheme.colorScheme.surfaceVariant),
         )
         Text(
