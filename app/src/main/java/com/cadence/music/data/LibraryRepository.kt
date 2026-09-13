@@ -377,12 +377,20 @@ class LibraryRepository(
     }
 
     /**
-     * One-shot v2: drops ALL all-null artist_info rows. Safe now that misses are never cached
-     * (Task F) — any remaining null row is stale by definition. Genuinely unknown artists simply
-     * re-enter the missing queue and retry on the worker schedule (batch-capped).
+     * One-shot cache repairs, gated by prefs so each runs exactly once:
+     * v2 drops all-null artist_info rows (misses are never cached, so they were stale).
+     * v3 drops EVERY cached artist bio/picture row once — the pre-v0.15.2 heuristic
+     * resolver cached wrong pages (rockets, proteins, letters); the strict
+     * MusicBrainz resolver refills them correctly on demand.
      */
-    suspend fun repairArtistInfo(): Int =
-        withContext(Dispatchers.IO) { db.artistInfoDao().deleteNullRows() }
+    suspend fun repairArtistInfo(): Int = withContext(Dispatchers.IO) {
+        var dropped = db.artistInfoDao().deleteNullRows()
+        if (!prefs.artistRepairV3) {
+            dropped += db.artistInfoDao().deleteAll()
+            prefs.artistRepairV3 = true
+        }
+        dropped
+    }
 
     /**
      * Drops rows for entries no longer configured (deleted servers).
@@ -1021,7 +1029,7 @@ class LibraryRepository(
             val bio = o?.bio ?: cached?.bio
             val img = o?.imagePath?.let { "file://$it" } ?: cached?.imageUrl
             if (bio == null && img == null) null
-            else ArtistInfo(bio, img)
+            else ArtistInfo(bio, img, cached?.pageUrl)
         }
 
     /** Flips star locally, then syncs the server (fire-and-forget on failure). */

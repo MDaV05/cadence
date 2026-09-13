@@ -1,0 +1,38 @@
+Release v0.15.2 - summary
+
+Shipped and verified. CI green. Release page:
+https://github.com/MDaV05/cadence/releases/tag/v0.15.2
+Asset: cadence-v0.15.2-release.apk (20 MB)
+
+What is in this release:
+
+1) Stats screen moved to the bottom bar (Wrapped style).
+   Big hero card with hours listened, plays, unique tracks, this-week plays
+   and streak. Then Top Songs with cover art (tap to play), Top Artists with
+   photos, and Top Genres as pills.
+
+2) Playlists moved into Library.
+   Library now has four tabs: Songs, Albums, Artists, Playlists.
+   The Playlists tab has the browser plus a plus-button to create playlists.
+
+3) Liked Songs.
+   Pinned card at the top of the Playlists tab with a live count.
+   Like is available on every song, including local files, Telegram and Plex.
+   For Navidrome, Subsonic, Jellyfin and Emby tracks the like syncs with the
+   server star in both directions. For local files the like stays on device.
+
+4) UI audit fixes.
+   Settings no longer renders under the status bar. The lyrics editor can no
+   longer wipe lyrics when saving mid load. The Lyrics button on Now Playing
+   opens the full lyrics instead of doing nothing. Tab positions survive
+   back navigation. Bigger seek bar touch target. Now Playing scrolls on
+   short screens. Lyrics overlay respects system bars. Lists no longer carry
+   double bottom padding. Smaller polish: text truncation, empty states,
+   pluralization.
+
+Technical notes:
+- Room database v14: new genre column on tracks, filled from local file tags.
+- 192 unit tests pass, both app flavors build.
+- Your two README commits from today are included (rebased cleanly).
+
+Everything is merged to main and pushed. Working tree is clean.

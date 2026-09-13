@@ -227,6 +227,7 @@ class TrackQueriesTest {
     fun `artist tiles join carries cached image url`() {
         val q = TrackQueries.artistTilesQuery()
         assertTrue(q.sql.contains("LEFT JOIN artist_info"))
+        assertTrue(q.sql.contains("LEFT JOIN artist_override"))
         assertTrue(q.sql.contains("imageUrl"))
     }
 
@@ -236,8 +237,9 @@ class TrackQueriesTest {
         // silently sort uppercase names before lowercase ones.
         val q = TrackQueries.artistTilesQuery(setOf("local"))
         assertEquals(
-            "SELECT DISTINCT t.artistName AS name, a.imageUrl AS imageUrl FROM tracks t " +
-                "LEFT JOIN artist_info a ON a.name = t.artistName WHERE t.artistName != '' AND (t.sourceId IN (?) " +
+            "SELECT DISTINCT t.artistName AS name, COALESCE('file://' || o.imagePath, a.imageUrl) AS imageUrl FROM tracks t " +
+                "LEFT JOIN artist_info a ON a.name = t.artistName " +
+                "LEFT JOIN artist_override o ON o.name = t.artistName WHERE t.artistName != '' AND (t.sourceId IN (?) " +
                 "OR (? AND t.sourceId != 'local' AND t.path LIKE 'file:%')) " +
                 "ORDER BY t.artistName COLLATE NOCASE",
             q.sql,

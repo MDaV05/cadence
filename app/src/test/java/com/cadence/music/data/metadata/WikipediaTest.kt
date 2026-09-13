@@ -3,6 +3,7 @@ package com.cadence.music.data.metadata
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Ignore
 import org.junit.Test
 
 class WikipediaTest {
@@ -13,7 +14,11 @@ class WikipediaTest {
         assertNull(Wikipedia.artistInfoBlocking("   "))
     }
 
+    // Live-network test: MusicBrainz rate-limits repeated automated runs, so
+    // this is manual-only. The pure parsers in WikipediaParseTest are the
+    // automated coverage for this chain.
     @Test
+    @Ignore("live network - run manually")
     fun resolvesWellKnownArtistWithSpaces() {
         val info = Wikipedia.artistInfoBlocking("Daft Punk")
         assertNotNull(info)
@@ -23,6 +28,7 @@ class WikipediaTest {
     }
 
     @Test
+    @Ignore("live network - run manually")
     fun resolvesArtistRequiringDisambiguation() {
         val info = Wikipedia.artistInfoBlocking("Nirvana")
         assertNotNull(info)
