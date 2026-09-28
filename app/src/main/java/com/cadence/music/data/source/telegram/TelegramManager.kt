@@ -290,34 +290,7 @@ class TelegramManager private constructor(private val appContext: Context) {
         val password: String = "",
     )
 
-    fun parseProxyUrl(raw: String): ParsedProxy? {
-        val text = raw.trim()
-        if (text.isBlank()) return null
-        return runCatching {
-            val uri = Uri.parse(text)
-            val scheme = uri.scheme?.lowercase()
-            val host = uri.host?.lowercase()
-            val authority = uri.authority?.lowercase()
-
-            if (scheme == "tg" && authority == "proxy" ||
-                (scheme == "http" || scheme == "https") && (host == "t.me" || host == "telegram.me") && uri.path == "/proxy") {
-                val server = uri.getQueryParameter("server") ?: return null
-                val port = uri.getQueryParameter("port")?.toIntOrNull() ?: 443
-                val secret = uri.getQueryParameter("secret") ?: ""
-                return ParsedProxy(type = "MTPROTO", server = server, port = port, secret = secret)
-            }
-
-            if (scheme == "tg" && authority == "socks" ||
-                (scheme == "http" || scheme == "https") && (host == "t.me" || host == "telegram.me") && uri.path == "/socks") {
-                val server = uri.getQueryParameter("server") ?: return null
-                val port = uri.getQueryParameter("port")?.toIntOrNull() ?: 1080
-                val user = uri.getQueryParameter("user") ?: ""
-                val pass = uri.getQueryParameter("pass") ?: ""
-                return ParsedProxy(type = "SOCKS5", server = server, port = port, username = user, password = pass)
-            }
-            null
-        }.getOrNull()
-    }
+    fun parseProxyUrl(raw: String): ParsedProxy? = Companion.parseProxyUrl(raw)
 
     suspend fun applySavedProxy() {
         val prefs = com.cadence.music.data.prefs.Prefs(appContext)
@@ -543,5 +516,44 @@ class TelegramManager private constructor(private val appContext: Context) {
                     it.start()
                 }
             }
+
+        fun parseProxyUrl(raw: String): ParsedProxy? {
+            val text = raw.trim()
+            if (text.isBlank()) return null
+            return runCatching {
+                val clean = if (text.startsWith("tg://", ignoreCase = true)) {
+                    text.replaceFirst(Regex("^tg://", RegexOption.IGNORE_CASE), "http://tg/")
+                } else text
+                val uri = java.net.URI(clean)
+                val query = uri.rawQuery ?: ""
+                val queryParams = query.split("&").associate {
+                    val idx = it.indexOf('=')
+                    if (idx != -1) {
+                        java.net.URLDecoder.decode(it.substring(0, idx), "UTF-8") to
+                            java.net.URLDecoder.decode(it.substring(idx + 1), "UTF-8")
+                    } else it to ""
+                }
+
+                val isTgProxy = text.startsWith("tg://proxy", ignoreCase = true) ||
+                    (uri.host?.endsWith("t.me") == true || uri.host?.endsWith("telegram.me") == true) && uri.path == "/proxy"
+                if (isTgProxy) {
+                    val server = queryParams["server"] ?: return null
+                    val port = queryParams["port"]?.toIntOrNull() ?: 443
+                    val secret = queryParams["secret"] ?: ""
+                    return ParsedProxy(type = "MTPROTO", server = server, port = port, secret = secret)
+                }
+
+                val isTgSocks = text.startsWith("tg://socks", ignoreCase = true) ||
+                    (uri.host?.endsWith("t.me") == true || uri.host?.endsWith("telegram.me") == true) && uri.path == "/socks"
+                if (isTgSocks) {
+                    val server = queryParams["server"] ?: return null
+                    val port = queryParams["port"]?.toIntOrNull() ?: 1080
+                    val user = queryParams["user"] ?: ""
+                    val pass = queryParams["pass"] ?: ""
+                    return ParsedProxy(type = "SOCKS5", server = server, port = port, username = user, password = pass)
+                }
+                null
+            }.getOrNull()
+        }
     }
 }
