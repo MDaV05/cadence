@@ -249,4 +249,34 @@ class Prefs(context: Context) {
     var showServerNameInStreamTag: Boolean
         get() = sp.getBoolean("show_server_name_stream_tag", true)
         set(value) = sp.edit().putBoolean("show_server_name_stream_tag", value).apply()
+
+    // ---- Telegram Proxy settings ----
+
+    var tgProxyEnabled: Boolean
+        get() = sp.getBoolean("tg_proxy_enabled", false)
+        set(value) = sp.edit().putBoolean("tg_proxy_enabled", value).apply()
+
+    var tgProxyType: String
+        get() = sp.getString("tg_proxy_type", "MTPROTO") ?: "MTPROTO"
+        set(value) = sp.edit().putString("tg_proxy_type", value).apply()
+
+    var tgProxyHost: String
+        get() = sp.getString("tg_proxy_host", "") ?: ""
+        set(value) = sp.edit().putString("tg_proxy_host", value).apply()
+
+    var tgProxyPort: Int
+        get() = sp.getInt("tg_proxy_port", 443)
+        set(value) = sp.edit().putInt("tg_proxy_port", value).apply()
+
+    var tgProxySecret: String
+        get() = sp.getString("tg_proxy_secret", "") ?: ""
+        set(value) = sp.edit().putString("tg_proxy_secret", value).apply()
+
+    var tgProxyUser: String
+        get() = sp.getString("tg_proxy_user", "") ?: ""
+        set(value) = sp.edit().putString("tg_proxy_user", value).apply()
+
+    var tgProxyPass: String
+        get() = sp.getString("tg_proxy_pass", "") ?: ""
+        set(value) = sp.edit().putString("tg_proxy_pass", value).apply()
 }

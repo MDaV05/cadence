@@ -1,6 +1,7 @@
 package com.cadence.music.data.source.telegram
 
 import android.content.Context
+import android.net.Uri
 import android.os.Build
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
@@ -86,6 +87,9 @@ class TelegramManager private constructor(private val appContext: Context) {
                 },
                 null,
             )
+            scope.launch {
+                applySavedProxy()
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to initialize TDLib client: ${e.message}", e)
             _authState.value = TelegramAuthState.Error(e.message ?: "Failed to start Telegram client")
@@ -275,6 +279,61 @@ class TelegramManager private constructor(private val appContext: Context) {
 
     suspend fun disableProxy() {
         runCatching { send(TdApi.DisableProxy(), timeoutMs = 5_000) }
+    }
+
+    data class ParsedProxy(
+        val type: String,
+        val server: String,
+        val port: Int,
+        val secret: String = "",
+        val username: String = "",
+        val password: String = "",
+    )
+
+    fun parseProxyUrl(raw: String): ParsedProxy? {
+        val text = raw.trim()
+        if (text.isBlank()) return null
+        return runCatching {
+            val uri = Uri.parse(text)
+            val scheme = uri.scheme?.lowercase()
+            val host = uri.host?.lowercase()
+            val authority = uri.authority?.lowercase()
+
+            if (scheme == "tg" && authority == "proxy" ||
+                (scheme == "http" || scheme == "https") && (host == "t.me" || host == "telegram.me") && uri.path == "/proxy") {
+                val server = uri.getQueryParameter("server") ?: return null
+                val port = uri.getQueryParameter("port")?.toIntOrNull() ?: 443
+                val secret = uri.getQueryParameter("secret") ?: ""
+                return ParsedProxy(type = "MTPROTO", server = server, port = port, secret = secret)
+            }
+
+            if (scheme == "tg" && authority == "socks" ||
+                (scheme == "http" || scheme == "https") && (host == "t.me" || host == "telegram.me") && uri.path == "/socks") {
+                val server = uri.getQueryParameter("server") ?: return null
+                val port = uri.getQueryParameter("port")?.toIntOrNull() ?: 1080
+                val user = uri.getQueryParameter("user") ?: ""
+                val pass = uri.getQueryParameter("pass") ?: ""
+                return ParsedProxy(type = "SOCKS5", server = server, port = port, username = user, password = pass)
+            }
+            null
+        }.getOrNull()
+    }
+
+    suspend fun applySavedProxy() {
+        val prefs = com.cadence.music.data.prefs.Prefs(appContext)
+        if (!prefs.tgProxyEnabled || prefs.tgProxyHost.isBlank()) {
+            disableProxy()
+            return
+        }
+        try {
+            if (prefs.tgProxyType.equals("SOCKS5", ignoreCase = true)) {
+                addSocks5Proxy(prefs.tgProxyHost, prefs.tgProxyPort, prefs.tgProxyUser, prefs.tgProxyPass)
+            } else {
+                addMtprotoProxy(prefs.tgProxyHost, prefs.tgProxyPort, prefs.tgProxySecret)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to apply saved proxy: ${e.message}", e)
+        }
     }
 
     private val chatTitleCache = ConcurrentHashMap<Long, String>()

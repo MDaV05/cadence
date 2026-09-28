@@ -1001,10 +1001,16 @@ private fun AddServerSheet(
     var tgSelectedChatIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
     var tgChatSearchQuery by remember { mutableStateOf("") }
     var tgManualChatMode by remember { mutableStateOf(false) }
-    var tgShowProxy by remember { mutableStateOf(false) }
-    var tgProxyHost by remember { mutableStateOf("127.0.0.1") }
-    var tgProxyPort by remember { mutableStateOf("10808") }
-    var tgProxyApplied by remember { mutableStateOf(false) }
+    var tgProxyEnabled by remember { mutableStateOf(container.prefs.tgProxyEnabled) }
+    var tgProxyType by remember { mutableStateOf(container.prefs.tgProxyType) }
+    var tgProxyHost by remember { mutableStateOf(container.prefs.tgProxyHost.ifBlank { "127.0.0.1" }) }
+    var tgProxyPort by remember { mutableStateOf(container.prefs.tgProxyPort.toString()) }
+    var tgProxySecret by remember { mutableStateOf(container.prefs.tgProxySecret) }
+    var tgProxyUser by remember { mutableStateOf(container.prefs.tgProxyUser) }
+    var tgProxyPass by remember { mutableStateOf(container.prefs.tgProxyPass) }
+    var tgProxyLink by remember { mutableStateOf("") }
+    var tgShowProxy by remember { mutableStateOf(container.prefs.tgProxyEnabled) }
+    var tgProxyStatus by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(tgState) {
         if (tgState is com.cadence.music.data.source.telegram.TelegramAuthState.Ready) {
@@ -1169,24 +1175,18 @@ private fun AddServerSheet(
 
                     Row(
                         Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            FilterChip(
-                                selected = tgAuthMethod == 0,
-                                onClick = { tgAuthMethod = 0 },
-                                label = { Text("Account Login") },
-                            )
-                            FilterChip(
-                                selected = tgAuthMethod == 1,
-                                onClick = { tgAuthMethod = 1 },
-                                label = { Text("Bot Token") },
-                            )
-                        }
-                        TextButton(onClick = { tgShowProxy = !tgShowProxy }) {
-                            Text(if (tgShowProxy) "Hide Proxy" else "Proxy", style = MaterialTheme.typography.labelSmall)
-                        }
+                        FilterChip(
+                            selected = tgAuthMethod == 0,
+                            onClick = { tgAuthMethod = 0 },
+                            label = { Text("Account Login") },
+                        )
+                        FilterChip(
+                            selected = tgAuthMethod == 1,
+                            onClick = { tgAuthMethod = 1 },
+                            label = { Text("Bot Token") },
+                        )
                     }
 
                     Row(
@@ -1199,6 +1199,13 @@ private fun AddServerSheet(
                             style = MaterialTheme.typography.labelSmall,
                             color = if (tgConn == "Connected") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        TextButton(onClick = { tgShowProxy = !tgShowProxy }) {
+                            Text(
+                                if (tgShowProxy) "Hide Proxy" else if (tgProxyEnabled) "Proxy: ON" else "Proxy Settings",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (tgProxyEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
 
                     if (tgShowProxy) {
@@ -1206,13 +1213,59 @@ private fun AddServerSheet(
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
                             modifier = Modifier.fillMaxWidth(),
                         ) {
-                            Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text("SOCKS5 Proxy (v2rayNG / Clash / Nekobox)", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Row(
+                                    Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text("Proxy Settings", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        FilterChip(
+                                            selected = tgProxyType == "MTPROTO",
+                                            onClick = {
+                                                tgProxyType = "MTPROTO"
+                                                if (tgProxyPort == "10808" || tgProxyPort == "1080") tgProxyPort = "443"
+                                            },
+                                            label = { Text("MTProto") },
+                                        )
+                                        FilterChip(
+                                            selected = tgProxyType == "SOCKS5",
+                                            onClick = {
+                                                tgProxyType = "SOCKS5"
+                                                if (tgProxyPort == "443") tgProxyPort = "10808"
+                                            },
+                                            label = { Text("SOCKS5") },
+                                        )
+                                    }
+                                }
+
+                                OutlinedTextField(
+                                    value = tgProxyLink,
+                                    onValueChange = { input ->
+                                        tgProxyLink = input
+                                        val parsed = tgManager.parseProxyUrl(input)
+                                        if (parsed != null) {
+                                            tgProxyType = parsed.type
+                                            tgProxyHost = parsed.server
+                                            tgProxyPort = parsed.port.toString()
+                                            if (parsed.secret.isNotBlank()) tgProxySecret = parsed.secret
+                                            if (parsed.username.isNotBlank()) tgProxyUser = parsed.username
+                                            if (parsed.password.isNotBlank()) tgProxyPass = parsed.password
+                                            tgProxyStatus = "Link parsed successfully"
+                                        }
+                                    },
+                                    label = { Text("Paste proxy link (tg://proxy or t.me)") },
+                                    placeholder = { Text("tg://proxy?server=...&port=...&secret=...") },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    singleLine = true,
+                                )
+
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     OutlinedTextField(
                                         value = tgProxyHost,
                                         onValueChange = { tgProxyHost = it },
-                                        label = { Text("Host") },
+                                        label = { Text("Server / Host") },
                                         modifier = Modifier.weight(2f),
                                         singleLine = true,
                                     )
@@ -1227,30 +1280,78 @@ private fun AddServerSheet(
                                         ),
                                     )
                                 }
+
+                                if (tgProxyType == "MTPROTO") {
+                                    OutlinedTextField(
+                                        value = tgProxySecret,
+                                        onValueChange = { tgProxySecret = it },
+                                        label = { Text("Secret (hex or base64)") },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        singleLine = true,
+                                    )
+                                } else {
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        OutlinedTextField(
+                                            value = tgProxyUser,
+                                            onValueChange = { tgProxyUser = it },
+                                            label = { Text("Username") },
+                                            modifier = Modifier.weight(1f),
+                                            singleLine = true,
+                                        )
+                                        OutlinedTextField(
+                                            value = tgProxyPass,
+                                            onValueChange = { tgProxyPass = it },
+                                            label = { Text("Password") },
+                                            modifier = Modifier.weight(1f),
+                                            singleLine = true,
+                                        )
+                                    }
+                                }
+
+                                if (tgProxyStatus != null) {
+                                    Text(
+                                        tgProxyStatus.orEmpty(),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.primary,
+                                    )
+                                }
+
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Button(
                                         onClick = {
-                                            val p = tgProxyPort.toIntOrNull() ?: 10808
+                                            val p = tgProxyPort.toIntOrNull() ?: if (tgProxyType == "MTPROTO") 443 else 10808
+                                            container.prefs.tgProxyEnabled = true
+                                            container.prefs.tgProxyType = tgProxyType
+                                            container.prefs.tgProxyHost = tgProxyHost.trim()
+                                            container.prefs.tgProxyPort = p
+                                            container.prefs.tgProxySecret = tgProxySecret.trim()
+                                            container.prefs.tgProxyUser = tgProxyUser.trim()
+                                            container.prefs.tgProxyPass = tgProxyPass.trim()
+                                            tgProxyEnabled = true
                                             scope.launch {
                                                 try {
-                                                    tgManager.addSocks5Proxy(tgProxyHost, p)
-                                                    tgProxyApplied = true
+                                                    tgProxyStatus = "Applying proxy..."
+                                                    tgManager.applySavedProxy()
+                                                    tgProxyStatus = "Proxy applied & saved"
                                                     error = ""
                                                 } catch (e: Exception) {
+                                                    tgProxyStatus = "Error: ${e.message}"
                                                     error = "Proxy error: ${e.message}"
                                                 }
                                             }
                                         },
                                         modifier = Modifier.weight(1f),
                                     ) {
-                                        Text(if (tgProxyApplied) "Re-apply" else "Apply Proxy")
+                                        Text("Save & Apply")
                                     }
-                                    if (tgProxyApplied) {
+                                    if (tgProxyEnabled) {
                                         OutlinedButton(
                                             onClick = {
+                                                container.prefs.tgProxyEnabled = false
+                                                tgProxyEnabled = false
+                                                tgProxyStatus = "Proxy disabled"
                                                 scope.launch {
                                                     tgManager.disableProxy()
-                                                    tgProxyApplied = false
                                                 }
                                             },
                                             modifier = Modifier.weight(1f),
