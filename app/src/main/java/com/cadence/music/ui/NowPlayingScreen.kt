@@ -372,22 +372,13 @@ fun NowPlayingScreen(
                                     )
                                 }
                             }
-                        } else if (turntable) {
+                        } else if (!spotify) {
                             IconButton(onClick = { showQueue = true }) {
                                 Icon(
                                     Icons.AutoMirrored.Filled.QueueMusic,
                                     "Queue",
                                     Modifier.size(22.dp),
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        } else {
-                            IconButton(onClick = { showSleepDialog = true }) {
-                                Icon(
-                                    Icons.Filled.Bedtime,
-                                    "Sleep timer",
-                                    Modifier.size(22.dp),
-                                    tint = if (sleepLeft != null) primary else MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
                         }
