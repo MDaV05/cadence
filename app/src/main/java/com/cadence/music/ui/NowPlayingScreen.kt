@@ -169,13 +169,19 @@ fun NowPlayingScreen(
                 coil.request.ImageRequest.Builder(context)
                     .data(url)
                     .allowHardware(false)
+                    .size(128, 128)
                     .build()
             )
         }.getOrNull()
         val drawable = (result as? coil.request.SuccessResult)?.drawable ?: return@LaunchedEffect
         val bitmap = runCatching { drawable.toBitmap() }.getOrNull() ?: return@LaunchedEffect
-        val palette = Palette.from(bitmap).generate()
-        accent = Color(palette.getVibrantColor(palette.getDominantColor(primary.toArgb())))
+        val color = withContext(Dispatchers.Default) {
+            runCatching {
+                val palette = Palette.from(bitmap).generate()
+                Color(palette.getVibrantColor(palette.getDominantColor(primary.toArgb())))
+            }.getOrNull()
+        }
+        if (color != null) accent = color
     }
     LaunchedEffect(state.isPlaying) {
         // Stop polling when paused — the previous while(true) recomposed 2.5x/sec forever.
@@ -406,8 +412,8 @@ fun NowPlayingScreen(
                 }
             }
         } else {
-            VerticalPager(state = pagerState, modifier = Modifier.fillMaxWidth()) { page ->
-                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            VerticalPager(state = pagerState, modifier = Modifier.fillMaxWidth().height(320.dp)) { page ->
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     NpCover(container, queueSnapshot.getOrNull(queueIdx + page - 1)?.mediaId, skinLayout, state.isPlaying)
                 }
             }
