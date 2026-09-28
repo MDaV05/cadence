@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.15.5
+
+- **Now Playing Gesture Crash Fix**: Fixed a fatal crash when swiping up or opening the Now Playing screen caused by unbounded vertical pager height constraints and unconstrained album art palette extraction.
+- **Library Songs Tab Polish**: Removed bottom dead-zone under the shuffle button on the Songs tab, restoring full touch responsiveness and proper list bottom padding.
+- **Sleep Timer Polish**: Cleaned up duplicate Sleep Timer controls across Standard, Spotify, and Analog Turntable themes; top bar on standard themes now cleanly provides Queue access.
+- **Telegram MTProto & SOCKS5 Proxy Support**: Direct MTProto (`tg://proxy`, `https://t.me/proxy`) and SOCKS5 (`tg://socks`, `https://t.me/socks`) proxy link support with secure preference persistence, connection status chip, and streamlined setup sheet.
+- **Bale.ai Music Source**: Integrated Bale (`https://bale.ai`) bot API as a first-class music streaming source, allowing channel audio indexing and direct streaming.
+- **Firebase Integration**: Embedded Firebase Analytics and Crashlytics via the official Google Services Gradle plugin for crash reporting and app diagnostics.
+
 ## 0.15.4
 
 - **Curated Skin Packs & Theme Studio**: Choose from 5 distinct visual experiences (Iris, Spotify, Apple Music, Analog Turntable, and Studio) complete with custom typography (Outfit geometric font), custom corner radius shaping, and live theme preview cards in Settings.
