@@ -8,6 +8,8 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
+    alias(libs.plugins.google.services)
+    alias(libs.plugins.firebase.crashlytics)
 }
 
 // Monotonic version code from commit count (+100 so it always exceeds the
@@ -129,6 +131,10 @@ dependencies {
     testImplementation(libs.junit)
     // JVM real org.json so unit tests can exercise toJson/fromJson (android.jar stubs throw).
     testImplementation(libs.json)
+
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.crashlytics)
+    implementation(libs.firebase.analytics)
 
     implementation(files("libs/tdlib-0.1.0.aar"))
 }
