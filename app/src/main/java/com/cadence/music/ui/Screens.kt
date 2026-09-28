@@ -938,6 +938,7 @@ private fun ServerTypePicker(onPick: (ServerType) -> Unit, onDismiss: () -> Unit
                     ServerType.EMBY to "Emby servers",
                     ServerType.PLEX to "plex.tv login",
                     ServerType.TELEGRAM to "Cloud music in chats/channels",
+                    ServerType.BALE to "Bale bot & channel music",
                 ).forEach { (t, subtitle) ->
                     SettingRow(
                         title = t.name.lowercase().replaceFirstChar { it.uppercase() },
@@ -971,9 +972,9 @@ private fun AddServerSheet(
             )
         }.getOrNull() ?: "cadence"
     }
-    var url by remember { mutableStateOf(existing?.url ?: "") }
+    var url by remember { mutableStateOf(existing?.url ?: if (type == ServerType.BALE) "https://tapi.bale.ai" else "") }
     var user by remember { mutableStateOf(existing?.user ?: "") }
-    var pass by remember { mutableStateOf(existing?.password ?: "") }
+    var pass by remember { mutableStateOf(existing?.password ?: existing?.token ?: "") }
     var customName by remember { mutableStateOf(existing?.customName ?: "") }
     var secondaryUrl by remember { mutableStateOf(existing?.secondaryUrl ?: "") }
     var busy by remember { mutableStateOf(false) }
@@ -1087,6 +1088,24 @@ private fun AddServerSheet(
             }
             ServerType.PLEX -> error = "Couldn't connect — check URL and credentials."
             ServerType.TELEGRAM -> saveAndSync(candidate)
+            ServerType.BALE -> {
+                val token = pass.trim().ifBlank { existing?.token ?: "" }
+                if (token.isBlank()) {
+                    error = "Please enter your Bale bot token."
+                    return
+                }
+                val baleCandidate = candidate.copy(
+                    url = if (url.isNotBlank()) url else "https://tapi.bale.ai",
+                    token = token,
+                    password = null,
+                    user = user.trim().ifBlank { "Bale Channel" },
+                )
+                if (container.library.pingEntry(baleCandidate)) {
+                    saveAndSync(baleCandidate)
+                } else {
+                    error = "Couldn't connect to Bale — check bot token or internet."
+                }
+            }
         }
     }
 
@@ -1681,6 +1700,39 @@ private fun AddServerSheet(
                             modifier = Modifier.fillMaxWidth(),
                         ) { Text("Connect Bot") }
                     }
+                } else if (type == ServerType.BALE) {
+                    Text("Sync and stream audio directly from Bale (bale.ai) channels using a Bot Token.", style = MaterialTheme.typography.bodyMedium)
+                    OutlinedTextField(
+                        value = customName,
+                        onValueChange = { customName = it },
+                        label = { Text("Server Name / Nickname (Optional)") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                    )
+                    OutlinedTextField(
+                        value = pass,
+                        onValueChange = { pass = it },
+                        label = { Text("Bot Token (from @BotFather on Bale)") },
+                        placeholder = { Text("e.g. 123456789:ABCdef...") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                    )
+                    OutlinedTextField(
+                        value = user,
+                        onValueChange = { user = it },
+                        label = { Text("Channel / Chat ID (e.g. @channel or chat_id)") },
+                        placeholder = { Text("Channel or chat with audio") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                    )
+                    OutlinedTextField(
+                        value = url,
+                        onValueChange = { url = it },
+                        label = { Text("API URL (Optional, default: https://tapi.bale.ai)") },
+                        placeholder = { Text("https://tapi.bale.ai") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                    )
                 } else {
                     OutlinedTextField(
                         value = customName,
@@ -1749,6 +1801,19 @@ private fun AddServerSheet(
                             customName = resolvedCustomName,
                         )
                         saveAndSync(candidate)
+                    },
+                ) { Text("Save & sync") }
+                type == ServerType.BALE -> TextButton(
+                    enabled = !busy && (pass.isNotBlank() || existing?.token != null),
+                    onClick = {
+                        busy = true; error = ""
+                        scope.launch {
+                            try { saveTyped() } catch (e: Exception) {
+                                error = "Error: ${e.message}"
+                            } finally {
+                                busy = false
+                            }
+                        }
                     },
                 ) { Text("Save & sync") }
                 type != ServerType.PLEX -> TextButton(

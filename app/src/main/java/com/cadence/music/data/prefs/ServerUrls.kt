@@ -24,7 +24,7 @@ fun sanitizeServerUrl(raw: String): String? {
  * those would corrupt or silently drop the configured library.
  */
 fun sanitizeEntry(e: ServerEntry): ServerEntry? {
-    if (e.type == ServerType.TELEGRAM) return e
+    if (e.type == ServerType.TELEGRAM || e.type == ServerType.BALE) return e
     val url = sanitizeServerUrl(e.url) ?: return null
     return e.copy(url = url, secondaryUrl = e.secondaryUrl?.let { sanitizeServerUrl(it) })
 }

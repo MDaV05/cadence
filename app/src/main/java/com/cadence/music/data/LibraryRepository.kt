@@ -133,6 +133,7 @@ class LibraryRepository(
             ServerType.EMBY -> EmbySource(eff, deviceId)
             ServerType.PLEX -> PlexSource(eff, deviceId)
             ServerType.TELEGRAM -> com.cadence.music.data.source.telegram.TelegramSource(context, eff)
+            ServerType.BALE -> com.cadence.music.data.source.bale.BaleSource(eff)
         }
     }
 
@@ -511,6 +512,7 @@ class LibraryRepository(
             ServerType.EMBY -> "emby"
             ServerType.PLEX -> "plex"
             ServerType.TELEGRAM -> "telegram"
+            ServerType.BALE -> "bale"
         }
         val eff = effectiveEntry(entry)
         var s = sourceFor(eff)
