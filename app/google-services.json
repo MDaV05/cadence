@@ -1,13 +1,13 @@
 {
   "project_info": {
-    "project_number": "123456789012",
-    "project_id": "cadence-music",
-    "storage_bucket": "cadence-music.appspot.com"
+    "project_number": "193311200083",
+    "project_id": "cadence-59dc1",
+    "storage_bucket": "cadence-59dc1.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:123456789012:android:abcdef0123456789abcdef",
+        "mobilesdk_app_id": "1:193311200083:android:afa08c8559a454abf2c7a6",
         "android_client_info": {
           "package_name": "com.cadence.music"
         }
@@ -15,7 +15,7 @@
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyD-dummy-api-key-for-cadence-00000"
+          "current_key": "AIzaSyCqtnREK2uMp_sbpWGeKEQblSXbuRyjrtM"
         }
       ],
       "services": {
