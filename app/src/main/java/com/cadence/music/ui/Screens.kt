@@ -1995,17 +1995,118 @@ private suspend fun plexFetchServers(token: String, deviceId: String): List<Pair
 // ---- Storage ----
 
 @Composable
+private fun StorageRow(
+    title: String,
+    size: String,
+    onAction: () -> Unit,
+    actionLabel: String,
+) {
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+            Text(size, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        TextButton(onClick = onAction) {
+            Text(actionLabel)
+        }
+    }
+}
+
+@Composable
 private fun StorageTab(container: AppContainer, onOpenDownloads: () -> Unit) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val dlFormat = remember { mutableStateOf(container.prefs.downloadFormat) }
     val dlBitrate = remember { mutableIntStateOf(container.prefs.downloadBitrate) }
     val cacheGb = remember { mutableIntStateOf(container.prefs.cacheGb) }
     val cacheUnlimited = remember { mutableStateOf(container.prefs.cacheUnlimited) }
-    val cacheUsage by produceCacheUsage()
+    var refreshTrigger by remember { mutableIntStateOf(0) }
+    val breakdown by androidx.compose.runtime.produceState(com.cadence.music.data.storage.StorageHelper.StorageBreakdown(), refreshTrigger) {
+        value = withContext(Dispatchers.IO) { com.cadence.music.data.storage.StorageHelper.computeBreakdown(context) }
+    }
     var showDownloadAll by remember { mutableStateOf(false) }
+    var cleanNotice by remember { mutableStateOf<String?>(null) }
     val dlRows by container.library.observeDownloads().collectAsStateWithLifecycle(initialValue = emptyList())
     val prog = remember(dlRows) { progressOf(dlRows.map { it.download.status }) }
 
     LazyColumn(Modifier.fillMaxSize()) {
+        item { SectionHeader("Storage breakdown") }
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+            ) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("Total used", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text(
+                            com.cadence.music.data.storage.StorageHelper.formatStorageSize(breakdown.totalBytes),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                    StorageRow("Downloads", com.cadence.music.data.storage.StorageHelper.formatStorageSize(breakdown.downloadsBytes), onAction = onOpenDownloads, actionLabel = "View")
+                    StorageRow("Stream cache", com.cadence.music.data.storage.StorageHelper.formatStorageSize(breakdown.streamCacheBytes), onAction = {
+                        scope.launch(Dispatchers.IO) {
+                            val freed = com.cadence.music.data.storage.StorageHelper.clearDirectory(java.io.File(context.cacheDir, "stream_cache")) +
+                                com.cadence.music.data.storage.StorageHelper.clearDirectory(java.io.File(context.filesDir, "stream_cache"))
+                            cleanNotice = "Freed ${com.cadence.music.data.storage.StorageHelper.formatStorageSize(freed)}"
+                            refreshTrigger++
+                        }
+                    }, actionLabel = "Clear")
+                    StorageRow("Telegram cache", com.cadence.music.data.storage.StorageHelper.formatStorageSize(breakdown.telegramBytes), onAction = {
+                        scope.launch(Dispatchers.IO) {
+                            val freed = com.cadence.music.data.storage.StorageHelper.clearDirectory(java.io.File(context.cacheDir, "tdlib_files"))
+                            cleanNotice = "Freed ${com.cadence.music.data.storage.StorageHelper.formatStorageSize(freed)}"
+                            refreshTrigger++
+                        }
+                    }, actionLabel = "Clear")
+                    StorageRow("Artwork cache", com.cadence.music.data.storage.StorageHelper.formatStorageSize(breakdown.imageCacheBytes), onAction = {
+                        scope.launch(Dispatchers.IO) {
+                            val freed = com.cadence.music.data.storage.StorageHelper.clearDirectory(java.io.File(context.cacheDir, "metadata_images"))
+                            cleanNotice = "Freed ${com.cadence.music.data.storage.StorageHelper.formatStorageSize(freed)}"
+                            refreshTrigger++
+                        }
+                    }, actionLabel = "Clear")
+
+                    Row(
+                        Modifier.fillMaxWidth().padding(top = 4.dp),
+                        horizontalArrangement = Arrangement.End,
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                scope.launch(Dispatchers.IO) {
+                                    val cutoff = System.currentTimeMillis() - (30L * 24 * 3600 * 1000)
+                                    val freed = com.cadence.music.data.storage.StorageHelper.cleanCacheOlderThan(java.io.File(context.cacheDir, "stream_cache"), cutoff) +
+                                        com.cadence.music.data.storage.StorageHelper.cleanCacheOlderThan(java.io.File(context.cacheDir, "tdlib_files"), cutoff)
+                                    cleanNotice = "Cleaned ${com.cadence.music.data.storage.StorageHelper.formatStorageSize(freed)} (>30 days old)"
+                                    refreshTrigger++
+                                }
+                            },
+                        ) {
+                            Text("Smart clean (>30d)")
+                        }
+                    }
+
+                    cleanNotice?.let { notice ->
+                        Text(notice, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                    }
+                }
+            }
+        }
+
         item { SectionHeader("Downloads") }
         item {
             Row(
@@ -2041,7 +2142,7 @@ private fun StorageTab(container: AppContainer, onOpenDownloads: () -> Unit) {
                 title = "Size limit",
                 gb = cacheGb.value,
                 unlimited = cacheUnlimited.value,
-                subtitle = cacheUsage?.let { used -> "Currently using ${"%.1f".format(used / (1024f * 1024 * 1024))} GB — applies after restart" },
+                subtitle = "Applies after restart",
                 onGb = {
                     cacheGb.value = it
                     container.prefs.cacheGb = it
