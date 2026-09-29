@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.16.1
+
+- **Bottom Navigation Tab Reselection & Backstack Stability**:
+  - Fixed an issue where switching back to the Library tab from Settings or other screens became unresponsive after extended use, caused by backstack desynchronization and `startDestinationId` matching.
+  - Unified all navigation bar and quick-action routes to use `findStartDestination().id` with canonical backstack preservation.
+  - Reselecting an active tab now triggers intuitive actions: tapping the Library tab resets to the primary Songs tab or smoothly scrolls to top; tapping Home scrolls to top; tapping Settings resets to the Appearance tab.
+- **Library Performance & Memory Optimization**:
+  - Removed top-level full library StateFlow observation on `LibraryScreen`. "Shuffle all" now fetches tracks on-demand on background IO coroutines, avoiding heavy continuous recompositions and high memory retention for large music libraries (e.g. 8+ GB).
+
 ## 0.16.0
 
 - **Granular Storage Breakdown & Smart Cache Cleaner**: Comprehensive storage insights under Settings > Storage. Inspect exact space consumed by Downloads, Stream Cache, Telegram TDLib Cache, and Artwork Cache, with individual one-tap category clear buttons and a "Smart clean (>30d)" cache cleaner.
