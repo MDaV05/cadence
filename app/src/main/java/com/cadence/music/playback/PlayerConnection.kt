@@ -269,7 +269,7 @@ class PlayerConnection(
         }
     }
 
-    /** Pauses playback after [minutes]; shows remaining time via [sleepRemainingMs]. */
+    /** Pauses playback after [minutes]; shows remaining time via [sleepRemainingMs] with a gentle 15s volume fade-out. */
     fun startSleepTimer(minutes: Int) {
         cancelSleepTimer()
         if (minutes <= 0) return
@@ -279,10 +279,13 @@ class PlayerConnection(
                 val remaining = endAt - System.currentTimeMillis()
                 if (remaining <= 0) break
                 _sleepRemainingMs.value = remaining
+                // Gentle fade-out during final 15 seconds
+                controller?.volume = AudioFadeHelper.calculateVolumeRamp(remaining, fadeDurationMs = 15_000L)
                 delay(1_000)
             }
             _sleepRemainingMs.value = null
             controller?.pause()
+            controller?.volume = 1.0f
         }
     }
 
@@ -290,6 +293,7 @@ class PlayerConnection(
         sleepJob?.cancel()
         sleepJob = null
         _sleepRemainingMs.value = null
+        controller?.volume = 1.0f
     }
 
     fun jumpTo(index: Int) {
