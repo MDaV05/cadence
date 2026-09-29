@@ -90,30 +90,6 @@ fun AppNav(initialSettingsTab: Int = 0, onDeepLinkConsumed: () -> Unit = {}) {
         UpdatePopup(container)
     }
 
-    // Sticky: MainActivity clears its flag via onDeepLinkConsumed, which would flip
-    // SettingsScreen's keyed remember(initialTab) back to 0 mid-visit. Holding the
-    // applied tab here keeps the in-flight visit stable; it is dropped on leaving
-    // Settings so later manual visits open the default tab.
-    var deepLinkTab by remember { mutableIntStateOf(0) }
-    androidx.compose.runtime.LaunchedEffect(initialSettingsTab) {
-        if (initialSettingsTab != 0) {
-            deepLinkTab = initialSettingsTab
-            navController.navigate("settings") { launchSingleTop = true }
-            onDeepLinkConsumed()
-        }
-    }
-    androidx.compose.runtime.LaunchedEffect(current) {
-        if (current != null && current != "settings") deepLinkTab = 0
-    }
-
-    // One-shot hint: the Home "Playlists" quick tile wants Library to open on its
-    // Playlists tab. Set right before navigating, consumed by LibraryScreen's
-    // initialTab, cleared once Library is left — mirroring deepLinkTab above.
-    var libraryStartTab by remember { mutableIntStateOf(0) }
-    androidx.compose.runtime.LaunchedEffect(current) {
-        if (current != null && current != "library") libraryStartTab = 0
-    }
-
     var libraryReselectTrigger by remember { mutableLongStateOf(0L) }
     var homeReselectTrigger by remember { mutableLongStateOf(0L) }
     var settingsReselectTrigger by remember { mutableLongStateOf(0L) }
@@ -132,6 +108,30 @@ fun AppNav(initialSettingsTab: Int = 0, onDeepLinkConsumed: () -> Unit = {}) {
                 restoreState = true
             }
         }
+    }
+
+    // Sticky: MainActivity clears its flag via onDeepLinkConsumed, which would flip
+    // SettingsScreen's keyed remember(initialTab) back to 0 mid-visit. Holding the
+    // applied tab here keeps the in-flight visit stable; it is dropped on leaving
+    // Settings so later manual visits open the default tab.
+    var deepLinkTab by remember { mutableIntStateOf(0) }
+    androidx.compose.runtime.LaunchedEffect(initialSettingsTab) {
+        if (initialSettingsTab != 0) {
+            deepLinkTab = initialSettingsTab
+            onTabSelect("settings")
+            onDeepLinkConsumed()
+        }
+    }
+    androidx.compose.runtime.LaunchedEffect(current) {
+        if (current != null && current != "settings") deepLinkTab = 0
+    }
+
+    // One-shot hint: the Home "Playlists" quick tile wants Library to open on its
+    // Playlists tab. Set right before navigating, consumed by LibraryScreen's
+    // initialTab, cleared once Library is left — mirroring deepLinkTab above.
+    var libraryStartTab by remember { mutableIntStateOf(0) }
+    androidx.compose.runtime.LaunchedEffect(current) {
+        if (current != null && current != "library") libraryStartTab = 0
     }
 
     Scaffold(
@@ -261,13 +261,12 @@ fun AppNav(initialSettingsTab: Int = 0, onDeepLinkConsumed: () -> Unit = {}) {
             }, onAlbumClick = { name ->
                 navController.navigate("album/${Uri.encode(name)}")
             }, onOpenLibrary = {
-                libraryReselectTrigger = System.currentTimeMillis()
-                navController.navigate("library") { launchSingleTop = true; popUpTo(navController.graph.findStartDestination().id) { saveState = true }; restoreState = true }
+                onTabSelect("library")
             }, onOpenPlaylists = {
                 libraryStartTab = 3
-                navController.navigate("library") { launchSingleTop = true; popUpTo(navController.graph.findStartDestination().id) { saveState = true }; restoreState = true }
+                onTabSelect("library")
             }, onOpenSearch = {
-                navController.navigate("search") { launchSingleTop = true; popUpTo(navController.graph.findStartDestination().id) { saveState = true }; restoreState = true }
+                onTabSelect("search")
             }, onOpenDownloads = {
                 navController.navigate("downloads") { launchSingleTop = true; popUpTo(navController.graph.findStartDestination().id) { saveState = true }; restoreState = true }
             }) }

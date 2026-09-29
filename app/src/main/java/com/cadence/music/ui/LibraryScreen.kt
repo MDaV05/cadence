@@ -93,6 +93,7 @@ import com.cadence.music.data.db.ArtistTile
 import com.cadence.music.data.db.TrackEntity
 import com.cadence.music.data.tags.artistCandidates
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -107,7 +108,6 @@ fun LibraryScreen(
     onOpenLiked: () -> Unit = {},
 ) {
     val player = container.player
-    val tracks by container.library.tracks().collectAsStateWithLifecycle(initialValue = emptyList())
     val albumGroups by container.library.albumGroups()
         .collectAsStateWithLifecycle(initialValue = emptyList())
     val artists by container.library.artistTiles()
@@ -138,7 +138,12 @@ fun LibraryScreen(
         floatingActionButton = {
             when (tab) {
                 0 -> ExtendedFloatingActionButton(
-                    onClick = { player.shuffleAll(tracks.map { it.toTrack() }) },
+                    onClick = {
+                        scope.launch {
+                            val all = withContext(Dispatchers.IO) { container.library.tracks().first() }
+                            player.shuffleAll(all.map { it.toTrack() })
+                        }
+                    },
                     icon = { Icon(Icons.Filled.Shuffle, null) },
                     text = { Text("Shuffle all") },
                 )
