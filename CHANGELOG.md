@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.15.6
+
+- **Telegram Proxy UI Streamlining**: Cleaned up the proxy settings in the Telegram configuration dialog with concise labels ("Proxy"), an inline compact segmented control for MTProto and SOCKS5 (using 11sp typography to prevent character wrapping), and vertical scrolling for the connection dialog.
+
 ## 0.15.5
 
 - **Now Playing Gesture Crash Fix**: Fixed a fatal crash when swiping up or opening the Now Playing screen caused by unbounded vertical pager height constraints and unconstrained album art palette extraction.
