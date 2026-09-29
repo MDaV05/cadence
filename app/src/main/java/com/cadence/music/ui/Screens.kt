@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -73,6 +74,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -1143,7 +1145,10 @@ private fun AddServerSheet(
         onDismissRequest = { plexPolling = false; onDismiss() },
         title = { Text(type.name.lowercase().replaceFirstChar { it.uppercase() }) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
                 if (type == ServerType.PLEX) {
                     when (plexPhase) {
                         0 -> Text("Sign in with your Plex account, then pick this device's server.")
@@ -1217,12 +1222,24 @@ private fun AddServerSheet(
                             "Connection: $tgConn",
                             style = MaterialTheme.typography.labelSmall,
                             color = if (tgConn == "Connected") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f, fill = false),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
-                        TextButton(onClick = { tgShowProxy = !tgShowProxy }) {
+                        Spacer(Modifier.size(8.dp))
+                        Surface(
+                            onClick = { tgShowProxy = !tgShowProxy },
+                            shape = RoundedCornerShape(6.dp),
+                            color = if (tgProxyEnabled) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+                            border = BorderStroke(1.dp, if (tgProxyEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                        ) {
                             Text(
-                                if (tgShowProxy) "Hide Proxy" else if (tgProxyEnabled) "Proxy: ON" else "Proxy Settings",
+                                if (tgProxyEnabled) "Proxy (ON)" else "Proxy",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = if (tgProxyEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontWeight = if (tgProxyEnabled) FontWeight.Bold else FontWeight.Medium,
+                                color = if (tgProxyEnabled) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                maxLines = 1,
                             )
                         }
                     }
@@ -1238,24 +1255,53 @@ private fun AddServerSheet(
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
-                                    Text("Proxy Settings", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                        FilterChip(
-                                            selected = tgProxyType == "MTPROTO",
-                                            onClick = {
-                                                tgProxyType = "MTPROTO"
-                                                if (tgProxyPort == "10808" || tgProxyPort == "1080") tgProxyPort = "443"
-                                            },
-                                            label = { Text("MTProto") },
-                                        )
-                                        FilterChip(
-                                            selected = tgProxyType == "SOCKS5",
-                                            onClick = {
-                                                tgProxyType = "SOCKS5"
-                                                if (tgProxyPort == "443") tgProxyPort = "10808"
-                                            },
-                                            label = { Text("SOCKS5") },
-                                        )
+                                    Text(
+                                        "Proxy",
+                                        style = MaterialTheme.typography.labelLarge,
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                    Row(
+                                        modifier = Modifier
+                                            .background(
+                                                MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
+                                                RoundedCornerShape(8.dp),
+                                            )
+                                            .border(
+                                                1.dp,
+                                                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+                                                RoundedCornerShape(8.dp),
+                                            )
+                                            .padding(2.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        listOf("MTPROTO" to "MTProto", "SOCKS5" to "SOCKS5").forEach { (typeKey, label) ->
+                                            val selected = tgProxyType == typeKey
+                                            Box(
+                                                modifier = Modifier
+                                                    .clip(RoundedCornerShape(6.dp))
+                                                    .background(
+                                                        if (selected) MaterialTheme.colorScheme.primary
+                                                        else Color.Transparent
+                                                    )
+                                                    .clickable {
+                                                        tgProxyType = typeKey
+                                                        if (typeKey == "MTPROTO" && (tgProxyPort == "10808" || tgProxyPort == "1080")) tgProxyPort = "443"
+                                                        if (typeKey == "SOCKS5" && tgProxyPort == "443") tgProxyPort = "10808"
+                                                    }
+                                                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                                                contentAlignment = Alignment.Center,
+                                            ) {
+                                                Text(
+                                                    text = label,
+                                                    fontSize = 11.sp,
+                                                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                                                    color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    maxLines = 1,
+                                                    softWrap = false,
+                                                )
+                                            }
+                                        }
                                     }
                                 }
 
@@ -1274,8 +1320,8 @@ private fun AddServerSheet(
                                             tgProxyStatus = "Link parsed successfully"
                                         }
                                     },
-                                    label = { Text("Paste proxy link (tg://proxy or t.me)") },
-                                    placeholder = { Text("tg://proxy?server=...&port=...&secret=...") },
+                                    label = { Text("Paste proxy link", style = MaterialTheme.typography.bodySmall) },
+                                    placeholder = { Text("tg://proxy?... or tg://socks?...", style = MaterialTheme.typography.bodySmall) },
                                     modifier = Modifier.fillMaxWidth(),
                                     singleLine = true,
                                 )
