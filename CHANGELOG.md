@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.16.0
+
+- **Granular Storage Breakdown & Smart Cache Cleaner**: Comprehensive storage insights under Settings > Storage. Inspect exact space consumed by Downloads, Stream Cache, Telegram TDLib Cache, and Artwork Cache, with individual one-tap category clear buttons and a "Smart clean (>30d)" cache cleaner.
+- **Dynamic Smart Mixes**: Instant personalized algorithmic mixes right from the Playlists tab:
+  - 🔁 **On Repeat**: Your most-played and recently active tracks.
+  - 💎 **Forgotten Gems**: Familiar favorites (`playCount >= 2`) not played in over 30 days.
+  - 🎲 **Deep Cuts**: Unexplored songs in your library (`playCount == 0`).
+  - Includes one-tap quick play and a dedicated bottom sheet for browsing and shuffling mix tracks.
+- **One-Tap Offline Mode Switcher**: A prominent "Offline" filter chip in the Library top header to instantly switch between full library streaming and local/downloaded playback without altering your saved server configuration.
+- **Immersive Synced Lyrics**: Real-time lyrics with active line auto-centering, smooth animated color transitions, bold highlighted active line with dimmed surrounding lines, and tap-to-seek playback.
+- **Smooth Sleep Timer Fade-Out**: Sleep timer now smoothly ramps down volume over its final 15 seconds before pausing, avoiding abrupt audio cuts when falling asleep.
+
 ## 0.15.6
 
 - **Telegram Proxy UI Streamlining**: Cleaned up the proxy settings in the Telegram configuration dialog with concise labels ("Proxy"), an inline compact segmented control for MTProto and SOCKS5 (using 11sp typography to prevent character wrapping), and vertical scrolling for the connection dialog.
