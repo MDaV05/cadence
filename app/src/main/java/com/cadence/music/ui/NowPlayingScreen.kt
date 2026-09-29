@@ -1090,7 +1090,11 @@ fun NowPlayingScreen(
     if (showFullLyrics && (lyrics.isNotEmpty() || unsynced != null)) {
         val listState = androidx.compose.foundation.lazy.rememberLazyListState()
         LaunchedEffect(currentLine) {
-            if (currentLine >= 0) listState.animateScrollToItem(currentLine)
+            if (currentLine >= 0) {
+                // Keep the active line vertically centered (leaving 2 context lines above)
+                val target = maxOf(0, currentLine - 2)
+                listState.animateScrollToItem(target)
+            }
         }
         Column(
             modifier = Modifier
@@ -1100,17 +1104,26 @@ fun NowPlayingScreen(
                 .navigationBarsPadding(),
         ) {
             Row(
-                Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    state.title,
-                    style = MaterialTheme.typography.titleMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f).padding(start = 12.dp),
-                )
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        state.title,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        state.artist,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
                 IconButton(onClick = { showFullLyrics = false }) {
                     Icon(Icons.Filled.Close, "Close lyrics")
                 }
@@ -1119,9 +1132,9 @@ fun NowPlayingScreen(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                    horizontal = 24.dp, vertical = 64.dp,
+                    horizontal = 24.dp, vertical = 48.dp,
                 ),
-                verticalArrangement = Arrangement.spacedBy(18.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 if (lyrics.isEmpty()) {
                     unsynced?.let { raw ->
@@ -1130,22 +1143,27 @@ fun NowPlayingScreen(
                                 raw,
                                 style = MaterialTheme.typography.bodyLarge,
                                 color = MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
                             )
                         }
                     }
                 }
                 itemsIndexed(lyrics) { i, line ->
+                    val isActive = i == currentLine
+                    val textColor by androidx.compose.animation.animateColorAsState(
+                        targetValue = if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.35f),
+                        label = "lyricTextColor",
+                    )
                     Text(
-                        line.text,
-                        style = if (i == currentLine) MaterialTheme.typography.headlineSmall
-                        else MaterialTheme.typography.bodyLarge,
-                        color = when {
-                            i == currentLine -> MaterialTheme.colorScheme.primary
-                            else -> MaterialTheme.colorScheme.onSurfaceVariant
-                        },
+                        text = line.text,
+                        style = if (isActive) MaterialTheme.typography.headlineSmall else MaterialTheme.typography.titleMedium,
+                        fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium,
+                        color = textColor,
                         modifier = Modifier
                             .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (isActive) MaterialTheme.colorScheme.primary.copy(alpha = 0.08f) else Color.Transparent)
+                            .padding(horizontal = 12.dp, vertical = 8.dp)
                             .clickable { player.seekTo(line.timeMs) },
                     )
                 }

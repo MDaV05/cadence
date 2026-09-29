@@ -17,6 +17,12 @@ object LrcLib {
         "[%02d:%02d.%03d]".format(m, rem / 1000, rem % 1000) + l.text
     }
 
+    /** Finds the active lyric line index for a given playback position in milliseconds. */
+    fun activeLineIndex(lines: List<SyncedLine>, positionMs: Long): Int {
+        if (lines.isEmpty() || positionMs < 0) return -1
+        return lines.indexOfLast { it.timeMs <= positionMs }.takeIf { it >= 0 } ?: -1
+    }
+
     fun parse(lrc: String): List<SyncedLine> {
         val out = mutableListOf<SyncedLine>()
         for (line in lrc.lines()) {

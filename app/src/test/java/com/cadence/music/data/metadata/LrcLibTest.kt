@@ -81,4 +81,21 @@ class LrcLibTest {
         )
         assertEquals(lines, LrcLib.parse(LrcLib.toLrcText(lines)))
     }
+
+    @Test
+    fun `activeLineIndex returns correct line index based on position`() {
+        val lines = listOf(
+            SyncedLine(1000L, "first"),
+            SyncedLine(5000L, "second"),
+            SyncedLine(10000L, "third"),
+        )
+        assertEquals(-1, LrcLib.activeLineIndex(lines, 500L))
+        assertEquals(0, LrcLib.activeLineIndex(lines, 1000L))
+        assertEquals(0, LrcLib.activeLineIndex(lines, 3000L))
+        assertEquals(1, LrcLib.activeLineIndex(lines, 5000L))
+        assertEquals(1, LrcLib.activeLineIndex(lines, 9999L))
+        assertEquals(2, LrcLib.activeLineIndex(lines, 10000L))
+        assertEquals(2, LrcLib.activeLineIndex(lines, 99999L))
+    }
 }
+
