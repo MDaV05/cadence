@@ -41,6 +41,9 @@ import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.Sort
+import androidx.compose.material.icons.filled.CloudOff
+import androidx.compose.material.icons.filled.CloudDone
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -131,12 +134,33 @@ fun LibraryScreen(
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
 
-            // Collapsing-style large header
-            Text(
-                "Library",
-                style = MaterialTheme.typography.headlineMedium,
-                modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 4.dp),
-            )
+            // Large header with One-Tap Offline Mode Switcher
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "Library",
+                    style = MaterialTheme.typography.headlineMedium,
+                )
+                val offlineOnly by container.prefs.observeOfflineOnly()
+                    .collectAsStateWithLifecycle(initialValue = container.prefs.offlineOnly)
+                FilterChip(
+                    selected = offlineOnly,
+                    onClick = { container.prefs.offlineOnly = !offlineOnly },
+                    label = { Text("Offline") },
+                    leadingIcon = {
+                        Icon(
+                            if (offlineOnly) Icons.Filled.CloudOff else Icons.Filled.CloudDone,
+                            contentDescription = if (offlineOnly) "Offline mode on" else "Offline mode off",
+                            modifier = Modifier.size(18.dp),
+                        )
+                    },
+                )
+            }
 
             ScrollableTabRow(
                 selectedTabIndex = tab,

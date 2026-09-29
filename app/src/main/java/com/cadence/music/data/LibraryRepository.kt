@@ -70,6 +70,10 @@ fun isIncluded(sourceId: String, path: String?, mode: LibraryMode): Boolean = wh
     LibraryMode.LOCAL_ONLY -> sourceId == "local" || isDownloaded(sourceId, path)
 }
 
+/** Resolves active mode taking one-tap offline mode toggle into account. */
+fun effectiveMode(baseMode: LibraryMode, offlineOnly: Boolean): LibraryMode =
+    if (offlineOnly) LibraryMode.LOCAL_ONLY else baseMode
+
 /** Strips the "<entryId>:" prefix, recovering the source-level remote key. */
 fun remoteKey(serverId: String, entry: ServerEntry): String = serverId.removePrefix("${entry.id}:")
 
@@ -214,13 +218,16 @@ class LibraryRepository(
         prefs.observeServers().map { activePrefixesFor(it) }
 
     private fun observeModeAndActive(): Flow<Pair<LibraryMode, Set<String>>> =
-        combine(prefs.observeMode(), observeActivePrefixes()) { mode, active -> mode to active }
+        combine(prefs.observeMode(), prefs.observeOfflineOnly(), observeActivePrefixes()) { mode, offlineOnly, active ->
+            effectiveMode(mode, offlineOnly) to active
+        }
 
     // Full-list read kept ONLY for one-shot shuffle-all (Home + Library FAB).
     // All scrolling UI must use tracksPaged()/searchPaged().
     fun tracks(): Flow<List<TrackEntity>> =
-        combine(db.trackDao().observeAll(), prefs.observeMode(), observeActivePrefixes()) { list, mode, active ->
-            list.filter { isIncluded(it.sourceId, it.path, mode) && (active.isEmpty() || isEntryActive(it.sourceId, it.serverId, active)) }
+        combine(db.trackDao().observeAll(), prefs.observeMode(), prefs.observeOfflineOnly(), observeActivePrefixes()) { list, mode, offlineOnly, active ->
+            val eff = effectiveMode(mode, offlineOnly)
+            list.filter { isIncluded(it.sourceId, it.path, eff) && (active.isEmpty() || isEntryActive(it.sourceId, it.serverId, active)) }
         }
 
     // Paged reads for big libraries; pageSize 50 ≈ 3 screens, maxSize 300 bounds memory,
@@ -298,14 +305,14 @@ class LibraryRepository(
 
     suspend fun tracksByArtist(name: String): List<TrackEntity> {
         val list = db.trackDao().byArtist(name)
-        val mode = prefs.mode
+        val mode = effectiveMode(prefs.mode, prefs.offlineOnly)
         val active = activePrefixesSnapshot()
         return list.filter { isIncluded(it.sourceId, it.path, mode) && (active.isEmpty() || isEntryActive(it.sourceId, it.serverId, active)) }
     }
 
     suspend fun tracksByAlbumNorm(norm: String): List<TrackEntity> {
         val list = db.trackDao().byAlbumNorm(norm)
-        val mode = prefs.mode
+        val mode = effectiveMode(prefs.mode, prefs.offlineOnly)
         val active = activePrefixesSnapshot()
         return list.filter { isIncluded(it.sourceId, it.path, mode) && (active.isEmpty() || isEntryActive(it.sourceId, it.serverId, active)) }
     }

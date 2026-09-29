@@ -100,6 +100,19 @@ class Prefs(context: Context) {
         awaitClose { sp.unregisterOnSharedPreferenceChangeListener(listener) }
     }
 
+    var offlineOnly: Boolean
+        get() = sp.getBoolean("offline_only", false)
+        set(value) = sp.edit().putBoolean("offline_only", value).apply()
+
+    fun observeOfflineOnly(): Flow<Boolean> = callbackFlow {
+        trySend(offlineOnly)
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == "offline_only") trySend(offlineOnly)
+        }
+        sp.registerOnSharedPreferenceChangeListener(listener)
+        awaitClose { sp.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
+
     /** Emits the current server list first, then re-emits on every servers change. */
     fun observeServers(): Flow<List<ServerEntry>> = callbackFlow {
         trySend(servers)

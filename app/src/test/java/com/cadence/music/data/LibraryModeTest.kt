@@ -67,4 +67,18 @@ class LibraryModeTest {
         assertTrue(isIncluded("jellyfin", null, m))
         assertTrue(isIncluded("plex", null, m))
     }
+
+    @Test
+    fun `effectiveMode returns LOCAL_ONLY when offlineOnly is true regardless of base mode`() {
+        assertEquals(LibraryMode.LOCAL_ONLY, effectiveMode(LibraryMode.HYBRID, offlineOnly = true))
+        assertEquals(LibraryMode.LOCAL_ONLY, effectiveMode(LibraryMode.API_ONLY, offlineOnly = true))
+        assertEquals(LibraryMode.LOCAL_ONLY, effectiveMode(LibraryMode.LOCAL_ONLY, offlineOnly = true))
+    }
+
+    @Test
+    fun `effectiveMode returns base mode when offlineOnly is false`() {
+        assertEquals(LibraryMode.HYBRID, effectiveMode(LibraryMode.HYBRID, offlineOnly = false))
+        assertEquals(LibraryMode.API_ONLY, effectiveMode(LibraryMode.API_ONLY, offlineOnly = false))
+        assertEquals(LibraryMode.LOCAL_ONLY, effectiveMode(LibraryMode.LOCAL_ONLY, offlineOnly = false))
+    }
 }
