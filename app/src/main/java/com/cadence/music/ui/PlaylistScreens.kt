@@ -73,6 +73,20 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.material.icons.filled.Repeat
+import androidx.compose.material.icons.filled.Shuffle
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.ui.graphics.vector.ImageVector
+
+data class SmartMixItem(
+    val title: String,
+    val subtitle: String,
+    val description: String,
+    val icon: ImageVector,
+    val tracks: List<TrackEntity>,
+)
 
 /**
  * Playlist artwork: the user's uploaded photo if set, otherwise the first
@@ -138,6 +152,7 @@ suspend fun savePlaylistCover(context: Context, playlistId: Long, uri: Uri): Str
  * its own — the host (LibraryScreen) owns the "+" FAB and its NewPlaylistDialog;
  * this composable owns the list, the empty state and the rename/delete dialogs.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PlaylistsContent(
     container: AppContainer,
@@ -150,6 +165,22 @@ fun PlaylistsContent(
         .collectAsStateWithLifecycle(initialValue = emptyList())
     val likedCount by container.library.observeLikedCount()
         .collectAsStateWithLifecycle(initialValue = 0)
+    val allTracks by container.library.tracks().collectAsStateWithLifecycle(initialValue = emptyList())
+    val now = remember { System.currentTimeMillis() }
+    val thirtyDaysAgo = remember(now) { now - 30L * 24 * 60 * 60 * 1000 }
+    val onRepeatTracks = remember(allTracks) { com.cadence.music.data.SmartMixesFilter.filterOnRepeat(allTracks) }
+    val forgottenGemsTracks = remember(allTracks) { com.cadence.music.data.SmartMixesFilter.filterForgottenGems(allTracks, thirtyDaysAgo) }
+    val deepCutsTracks = remember(allTracks) { com.cadence.music.data.SmartMixesFilter.filterDeepCuts(allTracks) }
+    var selectedMix by remember { mutableStateOf<SmartMixItem?>(null) }
+
+    val smartMixes = remember(onRepeatTracks, forgottenGemsTracks, deepCutsTracks) {
+        listOf(
+            SmartMixItem("On Repeat", "${onRepeatTracks.size} tracks", "Your most played tracks", Icons.Filled.Repeat, onRepeatTracks),
+            SmartMixItem("Forgotten Gems", "${forgottenGemsTracks.size} tracks", "Favorites not played in 30d", Icons.Filled.Star, forgottenGemsTracks),
+            SmartMixItem("Deep Cuts", "${deepCutsTracks.size} tracks", "Unplayed tracks in your library", Icons.Filled.Shuffle, deepCutsTracks),
+        )
+    }
+
     var renameTarget by remember { mutableStateOf<PlaylistWithCount?>(null) }
     var deleteTarget by remember { mutableStateOf<PlaylistWithCount?>(null) }
 
@@ -183,9 +214,81 @@ fun PlaylistsContent(
             }
         }
 
+        Text(
+            "Smart Mixes",
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp),
+        )
+        androidx.compose.foundation.lazy.LazyRow(
+            contentPadding = PaddingValues(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.padding(bottom = 12.dp),
+        ) {
+            items(smartMixes, key = { it.title }) { mix ->
+                androidx.compose.material3.Card(
+                    colors = androidx.compose.material3.CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    ),
+                    shape = MaterialTheme.shapes.medium,
+                    modifier = Modifier
+                        .width(140.dp)
+                        .clickable { selectedMix = mix },
+                ) {
+                    Column(Modifier.padding(12.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Box(
+                                Modifier
+                                    .size(36.dp)
+                                    .clip(MaterialTheme.shapes.small)
+                                    .background(MaterialTheme.colorScheme.primaryContainer),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    mix.icon,
+                                    null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp),
+                                )
+                            }
+                            if (mix.tracks.isNotEmpty()) {
+                                IconButton(
+                                    onClick = { container.player.playNow(mix.tracks.map { it.toTrack() }) },
+                                    modifier = Modifier.size(28.dp),
+                                ) {
+                                    Icon(
+                                        Icons.Filled.PlayArrow,
+                                        "Play ${mix.title}",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                    )
+                                }
+                            }
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            mix.title,
+                            style = MaterialTheme.typography.titleMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            mix.subtitle,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                        )
+                    }
+                }
+            }
+        }
+
         if (playlists.isEmpty()) {
             Column(
-                modifier = Modifier.fillMaxSize().padding(32.dp),
+                modifier = Modifier.weight(1f).fillMaxWidth().padding(32.dp),
                 verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
@@ -198,7 +301,7 @@ fun PlaylistsContent(
                 )
             }
         } else {
-            LazyColumn(Modifier.fillMaxSize()) {
+            LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
             items(playlists, key = { it.id }) { p ->
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -226,6 +329,112 @@ fun PlaylistsContent(
             }
         }
     }
+    }
+
+    if (selectedMix != null) {
+        val mix = selectedMix!!
+        androidx.compose.material3.ModalBottomSheet(
+            onDismissRequest = { selectedMix = null },
+        ) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    .padding(bottom = 24.dp)
+            ) {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(mix.title, style = MaterialTheme.typography.headlineSmall)
+                        Text(
+                            "${mix.description} • ${mix.tracks.size} songs",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    if (mix.tracks.isNotEmpty()) {
+                        Row {
+                            IconButton(onClick = {
+                                container.player.playNow(mix.tracks.map { it.toTrack() })
+                                selectedMix = null
+                            }) {
+                                Icon(Icons.Filled.PlayArrow, "Play all", tint = MaterialTheme.colorScheme.primary)
+                            }
+                            IconButton(onClick = {
+                                container.player.shuffleAll(mix.tracks.map { it.toTrack() })
+                                selectedMix = null
+                            }) {
+                                Icon(Icons.Filled.Shuffle, "Shuffle", tint = MaterialTheme.colorScheme.primary)
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+                if (mix.tracks.isEmpty()) {
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 32.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            "No songs in this mix yet.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxWidth().heightIn(max = 400.dp),
+                    ) {
+                        itemsIndexed(mix.tracks) { index, track ->
+                            val art by produceState<String?>(null, track.id) {
+                                value = container.artResolver.urlFor(track)
+                            }
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        container.player.playNow(mix.tracks.map { it.toTrack() }, index)
+                                        selectedMix = null
+                                    }
+                                    .padding(vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Box(
+                                    Modifier
+                                        .size(40.dp)
+                                        .clip(MaterialTheme.shapes.extraSmall)
+                                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                                ) {
+                                    if (art != null) {
+                                        AsyncImage(art, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                                    }
+                                }
+                                Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                                    Text(track.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(
+                                        track.artistName,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                                Text(
+                                    if (track.playCount > 0) "${track.playCount} plays" else "Unplayed",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     renameTarget?.let { p ->
