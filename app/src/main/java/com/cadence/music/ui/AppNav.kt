@@ -58,6 +58,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -67,6 +68,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
@@ -112,6 +114,26 @@ fun AppNav(initialSettingsTab: Int = 0, onDeepLinkConsumed: () -> Unit = {}) {
         if (current != null && current != "library") libraryStartTab = 0
     }
 
+    var libraryReselectTrigger by remember { mutableLongStateOf(0L) }
+    var homeReselectTrigger by remember { mutableLongStateOf(0L) }
+    var settingsReselectTrigger by remember { mutableLongStateOf(0L) }
+
+    val onTabSelect: (String) -> Unit = { route ->
+        if (current == route) {
+            when (route) {
+                "library" -> libraryReselectTrigger = System.currentTimeMillis()
+                "home" -> homeReselectTrigger = System.currentTimeMillis()
+                "settings" -> settingsReselectTrigger = System.currentTimeMillis()
+            }
+        } else {
+            navController.navigate(route) {
+                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                launchSingleTop = true
+                restoreState = true
+            }
+        }
+    }
+
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         bottomBar = {
@@ -140,9 +162,7 @@ fun AppNav(initialSettingsTab: Int = 0, onDeepLinkConsumed: () -> Unit = {}) {
                     )
                     when (skinLayout) {
                         com.cadence.music.ui.theme.SkinLayout.TURNTABLE -> {
-                            FloatingPillNav(current, tabs) { route ->
-                                navController.navigate(route) { launchSingleTop = true; popUpTo(navController.graph.startDestinationId) { saveState = true }; restoreState = true }
-                            }
+                            FloatingPillNav(current, tabs, onSelect = onTabSelect)
                         }
                         com.cadence.music.ui.theme.SkinLayout.SPOTIFY -> {
                             val itemColors = NavigationBarItemDefaults.colors(
@@ -159,9 +179,7 @@ fun AppNav(initialSettingsTab: Int = 0, onDeepLinkConsumed: () -> Unit = {}) {
                                 tabs.forEach { tab ->
                                     NavigationBarItem(
                                         selected = current == tab.route,
-                                        onClick = {
-                                            navController.navigate(tab.route) { launchSingleTop = true; popUpTo(navController.graph.startDestinationId) { saveState = true }; restoreState = true }
-                                        },
+                                        onClick = { onTabSelect(tab.route) },
                                         icon = { Icon(if (current == tab.route) tab.filled else tab.outlined, null) },
                                         label = { Text(tab.label, style = MaterialTheme.typography.labelSmall) },
                                         colors = itemColors,
@@ -190,9 +208,7 @@ fun AppNav(initialSettingsTab: Int = 0, onDeepLinkConsumed: () -> Unit = {}) {
                                         val label = if (tab.route == "home") "Listen Now" else tab.label
                                         NavigationBarItem(
                                             selected = current == tab.route,
-                                            onClick = {
-                                                navController.navigate(tab.route) { launchSingleTop = true; popUpTo(navController.graph.startDestinationId) { saveState = true }; restoreState = true }
-                                            },
+                                            onClick = { onTabSelect(tab.route) },
                                             icon = { Icon(if (current == tab.route) tab.filled else tab.outlined, null) },
                                             label = { Text(label, style = MaterialTheme.typography.labelSmall) },
                                             colors = itemColors,
@@ -216,9 +232,7 @@ fun AppNav(initialSettingsTab: Int = 0, onDeepLinkConsumed: () -> Unit = {}) {
                                 tabs.forEach { tab ->
                                     NavigationBarItem(
                                         selected = current == tab.route,
-                                        onClick = {
-                                            navController.navigate(tab.route) { launchSingleTop = true; popUpTo(navController.graph.startDestinationId) { saveState = true }; restoreState = true }
-                                        },
+                                        onClick = { onTabSelect(tab.route) },
                                         icon = { Icon(if (current == tab.route) tab.filled else tab.outlined, null) },
                                         label = { Text(tab.label) },
                                         colors = itemColors,
@@ -242,21 +256,22 @@ fun AppNav(initialSettingsTab: Int = 0, onDeepLinkConsumed: () -> Unit = {}) {
                 // dead space above the nav bar (audit F11).
                 .consumeWindowInsets(padding),
         ) {
-            composable("home") { HomeScreen(container, onArtistClick = { name ->
+            composable("home") { HomeScreen(container, reselectTrigger = homeReselectTrigger, onArtistClick = { name ->
                 navController.navigate("artist/${Uri.encode(name)}")
             }, onAlbumClick = { name ->
                 navController.navigate("album/${Uri.encode(name)}")
             }, onOpenLibrary = {
-                navController.navigate("library") { launchSingleTop = true; popUpTo(navController.graph.startDestinationId) { saveState = true }; restoreState = true }
+                libraryReselectTrigger = System.currentTimeMillis()
+                navController.navigate("library") { launchSingleTop = true; popUpTo(navController.graph.findStartDestination().id) { saveState = true }; restoreState = true }
             }, onOpenPlaylists = {
                 libraryStartTab = 3
-                navController.navigate("library") { launchSingleTop = true; popUpTo(navController.graph.startDestinationId) { saveState = true }; restoreState = true }
+                navController.navigate("library") { launchSingleTop = true; popUpTo(navController.graph.findStartDestination().id) { saveState = true }; restoreState = true }
             }, onOpenSearch = {
-                navController.navigate("search") { launchSingleTop = true; popUpTo(navController.graph.startDestinationId) { saveState = true }; restoreState = true }
+                navController.navigate("search") { launchSingleTop = true; popUpTo(navController.graph.findStartDestination().id) { saveState = true }; restoreState = true }
             }, onOpenDownloads = {
-                navController.navigate("downloads") { launchSingleTop = true; popUpTo(navController.graph.startDestinationId) { saveState = true }; restoreState = true }
+                navController.navigate("downloads") { launchSingleTop = true; popUpTo(navController.graph.findStartDestination().id) { saveState = true }; restoreState = true }
             }) }
-            composable("library") { LibraryScreen(container, initialTab = libraryStartTab, onArtistClick = { name ->
+            composable("library") { LibraryScreen(container, initialTab = libraryStartTab, reselectTrigger = libraryReselectTrigger, onArtistClick = { name ->
                 navController.navigate("artist/${Uri.encode(name)}")
             }, onAlbumClick = { name ->
                 navController.navigate("album/${Uri.encode(name)}")
@@ -280,7 +295,7 @@ fun AppNav(initialSettingsTab: Int = 0, onDeepLinkConsumed: () -> Unit = {}) {
             }, onAlbumClick = { name ->
                 navController.navigate("album/${Uri.encode(name)}")
             }) }
-            composable("settings") { SettingsScreen(container, initialTab = deepLinkTab, onOpenEqualizer = {
+            composable("settings") { SettingsScreen(container, initialTab = deepLinkTab, reselectTrigger = settingsReselectTrigger, onOpenEqualizer = {
                 navController.navigate("equalizer")
             }, onOpenDownloads = {
                 navController.navigate("downloads")

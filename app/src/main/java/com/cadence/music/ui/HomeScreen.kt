@@ -65,6 +65,7 @@ import java.util.Calendar
 @Composable
 fun HomeScreen(
     container: AppContainer,
+    reselectTrigger: Long = 0L,
     onArtistClick: (String) -> Unit = {},
     onAlbumClick: (String) -> Unit = {},
     onOpenLibrary: () -> Unit = {},
@@ -78,6 +79,16 @@ fun HomeScreen(
     var most by remember { mutableStateOf<List<TrackEntity>>(emptyList()) }
     var added by remember { mutableStateOf<List<TrackEntity>>(emptyList()) }
     var total by remember { mutableStateOf(0) }
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+
+    LaunchedEffect(reselectTrigger) {
+        if (reselectTrigger > 0L) {
+            if (listState.firstVisibleItemIndex > 20) {
+                listState.scrollToItem(20)
+            }
+            listState.animateScrollToItem(0)
+        }
+    }
 
     // Reload whenever the playing track changes — stats move as you listen.
     val nowTitle by player.state.collectAsStateWithLifecycle()
@@ -102,6 +113,7 @@ fun HomeScreen(
     Scaffold { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding),
+            state = listState,
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             item { GreetingBanner(total, onShuffleAll = {

@@ -163,10 +163,16 @@ private fun SettingRow(
 fun SettingsScreen(
     container: AppContainer,
     initialTab: Int = 0,
+    reselectTrigger: Long = 0L,
     onOpenEqualizer: () -> Unit = {},
     onOpenDownloads: () -> Unit = {},
 ) {
     var tab by rememberSaveable(initialTab) { mutableIntStateOf(initialTab) }
+    LaunchedEffect(reselectTrigger) {
+        if (reselectTrigger > 0L) {
+            tab = 0
+        }
+    }
     val tabs = listOf("Appearance", "Server", "Storage", "Playback", "About")
 
     // No Scaffold of its own and the nav Scaffold zeroes insets — pad manually

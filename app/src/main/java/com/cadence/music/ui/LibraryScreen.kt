@@ -100,6 +100,7 @@ import kotlinx.coroutines.withContext
 fun LibraryScreen(
     container: AppContainer,
     initialTab: Int = 0,
+    reselectTrigger: Long = 0L,
     onArtistClick: (String) -> Unit = {},
     onAlbumClick: (String) -> Unit = {},
     onOpenPlaylist: (Long) -> Unit = {},
@@ -116,7 +117,22 @@ fun LibraryScreen(
     // tab 3; keyed like SettingsScreen's initialTab so a fresh entry re-seeds.
     var tab by rememberSaveable(initialTab) { mutableIntStateOf(initialTab) }
     var showNewPlaylist by remember { mutableStateOf(false) }
+    val songsListState = androidx.compose.foundation.lazy.rememberLazyListState()
     val scope = rememberCoroutineScope()
+
+    LaunchedEffect(reselectTrigger) {
+        if (reselectTrigger > 0L) {
+            showNewPlaylist = false
+            if (tab != 0) {
+                tab = 0
+            } else {
+                if (songsListState.firstVisibleItemIndex > 20) {
+                    songsListState.scrollToItem(20)
+                }
+                songsListState.animateScrollToItem(0)
+            }
+        }
+    }
 
     Scaffold(
         floatingActionButton = {
@@ -178,7 +194,7 @@ fun LibraryScreen(
             }
 
             when (tab) {
-                0 -> songsTab(container, onArtistClick, onAlbumClick, player)
+                0 -> songsTab(container, onArtistClick, onAlbumClick, player, songsListState)
                 1 -> albumsTab(albumGroups, container, onAlbumClick)
                 2 -> artistsTab(artists, onArtistClick)
                 3 -> PlaylistsContent(container, onOpen = onOpenPlaylist, onOpenLiked = onOpenLiked)
@@ -715,6 +731,7 @@ private fun songsTab(
     onArtistClick: (String) -> Unit,
     onAlbumClick: (String) -> Unit,
     player: com.cadence.music.playback.PlayerConnection,
+    listState: androidx.compose.foundation.lazy.LazyListState = androidx.compose.foundation.lazy.rememberLazyListState(),
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -859,7 +876,11 @@ private fun songsTab(
                 )
             }
         }
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 88.dp)) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            state = listState,
+            contentPadding = PaddingValues(bottom = 88.dp),
+        ) {
             items(
                 count = pagingItems.itemCount,
                 key = pagingItems.itemKey { it.id },
