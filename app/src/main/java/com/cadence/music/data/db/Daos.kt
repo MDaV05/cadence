@@ -211,6 +211,9 @@ interface DownloadDao {
     @Query("SELECT * FROM downloads ORDER BY updatedAt DESC")
     fun observeAll(): Flow<List<DownloadEntity>>
 
+    @Query("SELECT * FROM downloads WHERE status = :status")
+    suspend fun byStatus(status: String): List<DownloadEntity>
+
     @Query(
         "UPDATE downloads SET status = :status, bytesDone = :bytesDone, " +
             "updatedAt = :now WHERE trackServerId = :serverId AND sourceId = :sourceId"
@@ -225,6 +228,24 @@ interface DownloadDao {
 
     @Query("DELETE FROM downloads WHERE trackServerId = :serverId AND sourceId = :sourceId")
     suspend fun delete(serverId: String, sourceId: String)
+
+    /** Keeps a download row attached to its track when a sync learns a new server id. */
+    @Query("UPDATE downloads SET trackServerId = :newId WHERE trackServerId = :oldId AND sourceId = :sourceId")
+    suspend fun renameTrack(oldId: String, newId: String, sourceId: String)
+
+    /** Download rows whose track no longer exists (stale ids after a server-side rescan). */
+    @Query(
+        "SELECT * FROM downloads WHERE NOT EXISTS (" +
+            "SELECT 1 FROM tracks t WHERE t.serverId = downloads.trackServerId AND t.sourceId = downloads.sourceId)"
+    )
+    suspend fun findOrphans(): List<DownloadEntity>
+
+    /** Drops rows whose track no longer exists (stale ids after a server-side rescan). */
+    @Query(
+        "DELETE FROM downloads WHERE NOT EXISTS (" +
+            "SELECT 1 FROM tracks t WHERE t.serverId = downloads.trackServerId AND t.sourceId = downloads.sourceId)"
+    )
+    suspend fun deleteOrphans(): Int
 }
 
 @Dao
@@ -260,6 +281,10 @@ interface AlbumDao {
 
     @Query("DELETE FROM albums WHERE serverId = :serverId")
     suspend fun deleteByServerId(serverId: String)
+
+    /** Forces the next sync to re-fetch this album's tracks (null token never matches). */
+    @Query("UPDATE albums SET remoteCreated = NULL WHERE serverId = :serverId")
+    suspend fun invalidateToken(serverId: String)
 }
 
 @Dao
@@ -275,7 +300,7 @@ interface PendingScrobbleDao {
     suspend fun recent(limit: Int = 500): List<PendingScrobbleEntity>
 
     /** Drops everything older than the newest [exceptNewest] rows (queue cap). */
-    @Query("DELETE FROM pending_scrobbles WHERE id NOT IN (SELECT id FROM pending_scrobbles ORDER BY createdAt DESC LIMIT :exceptNewest)")
+    @Query("DELETE FROM pending_scrobbles WHERE id NOT IN (SELECT id FROM (SELECT id FROM pending_scrobbles ORDER BY createdAt DESC LIMIT :exceptNewest))")
     suspend fun prune(exceptNewest: Int = 500)
 
     @Query("DELETE FROM pending_scrobbles WHERE id = :id")

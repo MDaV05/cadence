@@ -77,6 +77,34 @@ fun effectiveMode(baseMode: LibraryMode, offlineOnly: Boolean): LibraryMode =
 /** Strips the "<entryId>:" prefix, recovering the source-level remote key. */
 fun remoteKey(serverId: String, entry: ServerEntry): String = serverId.removePrefix("${entry.id}:")
 
+fun isSourceFilterMatched(
+    sourceId: String,
+    serverId: String?,
+    path: String?,
+    activeSources: Set<String>,
+    offlineServerIds: Set<String>,
+): Boolean {
+    if (activeSources.isEmpty() && offlineServerIds.isEmpty()) return true
+    if (activeSources.isNotEmpty()) {
+        if (sourceId == "local") {
+            return "local" in activeSources
+        }
+        val entryId = serverId?.let { entryIdOf(it) } ?: return false
+        if (entryId !in activeSources) return false
+        if (entryId in offlineServerIds) {
+            return !path.isNullOrEmpty()
+        }
+        return true
+    } else {
+        if (sourceId == "local") return true
+        val entryId = serverId?.let { entryIdOf(it) } ?: return true
+        if (entryId in offlineServerIds) {
+            return !path.isNullOrEmpty()
+        }
+        return true
+    }
+}
+
 sealed interface SyncState {
     data object Idle : SyncState
     data class Running(val doneAlbums: Int, val totalAlbums: Int, val serverUrl: String) : SyncState
@@ -217,17 +245,47 @@ class LibraryRepository(
     private fun observeActivePrefixes(): Flow<Set<String>> =
         prefs.observeServers().map { activePrefixesFor(it) }
 
-    private fun observeModeAndActive(): Flow<Pair<LibraryMode, Set<String>>> =
-        combine(prefs.observeMode(), prefs.observeOfflineOnly(), observeActivePrefixes()) { mode, offlineOnly, active ->
-            effectiveMode(mode, offlineOnly) to active
+    data class LibraryFilterState(
+        val mode: LibraryMode,
+        val activePrefixes: Set<String>,
+        val activeSources: Set<String>,
+        val offlineServerIds: Set<String>,
+    )
+
+    private fun observeFilterState(): Flow<LibraryFilterState> =
+        combine(
+            prefs.observeMode(),
+            prefs.observeOfflineOnly(),
+            prefs.observeServers(),
+            prefs.observeLibraryActiveSources(),
+            prefs.observeServerOfflineOnlyIds(),
+        ) { mode, offlineOnly, servers, libActiveSources, offlineServerIds ->
+            val allSources = setOf("local") + servers.map { it.id }
+            val activeSources = if (libActiveSources.isEmpty()) {
+                if (offlineServerIds.isNotEmpty()) allSources else emptySet()
+            } else {
+                libActiveSources
+            }
+            LibraryFilterState(
+                mode = effectiveMode(mode, offlineOnly),
+                activePrefixes = activePrefixesFor(servers),
+                activeSources = activeSources,
+                offlineServerIds = offlineServerIds,
+            )
         }
+
+    private fun observeModeAndActive(): Flow<Pair<LibraryMode, Set<String>>> =
+        observeFilterState().map { it.mode to it.activePrefixes }
 
     // Full-list read kept ONLY for one-shot shuffle-all (Home + Library FAB).
     // All scrolling UI must use tracksPaged()/searchPaged().
     fun tracks(): Flow<List<TrackEntity>> =
-        combine(db.trackDao().observeAll(), prefs.observeMode(), prefs.observeOfflineOnly(), observeActivePrefixes()) { list, mode, offlineOnly, active ->
-            val eff = effectiveMode(mode, offlineOnly)
-            list.filter { isIncluded(it.sourceId, it.path, eff) && (active.isEmpty() || isEntryActive(it.sourceId, it.serverId, active)) }
+        combine(db.trackDao().observeAll(), observeFilterState()) { list, filter ->
+            list.filter {
+                isIncluded(it.sourceId, it.path, filter.mode) &&
+                (filter.activePrefixes.isEmpty() || isEntryActive(it.sourceId, it.serverId, filter.activePrefixes)) &&
+                isSourceFilterMatched(it.sourceId, it.serverId, it.path, filter.activeSources, filter.offlineServerIds)
+            }
         }
 
     // Paged reads for big libraries; pageSize 50 ≈ 3 screens, maxSize 300 bounds memory,
@@ -235,19 +293,34 @@ class LibraryRepository(
     private val trackPagingConfig = PagingConfig(pageSize = 50, maxSize = 300, enablePlaceholders = false)
 
     fun tracksPaged(sort: SongSort, ascending: Boolean): Flow<PagingData<TrackEntity>> =
-        observeModeAndActive().flatMapLatest { (mode, active) ->
+        observeFilterState().flatMapLatest { filter ->
             Pager(trackPagingConfig) {
                 db.trackDao().tracksPaged(
-                    TrackQueries.tracksQuery(sort, ascending, sourcesFor(mode), mode == LibraryMode.LOCAL_ONLY, active)
+                    TrackQueries.tracksQuery(
+                        sort = sort,
+                        ascending = ascending,
+                        sources = sourcesFor(filter.mode),
+                        includeDownloaded = filter.mode == LibraryMode.LOCAL_ONLY,
+                        activePrefixes = filter.activePrefixes,
+                        activeSources = filter.activeSources,
+                        offlineServerIds = filter.offlineServerIds,
+                    )
                 )
             }.flow
         }
 
     fun searchPaged(query: String): Flow<PagingData<TrackEntity>> =
-        observeModeAndActive().flatMapLatest { (mode, active) ->
+        observeFilterState().flatMapLatest { filter ->
             Pager(trackPagingConfig) {
                 db.trackDao().tracksPaged(
-                    TrackQueries.searchQuery(query, sourcesFor(mode), mode == LibraryMode.LOCAL_ONLY, active)
+                    TrackQueries.searchQuery(
+                        raw = query,
+                        sources = sourcesFor(filter.mode),
+                        includeDownloaded = filter.mode == LibraryMode.LOCAL_ONLY,
+                        activePrefixes = filter.activePrefixes,
+                        activeSources = filter.activeSources,
+                        offlineServerIds = filter.offlineServerIds,
+                    )
                 )
             }.flow
         }
@@ -267,54 +340,100 @@ class LibraryRepository(
             }
         }
     fun artistTiles(): Flow<List<ArtistTile>> =
-        observeModeAndActive().flatMapLatest { (mode, active) ->
-            // One raw-query path: artistTilesQuery's null-sources branch already
-            // emits the plain join+order SQL, so no fast-path @Query variant is
-            // needed to branch to.
-            val s = sourcesFor(mode)
+        observeFilterState().flatMapLatest { filter ->
+            val s = sourcesFor(filter.mode)
             db.trackDao().observeArtistTilesFor(
-                TrackQueries.artistTilesQuery(s, mode == LibraryMode.LOCAL_ONLY, active)
+                TrackQueries.artistTilesQuery(
+                    sources = s,
+                    includeDownloaded = filter.mode == LibraryMode.LOCAL_ONLY,
+                    activePrefixes = filter.activePrefixes,
+                    activeSources = filter.activeSources,
+                    offlineServerIds = filter.offlineServerIds,
+                )
             )
         }
 
     /** Names from [names] that have at least one visible track (i.e. a real page). */
     suspend fun artistsWithPages(names: List<String>): List<String> {
         if (names.isEmpty()) return emptyList()
-        val (mode, active) = observeModeAndActive().first()
+        val filter = observeFilterState().first()
         return db.trackDao().tracksByQuery(
-            TrackQueries.artistPagesQuery(names, sourcesFor(mode), mode == LibraryMode.LOCAL_ONLY, active)
+            TrackQueries.artistPagesQuery(
+                names = names,
+                sources = sourcesFor(filter.mode),
+                includeDownloaded = filter.mode == LibraryMode.LOCAL_ONLY,
+                activePrefixes = filter.activePrefixes,
+                activeSources = filter.activeSources,
+                offlineServerIds = filter.offlineServerIds,
+            )
         ).map { it.artistName }.distinct()
     }
     /** Mode-aware total used for the Library counter; paging-safe (separate COUNT, not itemCount). */
     fun observeTrackCount(): Flow<Int> =
-        observeModeAndActive().flatMapLatest { (mode, active) ->
-            val s = sourcesFor(mode)
-            if (s == null && active.isEmpty()) db.trackDao().observeCountAll()
-            else db.trackDao().observeCountFor(
-                TrackQueries.countQuery(s, mode == LibraryMode.LOCAL_ONLY, active)
-            )
+        observeFilterState().flatMapLatest { filter ->
+            val s = sourcesFor(filter.mode)
+            if (s == null && filter.activePrefixes.isEmpty() && filter.activeSources.isEmpty() && filter.offlineServerIds.isEmpty()) {
+                db.trackDao().observeCountAll()
+            } else {
+                db.trackDao().observeCountFor(
+                    TrackQueries.countQuery(
+                        sources = s,
+                        includeDownloaded = filter.mode == LibraryMode.LOCAL_ONLY,
+                        activePrefixes = filter.activePrefixes,
+                        activeSources = filter.activeSources,
+                        offlineServerIds = filter.offlineServerIds,
+                    )
+                )
+            }
         }
     fun albumGroups(): Flow<List<com.cadence.music.data.db.AlbumGroup>> =
-        observeModeAndActive().flatMapLatest { (mode, active) ->
-            val s = sourcesFor(mode)
-            if (s == null && active.isEmpty()) db.trackDao().observeAlbumGroups()
-            else db.trackDao().observeAlbumGroupsFor(
-                TrackQueries.albumGroupsQuery(s, mode == LibraryMode.LOCAL_ONLY, active)
-            )
+        observeFilterState().flatMapLatest { filter ->
+            val s = sourcesFor(filter.mode)
+            if (s == null && filter.activePrefixes.isEmpty() && filter.activeSources.isEmpty() && filter.offlineServerIds.isEmpty()) {
+                db.trackDao().observeAlbumGroups()
+            } else {
+                db.trackDao().observeAlbumGroupsFor(
+                    TrackQueries.albumGroupsQuery(
+                        sources = s,
+                        includeDownloaded = filter.mode == LibraryMode.LOCAL_ONLY,
+                        activePrefixes = filter.activePrefixes,
+                        activeSources = filter.activeSources,
+                        offlineServerIds = filter.offlineServerIds,
+                    )
+                )
+            }
         }
 
     suspend fun tracksByArtist(name: String): List<TrackEntity> {
         val list = db.trackDao().byArtist(name)
         val mode = effectiveMode(prefs.mode, prefs.offlineOnly)
         val active = activePrefixesSnapshot()
-        return list.filter { isIncluded(it.sourceId, it.path, mode) && (active.isEmpty() || isEntryActive(it.sourceId, it.serverId, active)) }
+        val libActive = prefs.libraryActiveSources
+        val servers = prefs.servers
+        val allSources = setOf("local") + servers.map { it.id }
+        val activeSources = if (libActive.isEmpty()) (if (prefs.serverOfflineOnlyIds.isNotEmpty()) allSources else emptySet()) else libActive
+        val offlineServerIds = prefs.serverOfflineOnlyIds
+        return list.filter {
+            isIncluded(it.sourceId, it.path, mode) &&
+            (active.isEmpty() || isEntryActive(it.sourceId, it.serverId, active)) &&
+            isSourceFilterMatched(it.sourceId, it.serverId, it.path, activeSources, offlineServerIds)
+        }
     }
 
     suspend fun tracksByAlbumNorm(norm: String): List<TrackEntity> {
         val list = db.trackDao().byAlbumNorm(norm)
         val mode = effectiveMode(prefs.mode, prefs.offlineOnly)
         val active = activePrefixesSnapshot()
-        return list.filter { isIncluded(it.sourceId, it.path, mode) && (active.isEmpty() || isEntryActive(it.sourceId, it.serverId, active)) }
+        val libActive = prefs.libraryActiveSources
+        val servers = prefs.servers
+        val allSources = setOf("local") + servers.map { it.id }
+        val activeSources = if (libActive.isEmpty()) (if (prefs.serverOfflineOnlyIds.isNotEmpty()) allSources else emptySet()) else libActive
+        val offlineServerIds = prefs.serverOfflineOnlyIds
+        return list.filter {
+            isIncluded(it.sourceId, it.path, mode) &&
+            (active.isEmpty() || isEntryActive(it.sourceId, it.serverId, active)) &&
+            isSourceFilterMatched(it.sourceId, it.serverId, it.path, activeSources, offlineServerIds)
+        }
     }
 
     /** Per-entry sync failures (entryId → message); cleared on success. */
@@ -780,24 +899,182 @@ class LibraryRepository(
         }
     }
 
-    /** Removes the downloaded file and its status row; the track stays streamable. */
-    suspend fun deleteDownload(download: DownloadEntity, track: TrackEntity?) {
-        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            val fileUri = track?.path
-            if (track != null && track.sourceId != "local" && fileUri != null && fileUri.startsWith("file:")) {
-                runCatching {
-                    java.io.File(java.net.URI(fileUri)).delete()
+    private fun fileFromPath(path: String): java.io.File? =
+        if (!path.startsWith("file:")) null
+        else runCatching { java.io.File(java.net.URI(path)) }.getOrNull()
+
+    private fun deleteDownloadFiles(dir: java.io.File, sourceId: String, serverId: String) {
+        val base = com.cadence.music.data.downloads.downloadBaseName(sourceId, serverId)
+        dir.listFiles()?.filter {
+            it.name == "$base.part" || it.name.startsWith("$base.")
+        }?.forEach {
+            runCatching { it.delete() }
+        }
+    }
+
+    suspend fun repairInvalidDownloadsOnce(): Int {
+        if (prefs.downloadRepairV1) return 0
+        val repaired = repairInvalidDownloads()
+        prefs.downloadRepairV1 = true
+        return repaired
+    }
+
+    suspend fun repairInvalidDownloads(): Int = withContext(Dispatchers.IO) {
+        val dir = java.io.File(context.filesDir, "downloads").apply { mkdirs() }
+        val canonicalDir = runCatching { dir.canonicalFile }.getOrDefault(dir)
+        fun insideDownloads(file: java.io.File): Boolean = runCatching {
+            file.canonicalPath.startsWith(canonicalDir.path + java.io.File.separator)
+        }.getOrDefault(false)
+
+        var repaired = 0
+        val filesByBase = dir.listFiles()?.groupBy { it.name.substringBefore('.') } ?: emptyMap()
+        val allTracks = db.trackDao().observeAll().first().associateBy { "${it.sourceId}:${it.serverId}" }
+        val done = db.downloadDao().byStatus("done")
+        val running = db.downloadDao().byStatus("running")
+
+        for (row in running) {
+            val track = allTracks["${row.sourceId}:${row.trackServerId}"]
+            if (track == null || com.cadence.music.data.downloads.DownloadWorker.isActive(track.id)) continue
+            db.downloadDao().upsert(
+                row.copy(
+                    status = "failed",
+                    bytesDone = 0L,
+                    updatedAt = System.currentTimeMillis(),
+                    errorText = "download was interrupted"
+                )
+            )
+            repaired++
+        }
+
+        for (row in done) {
+            val track = allTracks["${row.sourceId}:${row.trackServerId}"]
+            if (track != null && com.cadence.music.data.downloads.DownloadWorker.isActive(track.id)) continue
+            val base = com.cadence.music.data.downloads.downloadBaseName(row.sourceId, row.trackServerId)
+            val candidates = (filesByBase[base] ?: emptyList()).filter {
+                insideDownloads(it) && !it.name.endsWith(".part") && !it.name.endsWith(".tmp") && !it.name.endsWith(".meta")
+            }
+            val tracked = track?.path?.let { fileFromPath(it) }?.takeIf { insideDownloads(it) }
+            val validFile = (listOfNotNull(tracked) + candidates).distinctBy { it.absolutePath }.firstOrNull {
+                it.exists() && com.cadence.music.data.downloads.audioFileIssue(it) == null
+            }
+            val file = validFile ?: tracked?.takeIf { it.exists() } ?: candidates.firstOrNull()
+            val issue = if (file == null) "file is missing" else com.cadence.music.data.downloads.audioFileIssue(file)
+
+            if (track == null) {
+                if (issue != null && file != null) {
+                    runCatching { file.delete() }
+                    repaired++
+                }
+                continue
+            }
+
+            if (issue == null && file != null) {
+                val toDelete = candidates.filter { it != file && com.cadence.music.data.downloads.audioFileIssue(it) != null } +
+                    listOfNotNull(tracked?.takeIf { it != file && it.exists() && !candidates.contains(it) })
+                toDelete.forEach { runCatching { it.delete() } }
+
+                val currentFile = track.path?.let { fileFromPath(it) }
+                val pathChanged = currentFile?.absolutePath != file.absolutePath
+                if (pathChanged) {
+                    db.trackDao().setPath(track.id, Uri.fromFile(file).toString())
+                    repaired++
+                }
+                if (pathChanged || row.bytesDone != file.length() || row.errorText != null) {
+                    db.downloadDao().upsert(
+                        row.copy(
+                            status = "done",
+                            bytesDone = file.length(),
+                            updatedAt = System.currentTimeMillis(),
+                            errorText = null
+                        )
+                    )
+                }
+            } else {
+                val toDelete = candidates.filter { com.cadence.music.data.downloads.audioFileIssue(it) != null } +
+                    listOfNotNull(tracked?.takeIf { it.exists() && !candidates.contains(it) })
+                toDelete.forEach { runCatching { it.delete() } }
+
+                val currentFile = track.path?.let { fileFromPath(it) }
+                if (currentFile == null || insideDownloads(currentFile)) {
                     db.trackDao().setPath(track.id, null)
                 }
-            } else if (track != null && track.sourceId != "local" && fileUri == null) {
-                // Failed/aborted downloads never got a path row but may have left bytes
-                // under the conventional name — sweep those too (row deletion unchanged).
-                runCatching {
-                    val dir = java.io.File(context.filesDir, "downloads")
-                    java.io.File(dir, com.cadence.music.data.downloads.downloadFileName(track.sourceId, track.serverId)).delete()
-                    java.io.File(dir, com.cadence.music.data.downloads.downloadFileName(track.sourceId, track.serverId) + ".tmp").delete()
+
+                if (file != null && com.cadence.music.data.downloads.audioFileError(file)?.code == 70) {
+                    track.albumKey?.let { db.albumDao().invalidateToken(it) }
                 }
+
+                db.downloadDao().upsert(
+                    row.copy(
+                        status = "failed",
+                        bytesDone = 0L,
+                        updatedAt = System.currentTimeMillis(),
+                        errorText = issue
+                    )
+                )
+                repaired++
             }
+        }
+
+        val doneKeys = done.map { "${it.sourceId}:${it.trackServerId}" }.toSet()
+        for (track in allTracks.values) {
+            val key = "${track.sourceId}:${track.serverId}"
+            if (key in doneKeys || com.cadence.music.data.downloads.DownloadWorker.isActive(track.id)) continue
+            val rawPath = track.path ?: continue
+            val file = fileFromPath(rawPath) ?: continue
+            if (!insideDownloads(file)) continue
+            val issue = if (!file.exists()) "file is missing" else com.cadence.music.data.downloads.audioFileIssue(file) ?: continue
+            if (file.exists()) runCatching { file.delete() }
+            db.trackDao().setPath(track.id, null)
+            repaired++
+        }
+
+        val failed = db.downloadDao().byStatus("failed")
+        for (row in failed) {
+            if (com.cadence.music.data.downloads.isStaleDownloadError(row.errorText)) {
+                val track = allTracks["${row.sourceId}:${row.trackServerId}"]
+                track?.albumKey?.let { db.albumDao().invalidateToken(it) }
+            }
+        }
+
+        repaired
+    }
+
+    suspend fun retryFailedDownloads(): Int {
+        val tracks = db.trackDao().observeAll().first()
+            .filter { it.sourceId != "local" }
+            .associateBy { "${it.sourceId}:${it.serverId}" }
+        val failed = db.downloadDao().byStatus("failed")
+        val targets = failed.mapNotNull { row ->
+            tracks["${row.sourceId}:${row.trackServerId}"]
+        }
+        targets.forEach { track ->
+            com.cadence.music.data.downloads.DownloadWorker.enqueue(context, track.id, serial = true)
+        }
+        return targets.size
+    }
+
+    fun refreshLibraryAndRetryFailedAsync() {
+        syncScope.launch {
+            runCatching { launchSync().join() }
+            val stillStale = runCatching {
+                db.downloadDao().byStatus("failed").any { com.cadence.music.data.downloads.isStaleDownloadError(it.errorText) }
+            }.getOrDefault(false)
+            if (stillStale) {
+                runCatching { syncAll() }
+            }
+            runCatching { retryFailedDownloads() }
+        }
+    }
+
+    /** Removes the downloaded file and its status row; the track stays streamable. */
+    suspend fun deleteDownload(download: DownloadEntity, track: TrackEntity?) {
+        withContext(Dispatchers.IO) {
+            val file = track?.path?.takeIf { it.startsWith("file:") }?.let { fileFromPath(it) }
+            file?.let { runCatching { it.delete() } }
+            if (track != null && track.sourceId != "local") {
+                db.trackDao().setPath(track.id, null)
+            }
+            deleteDownloadFiles(java.io.File(context.filesDir, "downloads"), download.sourceId, download.trackServerId)
             db.downloadDao().delete(download.trackServerId, download.sourceId)
         }
     }
@@ -1073,5 +1350,5 @@ internal fun albumUnchanged(existing: AlbumEntity?, remoteToken: String?): Boole
  * like-capable server truth, so the local flag always survives.
  */
 internal fun mergedStarred(sourceId: String, serverStarred: Boolean, prevStarred: Boolean): Boolean =
-    if (sourceId == "local" || sourceId == "telegram" || sourceId == "plex") prevStarred
+    if (sourceId == "local" || sourceId == "telegram" || sourceId == "plex" || sourceId == "bale") prevStarred
     else serverStarred

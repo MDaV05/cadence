@@ -167,24 +167,6 @@ class TrackQueriesTest {
         )
     }
 
-    @Test
-    fun `albumsFor no filter is byte-identical to unfiltered SQL`() {
-        assertEquals(
-            "SELECT * FROM albums WHERE sourceId IN (?) ORDER BY year DESC, title",
-            TrackQueries.albumsForQuery(setOf("local")).sql,
-        )
-        assertEquals(1, TrackQueries.albumsForQuery(setOf("local")).argCount)
-    }
-
-    @Test
-    fun `albumsFor with active filter appends AND clause`() {
-        val q = TrackQueries.albumsForQuery(setOf("local"), setOf("e1"))
-        assertEquals(
-            "SELECT * FROM albums WHERE sourceId IN (?) AND (serverId LIKE ?) ORDER BY year DESC, title",
-            q.sql,
-        )
-        assertEquals(2, q.argCount)
-    }
 
     @Test
     fun `artist pages gate binds names with in clause`() {

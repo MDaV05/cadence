@@ -13,6 +13,8 @@ object TrackQueries {
         sources: Set<String>? = null,
         includeDownloaded: Boolean = false,
         activePrefixes: Set<String> = emptySet(),
+        activeSources: Set<String> = emptySet(),
+        offlineServerIds: Set<String> = emptySet(),
     ): SupportSQLiteQuery {
         val dir = if (ascending) "ASC" else "DESC"
         // Mirrors sortSongs() semantics exactly: NOCASE text, null lastPlayed as 0,
@@ -26,24 +28,20 @@ object TrackQueries {
             SongSort.RECENTLY_PLAYED -> "COALESCE(lastPlayed, 0) $dir"
             SongSort.MOST_PLAYED -> "playCount $dir, COALESCE(lastPlayed, 0) $dir"
         }
-        // Sources come ONLY from sourcesFor() (internal constants) — never
-        // interpolate raw strings into SQL; values ride as bound args. The downloaded
-        // clause uses literals for the same reason (fixed internal strings only).
-        // activePrefixes holds entry ids (internal); each rides as a bound "id:%" arg.
-        val (activeSql, activeArgs) = activeFilter(activePrefixes)
+        val (extraSql, extraArgs) = combineFilters(activePrefixes, activeSources, offlineServerIds)
         if (sources == null) {
-            if (activeSql.isEmpty()) return SimpleSQLiteQuery("SELECT * FROM tracks ORDER BY $order")
+            if (extraSql.isEmpty()) return SimpleSQLiteQuery("SELECT * FROM tracks ORDER BY $order")
             return SimpleSQLiteQuery(
-                "SELECT * FROM tracks WHERE ${activeSql.removePrefix(" AND ")} ORDER BY $order",
-                activeArgs,
+                "SELECT * FROM tracks WHERE ${extraSql.removePrefix(" AND ")} ORDER BY $order",
+                extraArgs,
             )
         }
         val sorted = sources.sorted()
         val placeholders = sorted.joinToString(", ") { "?" }
         val downloaded = if (includeDownloaded) " OR (sourceId != 'local' AND path LIKE 'file:%')" else ""
         return SimpleSQLiteQuery(
-            "SELECT * FROM tracks WHERE (sourceId IN ($placeholders)$downloaded)$activeSql ORDER BY $order",
-            arrayOf(*sorted.toTypedArray(), *activeArgs),
+            "SELECT * FROM tracks WHERE (sourceId IN ($placeholders)$downloaded)$extraSql ORDER BY $order",
+            arrayOf(*sorted.toTypedArray(), *extraArgs),
         )
     }
 
@@ -52,30 +50,32 @@ object TrackQueries {
         sources: Set<String>? = null,
         includeDownloaded: Boolean = false,
         activePrefixes: Set<String> = emptySet(),
+        activeSources: Set<String> = emptySet(),
+        offlineServerIds: Set<String> = emptySet(),
     ): SupportSQLiteQuery {
         val like = "%${escapeLike(raw)}%"
         val match =
             "title LIKE ? ESCAPE '\\' OR artistName LIKE ? ESCAPE '\\' OR albumName LIKE ? ESCAPE '\\'"
-        val (activeSql, activeArgs) = activeFilter(activePrefixes)
+        val (extraSql, extraArgs) = combineFilters(activePrefixes, activeSources, offlineServerIds)
         if (sources == null) {
-            if (activeSql.isEmpty()) {
+            if (extraSql.isEmpty()) {
                 return SimpleSQLiteQuery(
                     "SELECT * FROM tracks WHERE $match ORDER BY title COLLATE NOCASE",
                     arrayOf(like, like, like),
                 )
             }
             return SimpleSQLiteQuery(
-                "SELECT * FROM tracks WHERE ($match)$activeSql ORDER BY title COLLATE NOCASE",
-                arrayOf(like, like, like, *activeArgs),
+                "SELECT * FROM tracks WHERE ($match)$extraSql ORDER BY title COLLATE NOCASE",
+                arrayOf(like, like, like, *extraArgs),
             )
         }
         val sorted = sources.sorted()
         val placeholders = sorted.joinToString(", ") { "?" }
         val downloaded = if (includeDownloaded) " OR (sourceId != 'local' AND path LIKE 'file:%')" else ""
         return SimpleSQLiteQuery(
-            "SELECT * FROM tracks WHERE ($match) AND (sourceId IN ($placeholders)$downloaded)$activeSql " +
+            "SELECT * FROM tracks WHERE ($match) AND (sourceId IN ($placeholders)$downloaded)$extraSql " +
                 "ORDER BY title COLLATE NOCASE",
-            arrayOf(like, like, like, *sorted.toTypedArray(), *activeArgs),
+            arrayOf(like, like, like, *sorted.toTypedArray(), *extraArgs),
         )
     }
 
@@ -83,28 +83,30 @@ object TrackQueries {
         sources: Set<String>? = null,
         includeDownloaded: Boolean = false,
         activePrefixes: Set<String> = emptySet(),
+        activeSources: Set<String> = emptySet(),
+        offlineServerIds: Set<String> = emptySet(),
     ): SupportSQLiteQuery {
-        val (activeSql, activeArgs) = activeFilter(activePrefixes)
+        val (extraSql, extraArgs) = combineFilters(activePrefixes, activeSources, offlineServerIds)
         if (sources == null) {
-            if (activeSql.isEmpty()) return SimpleSQLiteQuery("SELECT COUNT(*) FROM tracks")
+            if (extraSql.isEmpty()) return SimpleSQLiteQuery("SELECT COUNT(*) FROM tracks")
             return SimpleSQLiteQuery(
-                "SELECT COUNT(*) FROM tracks WHERE ${activeSql.removePrefix(" AND ")}",
-                activeArgs,
+                "SELECT COUNT(*) FROM tracks WHERE ${extraSql.removePrefix(" AND ")}",
+                extraArgs,
             )
         }
         val sorted = sources.sorted()
         val placeholders = sorted.joinToString(", ") { "?" }
         val entryFilter = "sourceId IN ($placeholders) " +
             "OR (? AND sourceId != 'local' AND path LIKE 'file:%')"
-        if (activeSql.isEmpty()) {
+        if (extraSql.isEmpty()) {
             return SimpleSQLiteQuery(
                 "SELECT COUNT(*) FROM tracks WHERE $entryFilter",
                 arrayOf(*sorted.toTypedArray(), if (includeDownloaded) 1 else 0),
             )
         }
         return SimpleSQLiteQuery(
-            "SELECT COUNT(*) FROM tracks WHERE ($entryFilter)$activeSql",
-            arrayOf(*sorted.toTypedArray(), if (includeDownloaded) 1 else 0, *activeArgs),
+            "SELECT COUNT(*) FROM tracks WHERE ($entryFilter)$extraSql",
+            arrayOf(*sorted.toTypedArray(), if (includeDownloaded) 1 else 0, *extraArgs),
         )
     }
 
@@ -113,24 +115,26 @@ object TrackQueries {
         sources: Set<String>? = null,
         includeDownloaded: Boolean = false,
         activePrefixes: Set<String> = emptySet(),
+        activeSources: Set<String> = emptySet(),
+        offlineServerIds: Set<String> = emptySet(),
     ): SupportSQLiteQuery {
         // names is non-empty (caller guards). Every name rides as a bound arg —
         // one placeholder per name, never concatenated into the SQL text.
-        val (activeSql, activeArgs) = activeFilter(activePrefixes)
+        val (extraSql, extraArgs) = combineFilters(activePrefixes, activeSources, offlineServerIds)
         val namePlaceholders = names.joinToString(", ") { "?" }
         val nameArgs = names.toTypedArray()
         if (sources == null) {
             return SimpleSQLiteQuery(
-                "SELECT * FROM tracks WHERE artistName IN ($namePlaceholders)$activeSql ORDER BY artistName",
-                arrayOf(*nameArgs, *activeArgs),
+                "SELECT * FROM tracks WHERE artistName IN ($namePlaceholders)$extraSql ORDER BY artistName",
+                arrayOf(*nameArgs, *extraArgs),
             )
         }
         val sorted = sources.sorted()
         val placeholders = sorted.joinToString(", ") { "?" }
         return SimpleSQLiteQuery(
             "SELECT * FROM tracks WHERE artistName IN ($namePlaceholders) AND (sourceId IN ($placeholders) " +
-                "OR (? AND sourceId != 'local' AND path LIKE 'file:%'))$activeSql ORDER BY artistName",
-            arrayOf(*nameArgs, *sorted.toTypedArray(), if (includeDownloaded) 1 else 0, *activeArgs),
+                "OR (? AND sourceId != 'local' AND path LIKE 'file:%'))$extraSql ORDER BY artistName",
+            arrayOf(*nameArgs, *sorted.toTypedArray(), if (includeDownloaded) 1 else 0, *extraArgs),
         )
     }
 
@@ -158,24 +162,26 @@ object TrackQueries {
         sources: Set<String>? = null,
         includeDownloaded: Boolean = false,
         activePrefixes: Set<String> = emptySet(),
+        activeSources: Set<String> = emptySet(),
+        offlineServerIds: Set<String> = emptySet(),
     ): SupportSQLiteQuery {
-        val (activeSql, activeArgs) = activeFilter(activePrefixes)
+        val (extraSql, extraArgs) = combineFilters(activePrefixes, activeSources, offlineServerIds)
         val select = "SELECT DISTINCT t.artistName AS name, COALESCE('file://' || o.imagePath, a.imageUrl) AS imageUrl FROM tracks t " +
             "LEFT JOIN artist_info a ON a.name = t.artistName " +
             "LEFT JOIN artist_override o ON o.name = t.artistName WHERE t.artistName != ''"
         if (sources == null) {
             return SimpleSQLiteQuery(
-                "$select$activeSql ORDER BY t.artistName COLLATE NOCASE",
-                activeArgs,
+                "$select$extraSql ORDER BY t.artistName COLLATE NOCASE",
+                extraArgs,
             )
         }
         val sorted = sources.sorted()
         val placeholders = sorted.joinToString(", ") { "?" }
         return SimpleSQLiteQuery(
             "$select AND (t.sourceId IN ($placeholders) " +
-                "OR (? AND t.sourceId != 'local' AND t.path LIKE 'file:%'))$activeSql " +
+                "OR (? AND t.sourceId != 'local' AND t.path LIKE 'file:%'))$extraSql " +
                 "ORDER BY t.artistName COLLATE NOCASE",
-            arrayOf(*sorted.toTypedArray(), if (includeDownloaded) 1 else 0, *activeArgs),
+            arrayOf(*sorted.toTypedArray(), if (includeDownloaded) 1 else 0, *extraArgs),
         )
     }
 
@@ -183,10 +189,12 @@ object TrackQueries {
         sources: Set<String>? = null,
         includeDownloaded: Boolean = false,
         activePrefixes: Set<String> = emptySet(),
+        activeSources: Set<String> = emptySet(),
+        offlineServerIds: Set<String> = emptySet(),
     ): SupportSQLiteQuery {
-        val (activeSql, activeArgs) = activeFilter(activePrefixes)
+        val (extraSql, extraArgs) = combineFilters(activePrefixes, activeSources, offlineServerIds)
         if (sources == null) {
-            if (activeSql.isEmpty()) {
+            if (extraSql.isEmpty()) {
                 return SimpleSQLiteQuery(
                     "SELECT MIN(albumName) AS name, MIN(artistName) AS artistName, albumNorm AS norm, COUNT(*) AS trackCount " +
                         "FROM tracks WHERE albumName != '' GROUP BY albumNorm ORDER BY name COLLATE NOCASE"
@@ -194,8 +202,8 @@ object TrackQueries {
             }
             return SimpleSQLiteQuery(
                 "SELECT MIN(albumName) AS name, MIN(artistName) AS artistName, albumNorm AS norm, COUNT(*) AS trackCount " +
-                    "FROM tracks WHERE albumName != ''$activeSql GROUP BY albumNorm ORDER BY name COLLATE NOCASE",
-                activeArgs,
+                    "FROM tracks WHERE albumName != ''$extraSql GROUP BY albumNorm ORDER BY name COLLATE NOCASE",
+                extraArgs,
             )
         }
         val sorted = sources.sorted()
@@ -203,9 +211,9 @@ object TrackQueries {
         return SimpleSQLiteQuery(
             "SELECT MIN(albumName) AS name, MIN(artistName) AS artistName, albumNorm AS norm, COUNT(*) AS trackCount " +
                 "FROM tracks WHERE albumName != '' AND (sourceId IN ($placeholders) " +
-                "OR (? AND sourceId != 'local' AND path LIKE 'file:%'))$activeSql " +
+                "OR (? AND sourceId != 'local' AND path LIKE 'file:%'))$extraSql " +
                 "GROUP BY albumNorm ORDER BY name COLLATE NOCASE",
-            arrayOf(*sorted.toTypedArray(), if (includeDownloaded) 1 else 0, *activeArgs),
+            arrayOf(*sorted.toTypedArray(), if (includeDownloaded) 1 else 0, *extraArgs),
         )
     }
 
@@ -268,6 +276,20 @@ object TrackQueries {
 
         if (parts.isEmpty()) return "" to emptyArray()
         return " AND (" + parts.joinToString(" OR ") + ")" to args.toTypedArray()
+    }
+
+    private fun combineFilters(
+        activePrefixes: Set<String>,
+        activeSources: Set<String>,
+        offlineServerIds: Set<String>,
+    ): Pair<String, Array<String>> {
+        val (activeSql, activeArgs) = activeFilter(activePrefixes)
+        val (sourceSql, sourceArgs) = activeSourceFilter(activeSources, offlineServerIds)
+        val combinedSql = activeSql + sourceSql
+        val combinedArgs = if (activeArgs.isEmpty()) sourceArgs
+        else if (sourceArgs.isEmpty()) activeArgs
+        else arrayOf(*activeArgs, *sourceArgs)
+        return combinedSql to combinedArgs
     }
 
     /** Escapes LIKE metacharacters; caller wraps result in %...%. */

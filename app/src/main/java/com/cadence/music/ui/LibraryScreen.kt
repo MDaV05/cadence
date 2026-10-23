@@ -22,6 +22,19 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Smartphone
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Surface
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -155,33 +168,14 @@ fun LibraryScreen(
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
 
-            // Large header with One-Tap Offline Mode Switcher
-            Row(
+            // Large header
+            Text(
+                "Library",
+                style = MaterialTheme.typography.headlineMedium,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    "Library",
-                    style = MaterialTheme.typography.headlineMedium,
-                )
-                val offlineOnly by container.prefs.observeOfflineOnly()
-                    .collectAsStateWithLifecycle(initialValue = container.prefs.offlineOnly)
-                FilterChip(
-                    selected = offlineOnly,
-                    onClick = { container.prefs.offlineOnly = !offlineOnly },
-                    label = { Text("Offline") },
-                    leadingIcon = {
-                        Icon(
-                            if (offlineOnly) Icons.Filled.CloudOff else Icons.Filled.CloudDone,
-                            contentDescription = if (offlineOnly) "Offline mode on" else "Offline mode off",
-                            modifier = Modifier.size(18.dp),
-                        )
-                    },
-                )
-            }
+            )
 
             ScrollableTabRow(
                 selectedTabIndex = tab,
@@ -197,6 +191,8 @@ fun LibraryScreen(
                     )
                 }
             }
+
+            SourceFilterBar(container = container)
 
             when (tab) {
                 0 -> songsTab(container, onArtistClick, onAlbumClick, player, songsListState)
@@ -1033,3 +1029,197 @@ fun TrackEntity.toTrack() = com.cadence.music.data.source.Track(
     durationMs = durationMs,
     localPath = path,
 )
+
+
+@Composable
+fun SourceFilterBar(
+    container: AppContainer,
+    modifier: Modifier = Modifier,
+) {
+    val haptic = LocalHapticFeedback.current
+    val rawActiveSources by container.prefs.observeLibraryActiveSources()
+        .collectAsStateWithLifecycle(initialValue = container.prefs.libraryActiveSources)
+    val servers by container.prefs.observeServers()
+        .collectAsStateWithLifecycle(initialValue = container.prefs.servers)
+    val serverOfflineOnlyIds by container.prefs.observeServerOfflineOnlyIds()
+        .collectAsStateWithLifecycle(initialValue = container.prefs.serverOfflineOnlyIds)
+
+    val allSourceIds = remember(servers) {
+        setOf("local") + servers.map { it.id }
+    }
+    val activeSources = remember(rawActiveSources, allSourceIds) {
+        if (rawActiveSources.isEmpty()) allSourceIds else rawActiveSources
+    }
+
+    fun toggleSource(sourceId: String) {
+        val isActive = sourceId in activeSources
+        if (isActive) {
+            // Guard: minimum 1 active source
+            if (activeSources.size > 1) {
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                val newActive = activeSources - sourceId
+                container.prefs.libraryActiveSources = newActive
+            }
+        } else {
+            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            val newActive = activeSources + sourceId
+            container.prefs.libraryActiveSources = if (newActive.containsAll(allSourceIds)) {
+                emptySet()
+            } else {
+                newActive
+            }
+        }
+    }
+
+    LazyRow(
+        modifier = modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        item(key = "local") {
+            val isLocalActive = "local" in activeSources
+            SourceChip(
+                selected = isLocalActive,
+                onClick = { toggleSource("local") },
+                label = { Text("Local") },
+                leadingIcon = {
+                    Icon(
+                        Icons.Filled.Smartphone,
+                        contentDescription = "Local storage",
+                        modifier = Modifier.size(18.dp),
+                    )
+                },
+            )
+        }
+
+        items(servers, key = { it.id }) { entry ->
+            val isServerActive = entry.id in activeSources
+            val isOfflineOnly = entry.id in serverOfflineOnlyIds
+            var showMenu by remember { mutableStateOf(false) }
+
+            val displayName = remember(entry.customName, entry.type) {
+                entry.customName?.ifBlank { null }
+                    ?: entry.type.name.lowercase().replaceFirstChar { it.uppercase() }
+            }
+
+            Box {
+                SourceChip(
+                    selected = isServerActive,
+                    onClick = { toggleSource(entry.id) },
+                    onLongClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        showMenu = true
+                    },
+                    label = {
+                        Text(
+                            text = if (isOfflineOnly) "$displayName (Offline)" else displayName,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    },
+                    trailingIcon = if (isOfflineOnly) {
+                        {
+                            Icon(
+                                Icons.Filled.Download,
+                                contentDescription = "Downloaded Only",
+                                modifier = Modifier.size(16.dp),
+                            )
+                        }
+                    } else null,
+                )
+
+                DropdownMenu(
+                    expanded = showMenu,
+                    onDismissRequest = { showMenu = false },
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("All Content (Online + Offline)") },
+                        onClick = {
+                            container.prefs.serverOfflineOnlyIds = serverOfflineOnlyIds - entry.id
+                            showMenu = false
+                        },
+                        leadingIcon = if (!isOfflineOnly) {
+                            {
+                                Icon(
+                                    Icons.Filled.Check,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
+                        } else null,
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Downloaded Only") },
+                        onClick = {
+                            container.prefs.serverOfflineOnlyIds = serverOfflineOnlyIds + entry.id
+                            showMenu = false
+                        },
+                        leadingIcon = if (isOfflineOnly) {
+                            {
+                                Icon(
+                                    Icons.Filled.Check,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
+                        } else null,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun SourceChip(
+    selected: Boolean,
+    onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null,
+    label: @Composable () -> Unit,
+    leadingIcon: @Composable (() -> Unit)? = null,
+    trailingIcon: @Composable (() -> Unit)? = null,
+    modifier: Modifier = Modifier,
+) {
+    val containerColor by animateColorAsState(
+        targetValue = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
+        animationSpec = tween(durationMillis = 200),
+        label = "chipContainer",
+    )
+    val contentColor by animateColorAsState(
+        targetValue = if (selected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+        animationSpec = tween(durationMillis = 200),
+        label = "chipContent",
+    )
+    val borderColor by animateColorAsState(
+        targetValue = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.outlineVariant,
+        animationSpec = tween(durationMillis = 200),
+        label = "chipBorder",
+    )
+
+    Surface(
+        color = containerColor,
+        contentColor = contentColor,
+        shape = RoundedCornerShape(8.dp),
+        border = BorderStroke(1.dp, borderColor),
+        modifier = modifier
+            .clip(RoundedCornerShape(8.dp))
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onLongClick,
+            ),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            leadingIcon?.invoke()
+            androidx.compose.material3.ProvideTextStyle(value = MaterialTheme.typography.labelLarge) {
+                label()
+            }
+            trailingIcon?.invoke()
+        }
+    }
+}

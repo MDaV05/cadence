@@ -21,5 +21,6 @@ class StarredMergeTest {
         assertFalse(mergedStarred("local", true, false))
         assertTrue(mergedStarred("telegram", false, true))
         assertTrue(mergedStarred("plex", false, true))
+        assertTrue(mergedStarred("bale", false, true))
     }
 }
