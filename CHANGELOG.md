@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.17.0
+
+- **Universal Online Search (YouTube Music & SoundCloud)**:
+  - Search beyond your local library across YouTube Music (InnerTube) and SoundCloud concurrently.
+  - Direct tap-to-stream playback with instant audio resolution.
+  - Save online tracks into custom playlists or download them directly to local disk for offline playback.
+  - Quick filter chips to toggle between All sources, YouTube Music, and SoundCloud.
+- **Interactive Library Source Switcher**:
+  - Modern horizontal filter bar right beneath library tabs replaces the legacy static offline button.
+  - One-tap toggle for Local files and individual remote servers with smooth animations and haptic feedback.
+  - Single-source guard ensures at least one source remains active at all times.
+  - Long-press menu on server chips to switch between "All Content (Online + Offline)" and "Downloaded Only" with a badge indicator.
+- **Download Hardening & Audio Integrity Sniffing**:
+  - Room migration v17 adds persistent `errorText` tracking for download diagnostics.
+  - Pre-flight header sniffing (first 4KB) verifies downloaded content is genuine audio, rejecting server HTML/auth error bodies before saving.
+  - Exponential backoff retry logic and queue repair mechanisms for interrupted downloads.
+
+
 ## 0.16.1
 
 - **Bottom Navigation Tab Reselection & Backstack Stability**:
