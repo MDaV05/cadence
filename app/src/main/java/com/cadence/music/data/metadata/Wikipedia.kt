@@ -1,9 +1,7 @@
 package com.cadence.music.data.metadata
 
 import org.json.JSONObject
-import java.net.HttpURLConnection
-import java.net.URL
-import java.net.URLEncoder
+import java.net.URLDecoder
 
 data class ArtistInfo(
     val bio: String?,
@@ -15,10 +13,9 @@ data class ArtistInfo(
 object Wikipedia {
 
     private const val BASE = "https://en.wikipedia.org/api/rest_v1"
-    internal const val USER_AGENT = "Cadence/0.1 ( https://github.com/MDaV05/cadence )"
 
     private fun encodePath(title: String): String =
-        URLEncoder.encode(title.trim().replace(' ', '_'), "UTF-8").replace("+", "%20")
+        MetadataHttpClient.encode(title.trim().replace(' ', '_'))
 
     private data class PageSummary(
         val title: String,
@@ -31,29 +28,21 @@ object Wikipedia {
         if (title.isBlank()) return null
         return try {
             val enc = encodePath(title)
-            val conn = URL("$BASE/page/summary/$enc").openConnection() as HttpURLConnection
-            conn.setRequestProperty("User-Agent", USER_AGENT)
-            conn.connectTimeout = 10_000
-            conn.readTimeout = 15_000
-            try {
-                if (conn.responseCode != 200) return null
-                // R3-15: cap the body so a hostile/corrupt response can't exhaust memory.
-                val json = JSONObject(conn.inputStream.use { it.readNBytes(2 * 1024 * 1024) }.decodeToString())
-                if (json.optString("type") != "standard") return null
-                val extract = json.optString("extract", "").ifBlank { null }
-                val img = json.optJSONObject("thumbnail")?.optString("source")
-                    ?: json.optJSONObject("originalimage")?.optString("source")
-                val pageUrl = json.optJSONObject("content_urls")
-                    ?.optJSONObject("desktop")?.optString("page")?.ifBlank { null }
-                PageSummary(
-                    title = json.optString("title", title),
-                    bio = extract,
-                    imageUrl = img,
-                    pageUrl = pageUrl,
-                )
-            } finally {
-                conn.disconnect()
-            }
+            val response = MetadataHttpClient.get("$BASE/page/summary/$enc")
+            if (response.code != 200 || response.body == null) return null
+            val json = JSONObject(response.body)
+            if (json.optString("type") != "standard") return null
+            val extract = json.optString("extract", "").ifBlank { null }
+            val img = json.optJSONObject("thumbnail")?.optString("source")
+                ?: json.optJSONObject("originalimage")?.optString("source")
+            val pageUrl = json.optJSONObject("content_urls")
+                ?.optJSONObject("desktop")?.optString("page")?.ifBlank { null }
+            PageSummary(
+                title = json.optString("title", title),
+                bio = extract,
+                imageUrl = img,
+                pageUrl = pageUrl,
+            )
         } catch (_: Exception) { null }
     }
 
@@ -102,7 +91,7 @@ fun parseMbWikipediaTitle(json: String?): String? = runCatching {
         if (rel.optString("type") != "wikipedia") continue
         val resource = rel.optJSONObject("url")?.optString("resource").orEmpty()
         if (resource.startsWith("https://en.wikipedia.org/wiki/")) {
-            val title = java.net.URLDecoder.decode(
+            val title = URLDecoder.decode(
                 resource.removePrefix("https://en.wikipedia.org/wiki/"), "UTF-8",
             ).replace('_', ' ') // MediaWiki URLs use underscores; titles use spaces
             if (title.isNotBlank()) return@runCatching title
@@ -124,18 +113,13 @@ fun parseWikidataSitelink(json: String?): String? = runCatching {
     null
 }.getOrNull()
 
-private fun mbGet(url: String): String? = try {
-    val conn = URL(url).openConnection() as HttpURLConnection
-    conn.setRequestProperty("User-Agent", Wikipedia.USER_AGENT)
-    conn.connectTimeout = 10_000
-    conn.readTimeout = 15_000
-    try {
-        if (conn.responseCode != 200) null
-        else conn.inputStream.use { it.readNBytes(2 * 1024 * 1024) }.decodeToString()
-    } finally {
-        conn.disconnect()
+private fun mbGet(url: String): String? {
+    if (url.startsWith(MB_BASE)) {
+        MusicBrainzRateLimiter.acquire()
     }
-} catch (_: Exception) { null }
+    val response = MetadataHttpClient.get(url)
+    return if (response.code == 200) response.body else null
+}
 
 /**
  * Resolves the canonical en-wiki page title for an artist name through
@@ -143,7 +127,7 @@ private fun mbGet(url: String): String? = try {
  * step comes up empty (callers fall back to heuristic search).
  */
 fun musicBrainzPageTitle(name: String): String? {
-    val enc = URLEncoder.encode(name, "UTF-8").replace("+", "%20")
+    val enc = MetadataHttpClient.encode(name)
     val mbid = parseMbArtistMbid(mbGet("$MB_BASE/artist?query=artist:%22$enc%22&fmt=json&limit=1"))
         ?: return null
     val rels = mbGet("$MB_BASE/artist/$mbid?inc=url-rels&fmt=json")

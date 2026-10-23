@@ -1,18 +1,13 @@
 package com.cadence.music.data.metadata
 
-import com.cadence.music.data.source.sameOrigin
 import com.cadence.music.data.stats.ArtistPlays
 import org.json.JSONArray
 import org.json.JSONObject
-import java.net.HttpURLConnection
-import java.net.URL
-import java.net.URLEncoder
 
 object ListenBrainz {
 
     private const val ENDPOINT = "https://api.listenbrainz.org/1/submit-listens"
     private const val API_BASE = "https://api.listenbrainz.org/1"
-    private const val USER_AGENT = "Cadence/1.0"
 
     /** The exact submit-listens body; `listened_at` must be a JSON integer (seconds). */
     fun buildSubmitPayload(artist: String, title: String, album: String?, listenedAtSec: Long): String =
@@ -50,21 +45,15 @@ object ListenBrainz {
         listenedAtSec: Long = System.currentTimeMillis() / 1000,
     ): Int {
         val payload = buildSubmitPayload(artist, title, album, listenedAtSec)
-        return try {
-            val conn = URL(ENDPOINT).openConnection() as HttpURLConnection
-            conn.requestMethod = "POST"
-            conn.doOutput = true
-            conn.setRequestProperty("Authorization", "Token $token")
-            conn.setRequestProperty("Content-Type", "application/json")
-            conn.connectTimeout = 10_000
-            conn.readTimeout = 15_000
-            try {
-                conn.outputStream.use { it.write(payload.toByteArray()) }
-                conn.responseCode
-            } finally {
-                conn.disconnect()
-            }
-        } catch (_: Exception) { -1 }
+        val res = MetadataHttpClient.post(
+            url = ENDPOINT,
+            body = payload,
+            headers = mapOf(
+                "Authorization" to "Token $token",
+                "Content-Type" to "application/json",
+            ),
+        )
+        return res.code
     }
 
     // -- Read API: pure parsers + thin HTTP wrappers --------------------------
@@ -89,8 +78,12 @@ object ListenBrainz {
      * non-200, timeout) — a non-null pair is a real verdict from the API.
      */
     fun validateBlocking(token: String): Pair<Boolean, String?>? {
-        val body = getJson("$API_BASE/validate-user-token/", token = token) ?: return null
-        return parseValidate(body)
+        val res = MetadataHttpClient.get(
+            url = "$API_BASE/validate-user-token/",
+            headers = mapOf("Authorization" to "Token $token"),
+        )
+        if (res.code != 200 || res.body == null) return null
+        return parseValidate(res.body)
     }
 
     /** Parse recent-listens body -> listens newest first (API order preserved), max 25. */
@@ -112,7 +105,9 @@ object ListenBrainz {
     }.getOrDefault(emptyList())
 
     fun recentListensBlocking(user: String): List<LbListen> = runCatching {
-        parseRecentListens(getJson("$API_BASE/user/${enc(user)}/recent-listens"))
+        val res = MetadataHttpClient.get("$API_BASE/user/${MetadataHttpClient.encode(user)}/recent-listens")
+        if (res.code != 200 || res.body == null) emptyList()
+        else parseRecentListens(res.body)
     }.getOrDefault(emptyList())
 
     /** Parse statistics body (LB v2 shape) -> stats, or null when no payload. */
@@ -131,48 +126,11 @@ object ListenBrainz {
     }.getOrNull()
 
     fun lbStatsBlocking(user: String): LbStats? = runCatching {
-        parseLbStats(
-            getJson(
-                "$API_BASE/user/${enc(user)}/statistics/statistics" +
-                    "?stats_range=half_year&count=5&offset=0",
-            ),
+        val res = MetadataHttpClient.get(
+            "$API_BASE/user/${MetadataHttpClient.encode(user)}/statistics/statistics" +
+                "?stats_range=half_year&count=5&offset=0",
         )
-    }.getOrNull()
-
-    // Path segment, not a form field: a space must become %20, not '+'.
-    private fun enc(value: String): String =
-        runCatching { URLEncoder.encode(value, "UTF-8").replace("+", "%20") }.getOrDefault("")
-
-    private fun getJson(url: String, token: String? = null): String? = runCatching {
-        // R3-07: no auto-follow — the Authorization token must never leave the origin.
-        val open = { u: URL ->
-            (u.openConnection() as HttpURLConnection).apply {
-                requestMethod = "GET"
-                setRequestProperty("User-Agent", USER_AGENT)
-                if (token != null) setRequestProperty("Authorization", "Token $token")
-                connectTimeout = 10_000
-                readTimeout = 15_000
-                instanceFollowRedirects = false
-            }
-        }
-        var conn = open(URL(url))
-        try {
-            var code = conn.responseCode
-            var hops = 0
-            while (code in 300..399 && hops < 3) {
-                val loc = conn.getHeaderField("Location") ?: break
-                val next = URL(conn.getURL(), loc)
-                if (!sameOrigin(conn.getURL().toString(), next.toString())) break
-                conn.disconnect()
-                conn = open(next)
-                code = conn.responseCode
-                hops++
-            }
-            if (code != 200) null
-            // R3-15: cap the body so a hostile/corrupt response can't exhaust memory.
-            else conn.inputStream.use { it.readNBytes(2 * 1024 * 1024) }.decodeToString()
-        } finally {
-            conn.disconnect()
-        }
+        if (res.code != 200 || res.body == null) null
+        else parseLbStats(res.body)
     }.getOrNull()
 }

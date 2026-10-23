@@ -72,16 +72,19 @@ class MetadataWorker(appContext: Context, params: WorkerParameters) :
             val info = runCatching { Wikipedia.artistInfoBlocking(name) }.getOrNull()
             // No-miss-cache: an all-null lookup is a miss, not data — skip it so
             // the artist retries on the next visit/run instead of poisoning for 30 days.
-            if (info?.bio == null && info?.imageUrl == null) continue
+            if (info?.bio == null && info?.imageUrl == null) {
+                delay(1000)
+                continue
+            }
             withContext(Dispatchers.IO) {
                 db.artistInfoDao().upsert(
                     ArtistInfoEntity(
-                        name = name, bio = info?.bio, imageUrl = info?.imageUrl,
-                        pageUrl = info?.sourcePageUrl,
+                        name = name, bio = info.bio, imageUrl = info.imageUrl,
+                        pageUrl = info.sourcePageUrl,
                     ),
                 )
             }
-            if (info?.imageUrl != null) {
+            if (info.imageUrl != null) {
                 val request = ImageRequest.Builder(applicationContext)
                     .data(info.imageUrl)
                     .memoryCachePolicy(CachePolicy.DISABLED)
@@ -89,7 +92,7 @@ class MetadataWorker(appContext: Context, params: WorkerParameters) :
                     .build()
                 runCatching { applicationContext.imageLoader.execute(request) }
             }
-            delay(250)
+            delay(1000)
         }
     }
 
@@ -111,13 +114,13 @@ class MetadataWorker(appContext: Context, params: WorkerParameters) :
                 .diskCachePolicy(CachePolicy.ENABLED)
                 .build()
             runCatching { context.imageLoader.execute(request) }
-            delay(150)
+            delay(250)
         }
     }
 
     companion object {
         private const val STALE_AFTER_MS = 30L * 24 * 60 * 60 * 1000
-        // Per-run budgets: ~250ms/item + HTTP keeps each phase inside the worker limit.
+        // Per-run budgets: rate-limited to respect external APIs while keeping phases bounded.
         private const val LYRICS_BATCH = 200
         private const val ARTIST_BATCH = 100
         // Art repeats are Coil disk-cache hits; the cap bounds fresh-network time.

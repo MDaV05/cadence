@@ -282,6 +282,12 @@ interface AlbumDao {
     @Query("DELETE FROM albums WHERE serverId = :serverId")
     suspend fun deleteByServerId(serverId: String)
 
+    @Query("SELECT * FROM albums WHERE serverId = :serverId LIMIT 1")
+    suspend fun byServerId(serverId: String): AlbumEntity?
+
+    @Query("UPDATE albums SET artPath = :artPath, mbid = COALESCE(:mbid, mbid) WHERE serverId = :serverId")
+    suspend fun updateArt(serverId: String, artPath: String?, mbid: String? = null)
+
     /** Forces the next sync to re-fetch this album's tracks (null token never matches). */
     @Query("UPDATE albums SET remoteCreated = NULL WHERE serverId = :serverId")
     suspend fun invalidateToken(serverId: String)

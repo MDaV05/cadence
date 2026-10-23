@@ -1,16 +1,24 @@
 package com.cadence.music.data.metadata
 
+import android.content.ContentUris
+import android.net.Uri
 import com.cadence.music.data.LibraryRepository
+import com.cadence.music.data.db.AppDatabase
 import com.cadence.music.data.db.TrackEntity
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 
 /**
  * Resolves album art URLs for tracks. Server tracks route through the library
  * (per-entry cover art); local tracks are matched to MusicBrainz once per
  * (artist, album) and served from Cover Art Archive.
  */
-class ArtResolver(private val library: LibraryRepository) {
+class ArtResolver(
+    private val library: LibraryRepository,
+    private val db: AppDatabase? = null,
+) {
 
     private val mbCache = HashMap<String, String?>()
     private val mutex = Mutex()
@@ -24,31 +32,61 @@ class ArtResolver(private val library: LibraryRepository) {
         runCatching { resolveUrlFor(track) }.getOrNull()
 
     private suspend fun resolveUrlFor(track: TrackEntity): String? {
-        // User override first: exact track cover, then album cover. File paths
+        // 1. User override check: exact track cover, then album cover. File paths
         // go out as file:// so Coil's FileUriFetcher picks them up.
         library.artOverrideFor(track)?.let { return "file://$it" }
-        if (track.albumName.isBlank()) return null
-        // Local tracks: MediaStore's album art provider, instant and offline.
+
+        // 2. MediaStore album art check: instant and offline for local tracks.
         if (track.sourceId == "local") {
-            return track.albumMediaId?.let {
-                android.content.ContentUris.withAppendedId(
-                    android.net.Uri.parse("content://media/external/audio/albumart"), it,
+            track.albumMediaId?.let {
+                return ContentUris.withAppendedId(
+                    Uri.parse("content://media/external/audio/albumart"), it,
                 ).toString()
             }
         }
+
+        // 3. Server-provided track art / album art
         if (track.sourceId != "local") {
             library.trackCoverArtFor(track.serverId)?.let { return it }
         }
-        if (track.sourceId != "local" && track.albumKey != null) {
-            library.coverArtFor(track.albumKey)?.let { return it }
+        val albumKey = track.albumKey
+        if (track.sourceId != "local" && albumKey != null) {
+            library.coverArtFor(albumKey)?.let { return it }
         }
-        val key = "${track.artistName}::${track.albumName}"
-        return mutex.withLock { mbCache[key] } ?: run {
-            val url = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                MusicBrainz.searchReleaseGroup(track.artistName, track.albumName)
-                    ?.let { MusicBrainz.coverArtUrl(it) }
+
+        // 4. Room database persistent check: check if track.albumKey exists and has album.artPath.
+        // If so, return it immediately.
+        if (albumKey != null && db != null) {
+            val cachedAlbum = withContext(Dispatchers.IO) {
+                db.albumDao().byServerId(albumKey)
             }
-            mutex.withLock { mbCache[key] = url }
+            if (!cachedAlbum?.artPath.isNullOrBlank()) {
+                return cachedAlbum?.artPath
+            }
+        }
+
+        // 6. Keep in-memory cache as secondary fast lookup
+        if (track.artistName.isBlank() || track.albumName.isBlank()) return null
+        val key = "${track.artistName}::${track.albumName}"
+        return mutex.withLock {
+            if (mbCache.containsKey(key)) {
+                return@withLock mbCache[key]
+            }
+
+            // 5. Network lookup via MusicBrainz Cover Art Archive, and if found, persist to Room
+            val (url, mbid) = withContext(Dispatchers.IO) {
+                val releaseGroupMbid = MusicBrainz.searchReleaseGroup(track.artistName, track.albumName)
+                val artUrl = releaseGroupMbid?.let { MusicBrainz.coverArtUrl(it) }
+                artUrl to releaseGroupMbid
+            }
+
+            if (url != null && albumKey != null && db != null) {
+                withContext(Dispatchers.IO) {
+                    db.albumDao().updateArt(albumKey, url, mbid)
+                }
+            }
+
+            mbCache[key] = url
             url
         }
     }

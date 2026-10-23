@@ -2,9 +2,6 @@ package com.cadence.music.data.metadata
 
 import org.json.JSONArray
 import org.json.JSONObject
-import java.net.HttpURLConnection
-import java.net.URL
-import java.net.URLEncoder
 
 data class SyncedLine(val timeMs: Long, val text: String)
 
@@ -41,8 +38,8 @@ object LrcLib {
         val exact = try {
             val q = buildString {
                 append("https://lrclib.net/api/get?")
-                append("artist_name=${URLEncoder.encode(artist, "UTF-8")}")
-                append("&track_name=${URLEncoder.encode(title, "UTF-8")}")
+                append("artist_name=${MetadataHttpClient.encode(artist)}")
+                append("&track_name=${MetadataHttpClient.encode(title)}")
                 if (durationSec > 0) append("&duration=$durationSec")
             }
             getLrcJson(q)
@@ -54,11 +51,12 @@ object LrcLib {
         return try {
             val q = buildString {
                 append("https://lrclib.net/api/search?")
-                append("artist_name=${URLEncoder.encode(artist, "UTF-8")}")
-                append("&track_name=${URLEncoder.encode(title, "UTF-8")}")
+                append("artist_name=${MetadataHttpClient.encode(artist)}")
+                append("&track_name=${MetadataHttpClient.encode(title)}")
             }
-            val body = httpGet(q)
-            val results = JSONArray(body)
+            val res = MetadataHttpClient.get(q)
+            if (res.code != 200 || res.body.isNullOrBlank()) return emptyList()
+            val results = JSONArray(res.body)
             for (i in 0 until results.length()) {
                 val lrc = results.optJSONObject(i)?.optString("syncedLyrics").orEmpty()
                 if (lrc.isNotBlank()) return parse(lrc)
@@ -70,25 +68,13 @@ object LrcLib {
     }
 
     private fun getLrcJson(url: String): List<SyncedLine> {
-        val body = httpGet(url)
-        val json = JSONObject(body)
+        val res = MetadataHttpClient.get(url)
+        if (res.code != 200 || res.body.isNullOrBlank()) return emptyList()
+        val json = runCatching { JSONObject(res.body) }.getOrNull() ?: return emptyList()
         if (json.optString("type") != "standard" && json.optString("syncedLyrics").isBlank()) {
             return emptyList()
         }
         val lrc = json.optString("syncedLyrics").ifBlank { null } ?: return emptyList()
         return parse(lrc)
-    }
-
-    private fun httpGet(url: String): String {
-        val conn = URL(url).openConnection() as HttpURLConnection
-        conn.setRequestProperty("User-Agent", "Cadence/0.1 ( https://github.com/MDaV05/cadence )")
-        conn.connectTimeout = 10_000
-        conn.readTimeout = 15_000
-        try {
-            if (conn.responseCode != 200) return ""
-            return conn.inputStream.bufferedReader().readText()
-        } finally {
-            conn.disconnect()
-        }
     }
 }

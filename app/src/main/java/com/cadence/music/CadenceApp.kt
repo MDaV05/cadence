@@ -168,7 +168,7 @@ class AppContainer(app: Application) {
     val database: AppDatabase = AppDatabase.build(app)
     val localSource = LocalSource(app)
     val library = LibraryRepository(database, localSource, prefs, app)
-    val artResolver = ArtResolver(library)
+    val artResolver = ArtResolver(library, database)
     val player = PlayerConnection(
         app,
         submitScrobble = { artist, title, album -> submitScrobble(artist, title, album) },
