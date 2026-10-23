@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">Cadence</string>
+    <string name="widget_compact_desc">Compact media player bar</string>
+    <string name="widget_large_desc">Card media player with album art</string>
 </resources>

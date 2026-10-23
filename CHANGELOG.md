@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.17.3
+
+- **Modern Home Screen Widgets**:
+  - **Compact Player Bar (4x1 / 4x2)**: Sleek, responsive bar widget featuring rounded album art, bold track title, artist name, and modern playback controls (previous, play/pause, next).
+  - **Large Showcase Player Card (4x2 / 3x3)**: Premium card widget showcasing prominent album cover art, track info, branded Cadence badge, and spacious touch-friendly transport buttons.
+  - **Album Art & Artwork Pipeline**: Direct integration with Coil image loader with automatic software bitmap decoding and safe anti-aliased corner rounding, staying safely below Android's RemoteViews Binder memory limits.
+  - **One-Tap App Launch**: Tapping the widget body, album art, or title smoothly launches Cadence directly into Now Playing.
+  - **Modern Android 12+ (API 31+) Compatibility**: Exported provider declarations, responsive target cell width/height metadata, and immutable pending intents ensuring full compatibility with modern home screen launchers.
+
 ## 0.17.2
 
 - **Metadata Architecture Modernization & Hardening**:

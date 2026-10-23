@@ -171,12 +171,26 @@ class PlaybackService : MediaLibraryService() {
     }
 
     private fun pushWidget(mediaItem: androidx.media3.common.MediaItem?, playing: Boolean) {
-        PlayerWidget.push(
-            this,
-            mediaItem?.mediaMetadata?.title?.toString() ?: "",
-            mediaItem?.mediaMetadata?.artist?.toString() ?: "",
-            playing,
-        )
+        val title = mediaItem?.mediaMetadata?.title?.toString() ?: ""
+        val artist = mediaItem?.mediaMetadata?.artist?.toString() ?: ""
+        val mediaId = mediaItem?.mediaId
+        val c = (application as? CadenceApp)?.container
+        serviceScope.launch {
+            val artUrl = if (mediaId != null && c != null) {
+                withContext(Dispatchers.IO) {
+                    val entity = c.database.trackDao().byServerId(mediaId)
+                    if (entity != null) c.artResolver.urlFor(entity) else null
+                }
+            } else null
+
+            PlayerWidget.push(
+                context = this@PlaybackService,
+                title = title,
+                artist = artist,
+                playing = playing,
+                artUrl = artUrl,
+            )
+        }
     }
 
     private fun saveResumeState(player: Player) {
@@ -287,6 +301,15 @@ class PlaybackService : MediaLibraryService() {
     }
 
     override fun onDestroy() {
+        session?.player?.let { p ->
+            PlayerWidget.push(
+                context = this,
+                title = p.currentMediaItem?.mediaMetadata?.title?.toString() ?: "Cadence",
+                artist = p.currentMediaItem?.mediaMetadata?.artist?.toString() ?: "Ready to play",
+                playing = false,
+                artUrl = null,
+            )
+        }
         serviceScope.cancel()
         getSharedPreferences("cadence", MODE_PRIVATE)
             .unregisterOnSharedPreferenceChangeListener(prefsListener)
