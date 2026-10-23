@@ -7,6 +7,7 @@ local.properties
 .captures/
 .kotlin/
 app/libs/*.aar
+!app/libs/tdlib-0.1.0.aar
 app/libs/*.aar.tmp
 
 # agent tooling / caches

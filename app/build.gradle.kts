@@ -163,7 +163,7 @@ val ensureTdlib by tasks.registering {
         if (!aar.exists()) {
             aar.parentFile.mkdirs()
             logger.lifecycle("Downloading TDLib AAR...")
-            var url = URI("https://github.com/AkashPriyadarshii/tdlib-android/releases/download/v0.1.0/core-release.aar").toURL()
+            var url = URI("https://raw.githubusercontent.com/MDaV05/cadence/main/app/libs/tdlib-0.1.0.aar").toURL()
             var conn = url.openConnection() as HttpURLConnection
             // Manual https-only redirect follow; a cross-host hop must stay on GitHub.
             conn.instanceFollowRedirects = false
