@@ -36,9 +36,6 @@ import com.cadence.music.data.source.LocalSource
 import com.cadence.music.data.source.PlexSource
 import com.cadence.music.data.source.SubsonicSource
 import com.cadence.music.data.source.Track
-import com.cadence.music.data.source.online.SoundCloudSource
-import com.cadence.music.data.source.online.YouTubeMusicSource
-import kotlinx.coroutines.runBlocking
 import com.cadence.music.data.tags.albumNormKey
 import com.cadence.music.data.tags.primaryArtist
 import kotlinx.coroutines.CancellationException
@@ -123,8 +120,6 @@ class LibraryRepository(
     private val local: LocalSource,
     private val prefs: Prefs,
     private val context: android.content.Context,
-    val ytMusicSource: YouTubeMusicSource = YouTubeMusicSource(),
-    val soundCloudSource: SoundCloudSource = SoundCloudSource(),
 ) {
     private val deviceId: String by lazy {
         android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID) ?: "cadence"
@@ -183,12 +178,6 @@ class LibraryRepository(
     /** Fresh authenticated stream URL for any namespaced in-memory Track. */
     suspend fun streamUrlFor(track: Track): String? {
         track.localPath?.let { return it }
-        if (track.sourceId == "ytmusic" || track.key.startsWith("ytmusic:")) {
-            return ytMusicSource.resolveStreamUrl(track.key.removePrefix("ytmusic:"))
-        }
-        if (track.sourceId == "soundcloud" || track.key.startsWith("soundcloud:")) {
-            return soundCloudSource.resolveStreamUrl(track.key.removePrefix("soundcloud:"))
-        }
         val entry = entryForServerId(track.key) ?: return null
         val remote = remoteKey(track.key, entry)
         val s = sourceFor(entry)
@@ -205,19 +194,12 @@ class LibraryRepository(
     }
 
     fun downloadUrlFor(serverId: String, format: String, bitrate: Int): String? {
-        if (serverId.startsWith("ytmusic:")) {
-            return runBlocking { ytMusicSource.resolveStreamUrl(serverId.removePrefix("ytmusic:")) }
-        }
-        if (serverId.startsWith("soundcloud:")) {
-            return runBlocking { soundCloudSource.resolveStreamUrl(serverId.removePrefix("soundcloud:")) }
-        }
         val entry = entryForServerId(serverId) ?: return null
         val remote = remoteKey(serverId, entry)
         return sourceFor(entry).downloadUrl(remote, format, bitrate)
     }
 
     suspend fun coverArtFor(albumKey: String): String? {
-        if (albumKey.startsWith("http://") || albumKey.startsWith("https://")) return albumKey
         val entry = entryForServerId(albumKey) ?: return null
         val remote = remoteKey(albumKey, entry)
         return sourceFor(entry).coverArtUrl(remote)
@@ -891,38 +873,6 @@ class LibraryRepository(
             val byKey = tracks.associateBy { "${it.sourceId}:${it.serverId}" }
             dls.map { DownloadStatusRow(it, byKey["${it.sourceId}:${it.trackServerId}"]) }
         }
-
-    /** Saves an online track (from YT Music or SoundCloud) into Room so it can be added to playlists, favorited, or downloaded. */
-    suspend fun saveOnlineTrack(track: Track): TrackEntity = withContext(Dispatchers.IO) {
-        val cleanKey = track.key.removePrefix("${track.sourceId}:")
-        val nsKey = "${track.sourceId}:$cleanKey"
-        val existing = db.trackDao().byServerId(nsKey)
-        if (existing != null) return@withContext existing
-
-        val entity = TrackEntity(
-            sourceId = track.sourceId,
-            serverId = nsKey,
-            title = track.title,
-            artistName = track.artist,
-            artistRaw = track.artist,
-            albumName = track.album,
-            albumNorm = albumNormKey(track.album, track.artist),
-            albumKey = track.albumKey,
-            path = track.localPath,
-            durationMs = track.durationMs,
-            trackNumber = 0,
-            genre = track.genre,
-        )
-        db.trackDao().insertAll(listOf(entity))
-        db.trackDao().byServerId(nsKey) ?: entity
-    }
-
-    fun downloadTrack(track: TrackEntity) = enqueueDownload(track)
-
-    suspend fun downloadOnlineTrack(track: Track) {
-        val entity = saveOnlineTrack(track)
-        downloadTrack(entity)
-    }
 
     /** Queues a track for download; only server tracks are downloadable. */
     fun enqueueDownload(track: TrackEntity) {

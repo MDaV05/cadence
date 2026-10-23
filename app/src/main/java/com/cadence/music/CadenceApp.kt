@@ -27,8 +27,6 @@ import com.cadence.music.data.metadata.MetadataSync
 import com.cadence.music.data.prefs.Prefs
 import com.cadence.music.data.prefs.cacheBytes
 import com.cadence.music.data.source.LocalSource
-import com.cadence.music.data.source.online.SoundCloudSource
-import com.cadence.music.data.source.online.YouTubeMusicSource
 import com.cadence.music.data.update.UpdateStatus
 import com.cadence.music.data.update.UpdateStatus.Available
 import com.cadence.music.data.update.UpdateStatus.Checking
@@ -47,7 +45,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import okhttp3.OkHttpClient
 import java.io.File
 import java.util.concurrent.TimeUnit
 
@@ -170,10 +167,7 @@ class AppContainer(app: Application) {
     val prefs = Prefs(app)
     val database: AppDatabase = AppDatabase.build(app)
     val localSource = LocalSource(app)
-    val okHttpClient: OkHttpClient by lazy { OkHttpClient() }
-    val ytMusicSource: YouTubeMusicSource by lazy { YouTubeMusicSource(okHttpClient) }
-    val soundCloudSource: SoundCloudSource by lazy { SoundCloudSource(okHttpClient) }
-    val library = LibraryRepository(database, localSource, prefs, app, ytMusicSource, soundCloudSource)
+    val library = LibraryRepository(database, localSource, prefs, app)
     val artResolver = ArtResolver(library)
     val player = PlayerConnection(
         app,
