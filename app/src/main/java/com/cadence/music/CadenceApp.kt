@@ -27,6 +27,8 @@ import com.cadence.music.data.metadata.MetadataSync
 import com.cadence.music.data.prefs.Prefs
 import com.cadence.music.data.prefs.cacheBytes
 import com.cadence.music.data.source.LocalSource
+import com.cadence.music.data.source.online.SoundCloudSource
+import com.cadence.music.data.source.online.YouTubeMusicSource
 import com.cadence.music.data.update.UpdateStatus
 import com.cadence.music.data.update.UpdateStatus.Available
 import com.cadence.music.data.update.UpdateStatus.Checking
@@ -45,6 +47,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import okhttp3.OkHttpClient
 import java.io.File
 import java.util.concurrent.TimeUnit
 
@@ -64,6 +67,9 @@ class CadenceApp : Application(), coil.ImageLoaderFactory {
         if (hasAudioPermission() || container.prefs.servers.any { it.active }) {
             appScope.launch {
                 val repaired = runCatching { container.library.repairArtistInfo() }.getOrDefault(0)
+                // Clear downloads that were actually Subsonic error bodies before
+                // the sync makes those tracks look "already downloaded" forever.
+                runCatching { container.library.repairInvalidDownloadsOnce() }
                 runCatching { container.library.syncAll() }
                 runCatching { container.flushPendingScrobbles() }
                 if (repaired > 0) runCatching { MetadataSync.runNow(this@CadenceApp) }
@@ -164,7 +170,10 @@ class AppContainer(app: Application) {
     val prefs = Prefs(app)
     val database: AppDatabase = AppDatabase.build(app)
     val localSource = LocalSource(app)
-    val library = LibraryRepository(database, localSource, prefs, app)
+    val okHttpClient: OkHttpClient by lazy { OkHttpClient() }
+    val ytMusicSource: YouTubeMusicSource by lazy { YouTubeMusicSource(okHttpClient) }
+    val soundCloudSource: SoundCloudSource by lazy { SoundCloudSource(okHttpClient) }
+    val library = LibraryRepository(database, localSource, prefs, app, ytMusicSource, soundCloudSource)
     val artResolver = ArtResolver(library)
     val player = PlayerConnection(
         app,

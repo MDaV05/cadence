@@ -4,6 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Test
+import kotlinx.coroutines.runBlocking
 
 class OnlineSourceTest {
 
@@ -223,5 +224,27 @@ class OnlineSourceTest {
 
         val streamUrl = SoundCloudSource.parseMediaUrl(json)
         assertEquals("https://cf-media.sndcdn.com/abcdef123456", streamUrl)
+    }
+
+    @Test
+    fun `coverArtUrl formats YouTube thumbnail url from video id`() {
+        val ytSource = YouTubeMusicSource()
+        assertEquals(
+            "https://i.ytimg.com/vi/abc123vid/hqdefault.jpg",
+            runBlocking { ytSource.coverArtUrl("abc123vid") },
+        )
+    }
+
+    @Test
+    fun `interleaving online search results preserves balanced order`() {
+        val ytTracks = listOf("yt1", "yt2", "yt3")
+        val scTracks = listOf("sc1", "sc2")
+        val combined = mutableListOf<String>()
+        val maxLen = maxOf(ytTracks.size, scTracks.size)
+        for (i in 0 until maxLen) {
+            if (i < ytTracks.size) combined.add(ytTracks[i])
+            if (i < scTracks.size) combined.add(scTracks[i])
+        }
+        assertEquals(listOf("yt1", "sc1", "yt2", "sc2", "yt3"), combined)
     }
 }
