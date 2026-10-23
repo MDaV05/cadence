@@ -113,6 +113,32 @@ class Prefs(context: Context) {
         awaitClose { sp.unregisterOnSharedPreferenceChangeListener(listener) }
     }
 
+    var libraryActiveSources: Set<String>
+        get() = sp.getStringSet("lib_active_sources", null) ?: emptySet()
+        set(value) = sp.edit().putStringSet("lib_active_sources", value).apply()
+
+    fun observeLibraryActiveSources(): Flow<Set<String>> = callbackFlow {
+        trySend(libraryActiveSources)
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == "lib_active_sources") trySend(libraryActiveSources)
+        }
+        sp.registerOnSharedPreferenceChangeListener(listener)
+        awaitClose { sp.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
+
+    var serverOfflineOnlyIds: Set<String>
+        get() = sp.getStringSet("server_offline_only_ids", null) ?: emptySet()
+        set(value) = sp.edit().putStringSet("server_offline_only_ids", value).apply()
+
+    fun observeServerOfflineOnlyIds(): Flow<Set<String>> = callbackFlow {
+        trySend(serverOfflineOnlyIds)
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == "server_offline_only_ids") trySend(serverOfflineOnlyIds)
+        }
+        sp.registerOnSharedPreferenceChangeListener(listener)
+        awaitClose { sp.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
+
     /** Emits the current server list first, then re-emits on every servers change. */
     fun observeServers(): Flow<List<ServerEntry>> = callbackFlow {
         trySend(servers)
@@ -131,6 +157,11 @@ class Prefs(context: Context) {
     var downloadBitrate: Int
         get() = sp.getInt("download_bitrate", 128)
         set(value) = sp.edit().putInt("download_bitrate", value).apply()
+
+    /** One-shot: cleared downloads that were actually server error bodies. */
+    var downloadRepairV1: Boolean
+        get() = sp.getBoolean("download_repair_v1", false)
+        set(value) = sp.edit().putBoolean("download_repair_v1", value).apply()
 
     var cacheGb: Int
         get() = sp.getInt("cache_gb", 2)

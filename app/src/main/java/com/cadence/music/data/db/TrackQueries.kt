@@ -233,6 +233,43 @@ object TrackQueries {
         return clause to sorted.map { "$it:%" }.toTypedArray()
     }
 
+    /**
+     * Source and offline filter: builds WHERE clause fragment and bound args.
+     * Empty in = no filter ("" to emptyArray()).
+     */
+    fun activeSourceFilter(
+        activeSources: Set<String>,
+        offlineServerIds: Set<String>,
+    ): Pair<String, Array<String>> {
+        if (activeSources.isEmpty() && offlineServerIds.isEmpty()) return "" to emptyArray()
+
+        val parts = mutableListOf<String>()
+        val args = mutableListOf<String>()
+
+        if (activeSources.isNotEmpty()) {
+            if ("local" in activeSources) {
+                parts.add("sourceId = 'local'")
+            }
+            val serverSources = activeSources.filter { it != "local" }.sorted()
+            for (srv in serverSources) {
+                if (srv in offlineServerIds) {
+                    parts.add("(serverId LIKE ? AND (path IS NOT NULL AND path != ''))")
+                } else {
+                    parts.add("(serverId LIKE ?)")
+                }
+                args.add("$srv:%")
+            }
+        } else if (offlineServerIds.isNotEmpty()) {
+            for (srv in offlineServerIds.sorted()) {
+                parts.add("(serverId LIKE ? AND (path IS NOT NULL AND path != ''))")
+                args.add("$srv:%")
+            }
+        }
+
+        if (parts.isEmpty()) return "" to emptyArray()
+        return " AND (" + parts.joinToString(" OR ") + ")" to args.toTypedArray()
+    }
+
     /** Escapes LIKE metacharacters; caller wraps result in %...%. */
     fun escapeLike(s: String): String {
         val out = StringBuilder(s.length)
