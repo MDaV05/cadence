@@ -8,6 +8,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -21,6 +22,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -48,6 +50,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.cadence.music.AppContainer
 import com.cadence.music.data.DownloadStatusRow
 import com.cadence.music.data.db.TrackEntity
+import com.cadence.music.data.downloads.isStaleDownloadError
 import com.cadence.music.data.downloads.progressOf
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -61,10 +64,11 @@ fun DownloadsScreen(
     onAlbumClick: (String) -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     val rows by container.library.observeDownloads()
         .collectAsStateWithLifecycle(initialValue = emptyList())
 
-    val totalBytes = rows.filter { it.download.status == "done" }.sumOf { it.download.bytesDone }
+    val totalBytes = remember(rows) { rows.filter { it.download.status == "done" }.sumOf { it.download.bytesDone } }
     // Albums shown even when only partially downloaded; orphan rows (no track)
     // are omitted here and surface in the failed section only if failed.
     val albumGroups = remember(rows) {
@@ -74,6 +78,9 @@ fun DownloadsScreen(
             .sortedBy { it.first.lowercase() }
     }
     val failedRows = remember(rows) { rows.filter { it.download.status == "failed" } }
+    val staleRows = remember(failedRows) {
+        failedRows.filter { isStaleDownloadError(it.download.errorText) }
+    }
     val progress = remember(rows) { progressOf(rows.map { it.download.status }) }
     var showDownloadAll by remember { mutableStateOf(false) }
 
@@ -87,6 +94,25 @@ fun DownloadsScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = {
+                        scope.launch {
+                            val result = withContext(Dispatchers.IO) {
+                                runCatching { container.library.repairInvalidDownloads() }
+                            }
+                            val repaired = result.getOrNull()
+                            Toast.makeText(
+                                context,
+                                when {
+                                    repaired == null -> "Could not verify downloads"
+                                    repaired == 0 -> "All downloads verified"
+                                    else -> "$repaired broken downloads cleared"
+                                },
+                                Toast.LENGTH_LONG,
+                            ).show()
+                        }
+                    }) {
+                        Icon(Icons.Filled.Verified, "Verify downloads")
+                    }
                     IconButton(onClick = { showDownloadAll = true }) {
                         Icon(Icons.Filled.Download, "Download whole library")
                     }
@@ -96,7 +122,8 @@ fun DownloadsScreen(
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             Text(
-                "${rows.size} items · ${formatBytes(totalBytes)} offline",
+                "${rows.size} items · ${formatBytes(totalBytes)} offline" +
+                    (if (failedRows.isNotEmpty()) " · ${failedRows.size} failed" else ""),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = if (progress.total > 0) 4.dp else 8.dp),
@@ -113,6 +140,27 @@ fun DownloadsScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
+            }
+            if (staleRows.isNotEmpty()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "${staleRows.size} tracks changed on the server.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(onClick = {
+                        container.library.refreshLibraryAndRetryFailedAsync()
+                        Toast.makeText(
+                            context,
+                            "Refreshing library, then retrying downloads",
+                            Toast.LENGTH_LONG,
+                        ).show()
+                    }) { Text("Refresh") }
+                }
             }
             if (rows.isEmpty()) {
                 Column(
@@ -141,12 +189,34 @@ fun DownloadsScreen(
                     }
                     if (failedRows.isNotEmpty()) {
                         item(span = { GridItemSpan(maxLineSpan) }, key = "failed-header") {
-                            SectionHeader("Failed")
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    "Failed",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.weight(1f).padding(start = 4.dp),
+                                )
+                                TextButton(onClick = {
+                                    scope.launch {
+                                        val n = withContext(Dispatchers.IO) {
+                                            runCatching { container.library.retryFailedDownloads() }
+                                                .getOrDefault(0)
+                                        }
+                                        Toast.makeText(
+                                            context,
+                                            if (n == 0) "Nothing to retry" else "Queued $n tracks",
+                                            Toast.LENGTH_SHORT,
+                                        ).show()
+                                    }
+                                }) { Text("Retry all") }
+                            }
                         }
                         items(failedRows, key = { "${it.download.sourceId}:${it.download.trackServerId}" },
                             span = { GridItemSpan(maxLineSpan) }) { row ->
                             DownloadRow(
-                                container,
                                 row,
                                 onRetry = {
                                     scope.launch { container.library.retryDownload(row.download, row.track) }
@@ -247,7 +317,6 @@ internal fun DownloadLibraryDialog(container: AppContainer, onDismiss: () -> Uni
 
 @Composable
 private fun DownloadRow(
-    container: AppContainer,
     row: DownloadStatusRow,
     onRetry: () -> Unit,
     onDelete: () -> Unit,
@@ -262,7 +331,8 @@ private fun DownloadRow(
                 val label = when (status) {
                     "running" -> "Downloading… ${formatBytes(row.download.bytesDone)}"
                     "done" -> "Offline · ${formatBytes(row.download.bytesDone)}"
-                    else -> "Failed — will stay streamable"
+                    else -> row.download.errorText?.takeIf { it.isNotBlank() }
+                        ?: "Failed — will stay streamable"
                 }
                 Text(
                     label,
@@ -272,6 +342,8 @@ private fun DownloadRow(
                         "failed" -> MaterialTheme.colorScheme.error
                         else -> MaterialTheme.colorScheme.onSurfaceVariant
                     },
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
                 )
                 if (status == "running") {
                     LinearProgressIndicator(

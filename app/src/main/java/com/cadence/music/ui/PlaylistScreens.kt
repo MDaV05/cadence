@@ -128,23 +128,23 @@ fun PlaylistCover(
 }
 
 /** Downscales the picked image to ≤1024px JPEG under filesDir/playlist_covers. */
-suspend fun savePlaylistCover(context: Context, playlistId: Long, uri: Uri): String {
+suspend fun savePlaylistCover(context: Context, playlistId: Long, uri: Uri): String? {
     val out = File(File(context.filesDir, "playlist_covers").apply { mkdirs() }, "playlist_$playlistId.jpg")
-    withContext(Dispatchers.IO) {
+    val ok = withContext(Dispatchers.IO) {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        context.contentResolver.openInputStream(uri)!!.use {
+        (context.contentResolver.openInputStream(uri) ?: return@withContext false).use {
             BitmapFactory.decodeStream(it, null, bounds)
         }
         val decode = BitmapFactory.Options().apply {
             inSampleSize = maxOf(1, maxOf(bounds.outWidth, bounds.outHeight) / 1024)
         }
-        context.contentResolver.openInputStream(uri)!!.use { ins ->
+        (context.contentResolver.openInputStream(uri) ?: return@withContext false).use { ins ->
             BitmapFactory.decodeStream(ins, null, decode)?.let { bmp ->
                 out.outputStream().use { bmp.compress(Bitmap.CompressFormat.JPEG, 85, it) }
-            }
+            } ?: false
         }
     }
-    return out.absolutePath
+    return if (ok) out.absolutePath else null
 }
 
 /**
@@ -527,7 +527,8 @@ fun PlaylistDetailScreen(container: AppContainer, playlistId: Long, onBack: () -
 
     val pickCover = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) scope.launch {
-            container.library.setPlaylistCover(playlistId, savePlaylistCover(context, playlistId, uri))
+            val path = savePlaylistCover(context, playlistId, uri)
+            if (path != null) container.library.setPlaylistCover(playlistId, path)
             reload()
         }
     }
@@ -542,7 +543,9 @@ fun PlaylistDetailScreen(container: AppContainer, playlistId: Long, onBack: () -
                     }
                 },
                 actions = {
-                    IconButton(onClick = { container.library.enqueueDownloads(tracks.map { it.track }) }) {
+                    IconButton(onClick = {
+                        container.library.enqueueDownloadsAsync(tracks.map { it.track })
+                    }) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Icon(Icons.Filled.Download, "Download playlist")
                             if (playlistDownloading) {
@@ -702,7 +705,7 @@ fun LikedSongsScreen(container: AppContainer, onArtistClick: (String) -> Unit = 
                 Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(bottom = 32.dp),
             ) {
-                itemsIndexed(liked) { index, track ->
+                itemsIndexed(liked, key = { _, track -> track.id }) { index, track ->
                     val art by produceState<String?>(null, track.id) {
                         value = container.artResolver.urlFor(track)
                     }

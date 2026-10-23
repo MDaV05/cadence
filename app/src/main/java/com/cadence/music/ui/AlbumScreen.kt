@@ -102,8 +102,11 @@ fun AlbumScreen(
     }
 
     fun downloadAll() {
-        tracks.filter { it.sourceId != "local" && it.path == null }
-            .forEach { com.cadence.music.data.downloads.DownloadWorker.enqueue(context, it.id) }
+        // Album downloads are bulk work: queue them on the serial chain instead
+        // of one independent work per track.
+        container.library.enqueueDownloadsAsync(
+            tracks.filter { it.sourceId != "local" && it.path == null }
+        )
     }
 
     val consentLauncher = rememberLauncherForActivityResult(

@@ -148,4 +148,6 @@ data class DownloadEntity(
     val bytesDone: Long = 0,
     val transcode: String? = null,
     val updatedAt: Long = System.currentTimeMillis(),
+    /** Why the last attempt failed; null for running/done rows. */
+    val errorText: String? = null,
 )

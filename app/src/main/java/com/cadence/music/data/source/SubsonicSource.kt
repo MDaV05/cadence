@@ -178,7 +178,14 @@ class SubsonicSource(private val configProvider: () -> ServerConfig?) : MusicSou
         return if (format == "raw") url("download", mapOf("id" to id))
         else url(
             "download",
-            mapOf("id" to id, "format" to format, "maxBitRate" to bitrate.toString()),
+            // Navidrome's download endpoint reads `bitrate`; older Subsonic
+            // servers read `maxBitRate`. Sending both is accepted by both.
+            mapOf(
+                "id" to id,
+                "format" to format,
+                "bitrate" to bitrate.toString(),
+                "maxBitRate" to bitrate.toString(),
+            ),
         )
     }
 

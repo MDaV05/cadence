@@ -15,6 +15,7 @@ import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaSession
 import com.cadence.music.CadenceApp
 import com.cadence.music.data.db.TrackEntity
+import com.cadence.music.data.downloads.mimeForExtension
 import com.cadence.music.data.resumeLookupIds
 import com.cadence.music.data.prefs.cacheBytes
 import com.google.common.util.concurrent.ListenableFuture
@@ -237,6 +238,9 @@ class PlaybackService : MediaLibraryService() {
         }.getOrNull() ?: return null
         return MediaItem.Builder()
             .setUri(uri)
+            .setMimeType(if (uri.startsWith("file:")) {
+                mimeForExtension(uri.substringAfterLast('.', ""))
+            } else null)
             .setMediaId(serverId)
             .setMediaMetadata(
                 MediaMetadata.Builder()

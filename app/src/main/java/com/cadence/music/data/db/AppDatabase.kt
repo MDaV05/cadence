@@ -25,7 +25,7 @@ import com.cadence.music.data.tags.primaryArtist
         AlbumArtOverrideEntity::class,
         ArtistOverrideEntity::class,
     ],
-    version = 16,
+    version = 17,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -224,6 +224,13 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_16_17 = object : Migration(16, 17) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Reason a download failed (Subsonic error body, HTTP status, ...).
+                db.execSQL("ALTER TABLE downloads ADD COLUMN errorText TEXT")
+            }
+        }
+
         fun build(context: Context): AppDatabase =
             Room.databaseBuilder(context, AppDatabase::class.java, "cadence.db")
                 .addMigrations(
@@ -240,6 +247,7 @@ abstract class AppDatabase : RoomDatabase() {
                     MIGRATION_13_14,
                     MIGRATION_14_15,
                     MIGRATION_15_16,
+                    MIGRATION_16_17,
                 )
                 // No paths exist from schema 1/2 (they predate exported schemas);
                 // those dev-only installs rebuild destructively instead of crashing.

@@ -9,6 +9,7 @@ import androidx.media3.common.Player
 import androidx.media3.common.Timeline
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
+import com.cadence.music.data.downloads.mimeForExtension
 import com.cadence.music.data.source.Track
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
@@ -200,12 +201,10 @@ class PlayerConnection(
         val c = controller ?: return
         scope.launch {
             if (tracks.isEmpty()) return@launch
-            val idx = startIndex.coerceIn(0, tracks.size - 1)
-            // Resolve the chosen track first so the tapped song always leads,
-            // even when resolution of other items fails.
-            val startItem = tracks[idx].toMediaItem() ?: return@launch
-            val rest = tracks.mapIndexedNotNull { i, t -> if (i == idx) null else t.toMediaItem() }
-            c.setMediaItems(listOf(startItem) + rest, 0, 0)
+            val items = tracks.mapNotNull { it.toMediaItem() }
+            if (items.isEmpty()) return@launch
+            val targetIndex = startIndex.coerceIn(0, items.size - 1)
+            c.setMediaItems(items, targetIndex, 0L)
             c.prepare()
             c.play()
         }
@@ -234,7 +233,9 @@ class PlayerConnection(
     }
 
     fun moveQueueItem(from: Int, to: Int) {
-        controller?.moveMediaItem(from, to.coerceIn(0, (controller?.mediaItemCount ?: 1) - 1))
+        val count = controller?.mediaItemCount ?: 0
+        if (count <= 1) return
+        controller?.moveMediaItem(from, to.coerceIn(0, count - 1))
     }
 
     fun togglePlayPause() {
@@ -318,6 +319,7 @@ class PlayerConnection(
         val uri = localPath ?: runCatching { resolveStreamUrl(this) }.getOrNull() ?: return null
         return MediaItem.Builder()
             .setUri(uri)
+            .setMimeType(localPath?.let { mimeForExtension(it.substringAfterLast('.', "")) })
             .setMediaId(key)
             .setMediaMetadata(
                 MediaMetadata.Builder()
