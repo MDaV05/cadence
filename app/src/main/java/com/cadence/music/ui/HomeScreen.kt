@@ -55,6 +55,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.cadence.music.AppContainer
 import com.cadence.music.data.db.TrackEntity
+import com.cadence.music.data.mergeTrackList
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -95,10 +96,10 @@ fun HomeScreen(
     LaunchedEffect(nowTitle.title) {
         val dao = container.database.trackDao()
         // Query off-main, assign on-main: mutating snapshot state from IO misses recomposition.
-        val r = withContext(Dispatchers.IO) { dao.recentlyPlayed() }
-        val m = withContext(Dispatchers.IO) { dao.mostPlayed() }
-        val a = withContext(Dispatchers.IO) { dao.recentlyAdded() }
-        val t = withContext(Dispatchers.IO) { dao.count() }
+        val r = withContext(Dispatchers.IO) { mergeTrackList(dao.recentlyPlayed()) }
+        val m = withContext(Dispatchers.IO) { mergeTrackList(dao.mostPlayed()) }
+        val a = withContext(Dispatchers.IO) { mergeTrackList(dao.recentlyAdded()) }
+        val t = withContext(Dispatchers.IO) { container.library.observeTrackCount().first() }
         recent = r; most = m; added = a; total = t
     }
 

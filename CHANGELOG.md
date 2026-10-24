@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.17.4
+
+- **Cross-Source Library Deduplication**:
+  - Songs, search, album, artist, liked, and home-shelf lists now merge the same recording from local storage and remote servers instead of showing duplicates.
+  - Local files and downloaded copies are preferred for playback; play counts, favorites, track numbers, and artwork metadata are combined.
+  - Library, album, and liked counts now count unique tracks, and starring a merged track updates every source that has it.
+
 ## 0.17.3
 
 - **Modern Home Screen Widgets**:

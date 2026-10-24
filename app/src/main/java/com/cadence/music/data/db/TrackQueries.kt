@@ -7,6 +7,15 @@ import com.cadence.music.data.prefs.Prefs.SongSort
 /** Pure-SQL builders for paged track queries. No Android calls — JVM-testable. */
 object TrackQueries {
 
+    // Deliberately ignores trackNumber: local tags often lack it, and a
+    // cross-source duplicate must still collapse. isSameTrack() is stricter
+    // only when both rows have a positive track number.
+    const val DEDUP_KEY_SQL =
+        "CASE WHEN albumNorm != '' THEN albumNorm || '::' || LOWER(TRIM(title)) ELSE '::' || LOWER(TRIM(artistName)) || '::' || LOWER(TRIM(title)) END"
+
+    const val PRIORITY_SQL =
+        "(CASE WHEN sourceId = 'local' THEN 1 WHEN (path IS NOT NULL AND path != '') THEN 2 ELSE 3 END) * 1000000000000 + id"
+
     fun tracksQuery(
         sort: SongSort,
         ascending: Boolean,
@@ -29,20 +38,22 @@ object TrackQueries {
             SongSort.MOST_PLAYED -> "playCount $dir, COALESCE(lastPlayed, 0) $dir"
         }
         val (extraSql, extraArgs) = combineFilters(activePrefixes, activeSources, offlineServerIds)
-        if (sources == null) {
-            if (extraSql.isEmpty()) return SimpleSQLiteQuery("SELECT * FROM tracks ORDER BY $order")
-            return SimpleSQLiteQuery(
-                "SELECT * FROM tracks WHERE ${extraSql.removePrefix(" AND ")} ORDER BY $order",
-                extraArgs,
-            )
+        val (whereClause, whereArgs) = if (sources == null) {
+            if (extraSql.isEmpty()) {
+                "" to emptyArray<Any>()
+            } else {
+                "WHERE ${extraSql.removePrefix(" AND ")}" to extraArgs
+            }
+        } else {
+            val sorted = sources.sorted()
+            val placeholders = sorted.joinToString(", ") { "?" }
+            val downloaded = if (includeDownloaded) " OR (sourceId != 'local' AND path LIKE 'file:%')" else ""
+            "WHERE (sourceId IN ($placeholders)$downloaded)$extraSql" to arrayOf<Any>(*sorted.toTypedArray(), *extraArgs)
         }
-        val sorted = sources.sorted()
-        val placeholders = sorted.joinToString(", ") { "?" }
-        val downloaded = if (includeDownloaded) " OR (sourceId != 'local' AND path LIKE 'file:%')" else ""
-        return SimpleSQLiteQuery(
-            "SELECT * FROM tracks WHERE (sourceId IN ($placeholders)$downloaded)$extraSql ORDER BY $order",
-            arrayOf(*sorted.toTypedArray(), *extraArgs),
-        )
+        val sql = "SELECT * FROM tracks WHERE id IN (" +
+            "SELECT id FROM (SELECT id, MIN($PRIORITY_SQL) FROM tracks $whereClause GROUP BY $DEDUP_KEY_SQL)" +
+            ") ORDER BY $order"
+        return SimpleSQLiteQuery(sql, whereArgs)
     }
 
     fun searchQuery(
@@ -57,26 +68,22 @@ object TrackQueries {
         val match =
             "title LIKE ? ESCAPE '\\' OR artistName LIKE ? ESCAPE '\\' OR albumName LIKE ? ESCAPE '\\'"
         val (extraSql, extraArgs) = combineFilters(activePrefixes, activeSources, offlineServerIds)
-        if (sources == null) {
+        val (whereClause, whereArgs) = if (sources == null) {
             if (extraSql.isEmpty()) {
-                return SimpleSQLiteQuery(
-                    "SELECT * FROM tracks WHERE $match ORDER BY title COLLATE NOCASE",
-                    arrayOf(like, like, like),
-                )
+                "WHERE $match" to arrayOf<Any>(like, like, like)
+            } else {
+                "WHERE ($match)$extraSql" to arrayOf<Any>(like, like, like, *extraArgs)
             }
-            return SimpleSQLiteQuery(
-                "SELECT * FROM tracks WHERE ($match)$extraSql ORDER BY title COLLATE NOCASE",
-                arrayOf(like, like, like, *extraArgs),
-            )
+        } else {
+            val sorted = sources.sorted()
+            val placeholders = sorted.joinToString(", ") { "?" }
+            val downloaded = if (includeDownloaded) " OR (sourceId != 'local' AND path LIKE 'file:%')" else ""
+            "WHERE ($match) AND (sourceId IN ($placeholders)$downloaded)$extraSql" to arrayOf<Any>(like, like, like, *sorted.toTypedArray(), *extraArgs)
         }
-        val sorted = sources.sorted()
-        val placeholders = sorted.joinToString(", ") { "?" }
-        val downloaded = if (includeDownloaded) " OR (sourceId != 'local' AND path LIKE 'file:%')" else ""
-        return SimpleSQLiteQuery(
-            "SELECT * FROM tracks WHERE ($match) AND (sourceId IN ($placeholders)$downloaded)$extraSql " +
-                "ORDER BY title COLLATE NOCASE",
-            arrayOf(like, like, like, *sorted.toTypedArray(), *extraArgs),
-        )
+        val sql = "SELECT * FROM tracks WHERE id IN (" +
+            "SELECT id FROM (SELECT id, MIN($PRIORITY_SQL) FROM tracks $whereClause GROUP BY $DEDUP_KEY_SQL)" +
+            ") ORDER BY title COLLATE NOCASE"
+        return SimpleSQLiteQuery(sql, whereArgs)
     }
 
     fun countQuery(
@@ -87,27 +94,26 @@ object TrackQueries {
         offlineServerIds: Set<String> = emptySet(),
     ): SupportSQLiteQuery {
         val (extraSql, extraArgs) = combineFilters(activePrefixes, activeSources, offlineServerIds)
-        if (sources == null) {
-            if (extraSql.isEmpty()) return SimpleSQLiteQuery("SELECT COUNT(*) FROM tracks")
-            return SimpleSQLiteQuery(
-                "SELECT COUNT(*) FROM tracks WHERE ${extraSql.removePrefix(" AND ")}",
-                extraArgs,
-            )
+        val (whereClause, whereArgs) = if (sources == null) {
+            if (extraSql.isEmpty()) {
+                "" to emptyArray<Any>()
+            } else {
+                "WHERE ${extraSql.removePrefix(" AND ")}" to extraArgs
+            }
+        } else {
+            val sorted = sources.sorted()
+            val placeholders = sorted.joinToString(", ") { "?" }
+            val entryFilter = "sourceId IN ($placeholders) " +
+                "OR (? AND sourceId != 'local' AND path LIKE 'file:%')"
+            if (extraSql.isEmpty()) {
+                "WHERE $entryFilter" to arrayOf<Any>(*sorted.toTypedArray(), if (includeDownloaded) 1 else 0)
+            } else {
+                "WHERE ($entryFilter)$extraSql" to arrayOf<Any>(*sorted.toTypedArray(), if (includeDownloaded) 1 else 0, *extraArgs)
+            }
         }
-        val sorted = sources.sorted()
-        val placeholders = sorted.joinToString(", ") { "?" }
-        val entryFilter = "sourceId IN ($placeholders) " +
-            "OR (? AND sourceId != 'local' AND path LIKE 'file:%')"
-        if (extraSql.isEmpty()) {
-            return SimpleSQLiteQuery(
-                "SELECT COUNT(*) FROM tracks WHERE $entryFilter",
-                arrayOf(*sorted.toTypedArray(), if (includeDownloaded) 1 else 0),
-            )
-        }
-        return SimpleSQLiteQuery(
-            "SELECT COUNT(*) FROM tracks WHERE ($entryFilter)$extraSql",
-            arrayOf(*sorted.toTypedArray(), if (includeDownloaded) 1 else 0, *extraArgs),
-        )
+        val wherePart = if (whereClause.isEmpty()) "" else " $whereClause"
+        val sql = "SELECT COUNT(DISTINCT $DEDUP_KEY_SQL) FROM tracks$wherePart"
+        return SimpleSQLiteQuery(sql, whereArgs)
     }
 
     fun artistPagesQuery(
@@ -196,12 +202,12 @@ object TrackQueries {
         if (sources == null) {
             if (extraSql.isEmpty()) {
                 return SimpleSQLiteQuery(
-                    "SELECT MIN(albumName) AS name, MIN(artistName) AS artistName, albumNorm AS norm, COUNT(*) AS trackCount " +
+                    "SELECT MIN(albumName) AS name, MIN(artistName) AS artistName, albumNorm AS norm, COUNT(DISTINCT LOWER(TRIM(title))) AS trackCount " +
                         "FROM tracks WHERE albumName != '' GROUP BY albumNorm ORDER BY name COLLATE NOCASE"
                 )
             }
             return SimpleSQLiteQuery(
-                "SELECT MIN(albumName) AS name, MIN(artistName) AS artistName, albumNorm AS norm, COUNT(*) AS trackCount " +
+                "SELECT MIN(albumName) AS name, MIN(artistName) AS artistName, albumNorm AS norm, COUNT(DISTINCT LOWER(TRIM(title))) AS trackCount " +
                     "FROM tracks WHERE albumName != ''$extraSql GROUP BY albumNorm ORDER BY name COLLATE NOCASE",
                 extraArgs,
             )
@@ -209,7 +215,7 @@ object TrackQueries {
         val sorted = sources.sorted()
         val placeholders = sorted.joinToString(", ") { "?" }
         return SimpleSQLiteQuery(
-            "SELECT MIN(albumName) AS name, MIN(artistName) AS artistName, albumNorm AS norm, COUNT(*) AS trackCount " +
+            "SELECT MIN(albumName) AS name, MIN(artistName) AS artistName, albumNorm AS norm, COUNT(DISTINCT LOWER(TRIM(title))) AS trackCount " +
                 "FROM tracks WHERE albumName != '' AND (sourceId IN ($placeholders) " +
                 "OR (? AND sourceId != 'local' AND path LIKE 'file:%'))$extraSql " +
                 "GROUP BY albumNorm ORDER BY name COLLATE NOCASE",

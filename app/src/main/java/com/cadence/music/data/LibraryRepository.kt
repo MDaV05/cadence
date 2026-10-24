@@ -281,11 +281,12 @@ class LibraryRepository(
     // All scrolling UI must use tracksPaged()/searchPaged().
     fun tracks(): Flow<List<TrackEntity>> =
         combine(db.trackDao().observeAll(), observeFilterState()) { list, filter ->
-            list.filter {
+            val filtered = list.filter {
                 isIncluded(it.sourceId, it.path, filter.mode) &&
                 (filter.activePrefixes.isEmpty() || isEntryActive(it.sourceId, it.serverId, filter.activePrefixes)) &&
                 isSourceFilterMatched(it.sourceId, it.serverId, it.path, filter.activeSources, filter.offlineServerIds)
             }
+            mergeTrackList(filtered)
         }
 
     // Paged reads for big libraries; pageSize 50 ≈ 3 screens, maxSize 300 bounds memory,
@@ -413,11 +414,12 @@ class LibraryRepository(
         val allSources = setOf("local") + servers.map { it.id }
         val activeSources = if (libActive.isEmpty()) (if (prefs.serverOfflineOnlyIds.isNotEmpty()) allSources else emptySet()) else libActive
         val offlineServerIds = prefs.serverOfflineOnlyIds
-        return list.filter {
+        val filtered = list.filter {
             isIncluded(it.sourceId, it.path, mode) &&
             (active.isEmpty() || isEntryActive(it.sourceId, it.serverId, active)) &&
             isSourceFilterMatched(it.sourceId, it.serverId, it.path, activeSources, offlineServerIds)
         }
+        return mergeTrackList(filtered)
     }
 
     suspend fun tracksByAlbumNorm(norm: String): List<TrackEntity> {
@@ -429,11 +431,15 @@ class LibraryRepository(
         val allSources = setOf("local") + servers.map { it.id }
         val activeSources = if (libActive.isEmpty()) (if (prefs.serverOfflineOnlyIds.isNotEmpty()) allSources else emptySet()) else libActive
         val offlineServerIds = prefs.serverOfflineOnlyIds
-        return list.filter {
+        val filtered = list.filter {
             isIncluded(it.sourceId, it.path, mode) &&
             (active.isEmpty() || isEntryActive(it.sourceId, it.serverId, active)) &&
             isSourceFilterMatched(it.sourceId, it.serverId, it.path, activeSources, offlineServerIds)
         }
+        return mergeTrackList(filtered).sortedWith(
+            compareBy<TrackEntity> { if (it.trackNumber > 0) it.trackNumber else Int.MAX_VALUE }
+                .thenBy { it.title.lowercase() }
+        )
     }
 
     /** Per-entry sync failures (entryId → message); cleared on success. */
@@ -815,7 +821,7 @@ class LibraryRepository(
 
     fun observeLikedCount(): Flow<Int> = db.trackDao().observeLikedCount()
 
-    suspend fun likedTracks(): List<TrackEntity> = db.trackDao().likedTracks()
+    suspend fun likedTracks(): List<TrackEntity> = mergeTrackList(db.trackDao().likedTracks())
 
     suspend fun playlist(id: Long) = db.playlistDao().byId(id)
 
@@ -1322,9 +1328,16 @@ class LibraryRepository(
     suspend fun toggleStar(track: TrackEntity) {
         val starred = !track.starred
         db.trackDao().setStarred(track.id, starred)
-        if (track.sourceId != "local") {
-            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                setStarredFor(track.serverId, starred)
+        val all = db.trackDao().observeAll().first()
+        val dups = all.filter { isSameTrack(track, it) }
+        for (dup in dups) {
+            if (dup.id != track.id) {
+                db.trackDao().setStarred(dup.id, starred)
+            }
+            if (dup.sourceId != "local") {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    setStarredFor(dup.serverId, starred)
+                }
             }
         }
     }

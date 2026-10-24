@@ -35,13 +35,13 @@ interface TrackDao {
     @Query("SELECT * FROM tracks WHERE albumKey = :albumKey")
     suspend fun byAlbumKey(albumKey: String): List<TrackEntity>
 
-    @Query("SELECT COUNT(*) FROM tracks")
+    @Query("SELECT COUNT(DISTINCT CASE WHEN albumNorm != '' THEN albumNorm || '::' || LOWER(TRIM(title)) ELSE '::' || LOWER(TRIM(artistName)) || '::' || LOWER(TRIM(title)) END) FROM tracks")
     suspend fun count(): Int
 
     @Query("SELECT COUNT(DISTINCT artistName) FROM tracks WHERE artistName != ''")
     suspend fun artistCount(): Int
 
-    @Query("SELECT COUNT(*) FROM tracks")
+    @Query("SELECT COUNT(DISTINCT CASE WHEN albumNorm != '' THEN albumNorm || '::' || LOWER(TRIM(title)) ELSE '::' || LOWER(TRIM(artistName)) || '::' || LOWER(TRIM(title)) END) FROM tracks")
     fun observeCountAll(): Flow<Int>
 
     @RawQuery(observedEntities = [TrackEntity::class])
@@ -80,7 +80,7 @@ interface TrackDao {
     suspend fun byAlbumNorm(norm: String): List<TrackEntity>
 
     @Query(
-        "SELECT MIN(albumName) AS name, MIN(artistName) AS artistName, albumNorm AS norm, COUNT(*) AS trackCount " +
+        "SELECT MIN(albumName) AS name, MIN(artistName) AS artistName, albumNorm AS norm, COUNT(DISTINCT LOWER(TRIM(title))) AS trackCount " +
         "FROM tracks WHERE albumName != '' GROUP BY albumNorm ORDER BY name COLLATE NOCASE"
     )
     fun observeAlbumGroups(): Flow<List<AlbumGroup>>
@@ -110,7 +110,7 @@ interface TrackDao {
     @Query("SELECT * FROM tracks WHERE starred = 1 ORDER BY lastPlayed DESC")
     suspend fun likedTracks(): List<TrackEntity>
 
-    @Query("SELECT COUNT(*) FROM tracks WHERE starred = 1")
+    @Query("SELECT COUNT(DISTINCT CASE WHEN albumNorm != '' THEN albumNorm || '::' || LOWER(TRIM(title)) ELSE '::' || LOWER(TRIM(artistName)) || '::' || LOWER(TRIM(title)) END) FROM tracks WHERE starred = 1")
     fun observeLikedCount(): Flow<Int>
 
     /** Played-only projection for local listening stats. */

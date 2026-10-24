@@ -10,16 +10,15 @@ class TrackQueriesTest {
     @Test
     fun `title ascending is case-insensitive`() {
         val q = TrackQueries.tracksQuery(SongSort.TITLE, true)
-        assertEquals("SELECT * FROM tracks ORDER BY title COLLATE NOCASE ASC", q.sql)
+        assertTrue(q.sql.contains("id IN (SELECT id FROM (SELECT id, MIN("))
+        assertTrue(q.sql.contains(TrackQueries.DEDUP_KEY_SQL))
+        assertTrue(q.sql.endsWith("ORDER BY title COLLATE NOCASE ASC"))
     }
 
     @Test
     fun `descending reverses all keys including tiebreak`() {
         val q = TrackQueries.tracksQuery(SongSort.MOST_PLAYED, false)
-        assertEquals(
-            "SELECT * FROM tracks ORDER BY playCount DESC, COALESCE(lastPlayed, 0) DESC",
-            q.sql,
-        )
+        assertTrue(q.sql.endsWith("ORDER BY playCount DESC, COALESCE(lastPlayed, 0) DESC"))
     }
 
     @Test
@@ -46,29 +45,29 @@ class TrackQueriesTest {
         assertTrue(q.sql.contains("title LIKE ? ESCAPE '\\'"))
         assertTrue(q.sql.contains("artistName LIKE ? ESCAPE '\\'"))
         assertTrue(q.sql.contains("albumName LIKE ? ESCAPE '\\'"))
+        assertTrue(q.sql.contains("id IN (SELECT id FROM"))
     }
 
     @Test
     fun `sources filter appends IN clause with bound args`() {
         val q = TrackQueries.tracksQuery(SongSort.TITLE, true, setOf("local", "subsonic"))
-        assertEquals(
-            "SELECT * FROM tracks WHERE (sourceId IN (?, ?)) ORDER BY title COLLATE NOCASE ASC",
-            q.sql,
-        )
+        assertTrue(q.sql.contains("WHERE (sourceId IN (?, ?))"))
+        assertTrue(q.sql.endsWith("ORDER BY title COLLATE NOCASE ASC"))
         assertEquals(2, q.argCount)
 
         val s = TrackQueries.searchQuery("love", setOf("subsonic"))
         assertTrue(s.sql.contains("AND (sourceId IN (?))"))
         assertEquals(4, s.argCount)
     }
+
     @Test
     fun `null sources produce no source filter`() {
         val q = TrackQueries.tracksQuery(SongSort.TITLE, true, null)
-        assertTrue(!q.sql.contains("sourceId"))
-        assertTrue(!q.sql.contains("WHERE"))
+        assertTrue(!q.sql.contains("sourceId IN"))
+        assertTrue(q.sql.contains("GROUP BY ${TrackQueries.DEDUP_KEY_SQL}"))
 
         val s = TrackQueries.searchQuery("love", null)
-        assertTrue(!s.sql.contains("sourceId"))
+        assertTrue(!s.sql.contains("sourceId IN"))
         assertEquals(3, s.argCount)
     }
 
@@ -96,20 +95,18 @@ class TrackQueriesTest {
             TrackQueries.tracksQuery(
                 SongSort.TITLE, true, null, activePrefixes = setOf("e1"),
             )
-        assertEquals(
-            "SELECT * FROM tracks WHERE (serverId LIKE ?) ORDER BY title COLLATE NOCASE ASC",
-            q.sql,
-        )
+        assertTrue(q.sql.contains("WHERE (serverId LIKE ?)"))
+        assertTrue(q.sql.endsWith("ORDER BY title COLLATE NOCASE ASC"))
         assertEquals(1, q.argCount)
     }
 
     @Test
     fun `count no filter is byte-identical to unfiltered SQL`() {
-        assertEquals("SELECT COUNT(*) FROM tracks", TrackQueries.countQuery(null).sql)
+        assertEquals("SELECT COUNT(DISTINCT ${TrackQueries.DEDUP_KEY_SQL}) FROM tracks", TrackQueries.countQuery(null).sql)
         assertEquals(0, TrackQueries.countQuery(null).argCount)
 
         assertEquals(
-            "SELECT COUNT(*) FROM tracks WHERE sourceId IN (?) " +
+            "SELECT COUNT(DISTINCT ${TrackQueries.DEDUP_KEY_SQL}) FROM tracks WHERE sourceId IN (?) " +
                 "OR (? AND sourceId != 'local' AND path LIKE 'file:%')",
             TrackQueries.countQuery(setOf("local")).sql,
         )
@@ -119,7 +116,7 @@ class TrackQueriesTest {
     @Test
     fun `count null sources with active filter emits WHERE without leading AND`() {
         val q = TrackQueries.countQuery(null, activePrefixes = setOf("e1"))
-        assertEquals("SELECT COUNT(*) FROM tracks WHERE (serverId LIKE ?)", q.sql)
+        assertEquals("SELECT COUNT(DISTINCT ${TrackQueries.DEDUP_KEY_SQL}) FROM tracks WHERE (serverId LIKE ?)", q.sql)
         assertEquals(1, q.argCount)
     }
 
@@ -127,7 +124,7 @@ class TrackQueriesTest {
     fun `count with sources and active filter parenthesizes OR branch`() {
         val q = TrackQueries.countQuery(setOf("local"), activePrefixes = setOf("e1"))
         assertEquals(
-            "SELECT COUNT(*) FROM tracks WHERE (sourceId IN (?) " +
+            "SELECT COUNT(DISTINCT ${TrackQueries.DEDUP_KEY_SQL}) FROM tracks WHERE (sourceId IN (?) " +
                 "OR (? AND sourceId != 'local' AND path LIKE 'file:%')) AND (serverId LIKE ?)",
             q.sql,
         )
@@ -137,12 +134,12 @@ class TrackQueriesTest {
     @Test
     fun `albumGroups no filter is byte-identical to unfiltered SQL`() {
         assertEquals(
-            "SELECT MIN(albumName) AS name, MIN(artistName) AS artistName, albumNorm AS norm, COUNT(*) AS trackCount " +
+            "SELECT MIN(albumName) AS name, MIN(artistName) AS artistName, albumNorm AS norm, COUNT(DISTINCT LOWER(TRIM(title))) AS trackCount " +
                 "FROM tracks WHERE albumName != '' GROUP BY albumNorm ORDER BY name COLLATE NOCASE",
             TrackQueries.albumGroupsQuery(null).sql,
         )
         assertEquals(
-            "SELECT MIN(albumName) AS name, MIN(artistName) AS artistName, albumNorm AS norm, COUNT(*) AS trackCount " +
+            "SELECT MIN(albumName) AS name, MIN(artistName) AS artistName, albumNorm AS norm, COUNT(DISTINCT LOWER(TRIM(title))) AS trackCount " +
                 "FROM tracks WHERE albumName != '' AND (sourceId IN (?) " +
                 "OR (? AND sourceId != 'local' AND path LIKE 'file:%')) " +
                 "GROUP BY albumNorm ORDER BY name COLLATE NOCASE",
@@ -153,20 +150,19 @@ class TrackQueriesTest {
     @Test
     fun `albumGroups with active filter appends AND clause`() {
         assertEquals(
-            "SELECT MIN(albumName) AS name, MIN(artistName) AS artistName, albumNorm AS norm, COUNT(*) AS trackCount " +
+            "SELECT MIN(albumName) AS name, MIN(artistName) AS artistName, albumNorm AS norm, COUNT(DISTINCT LOWER(TRIM(title))) AS trackCount " +
                 "FROM tracks WHERE albumName != '' AND (serverId LIKE ?) " +
                 "GROUP BY albumNorm ORDER BY name COLLATE NOCASE",
             TrackQueries.albumGroupsQuery(null, activePrefixes = setOf("e1")).sql,
         )
         assertEquals(
-            "SELECT MIN(albumName) AS name, MIN(artistName) AS artistName, albumNorm AS norm, COUNT(*) AS trackCount " +
+            "SELECT MIN(albumName) AS name, MIN(artistName) AS artistName, albumNorm AS norm, COUNT(DISTINCT LOWER(TRIM(title))) AS trackCount " +
                 "FROM tracks WHERE albumName != '' AND (sourceId IN (?) " +
                 "OR (? AND sourceId != 'local' AND path LIKE 'file:%')) AND (serverId LIKE ?) " +
                 "GROUP BY albumNorm ORDER BY name COLLATE NOCASE",
             TrackQueries.albumGroupsQuery(setOf("local"), activePrefixes = setOf("e1")).sql,
         )
     }
-
 
     @Test
     fun `artist pages gate binds names with in clause`() {
@@ -198,11 +194,36 @@ class TrackQueriesTest {
 
     @Test
     fun `downloadable selects server tracks without a local file`() {
-        val q = TrackQueries.downloadableTracksQuery(setOf("jellyfin", "subsonic"), activePrefixes = setOf("s1", "s2"))
+        val q = TrackQueries.downloadableTracksQuery()
+        assertEquals(
+            "SELECT * FROM tracks WHERE sourceId != 'local' AND path IS NULL " +
+                "ORDER BY artistName COLLATE NOCASE, albumName COLLATE NOCASE, trackNumber",
+            q.sql,
+        )
+    }
+
+    @Test
+    fun `downloadable sources branch appends source filter`() {
+        val q = TrackQueries.downloadableTracksQuery(sources = setOf("subsonic"))
+        assertEquals(
+            "SELECT * FROM tracks WHERE sourceId != 'local' AND path IS NULL AND sourceId IN (?) " +
+                "ORDER BY artistName COLLATE NOCASE, albumName COLLATE NOCASE, trackNumber",
+            q.sql,
+        )
+        assertEquals(1, q.argCount)
+    }
+
+    @Test
+    fun `downloadable filters sources and active prefixes`() {
+        val q = TrackQueries.downloadableTracksQuery(
+            setOf("jellyfin", "subsonic"),
+            activePrefixes = setOf("s1", "s2"),
+        )
         assertTrue(q.sql.contains("sourceId != 'local'"))
         assertTrue(q.sql.contains("path IS NULL"))
         assertTrue(q.sql.contains("sourceId IN (?, ?)"))
         assertEquals(2, q.sql.split("serverId LIKE ?").size - 1)
+        assertEquals(4, q.argCount)
     }
 
     @Test
@@ -227,5 +248,16 @@ class TrackQueriesTest {
             q.sql,
         )
         assertEquals(2, q.argCount)
+    }
+
+    @Test
+    fun `active source filter offline server binds prefix and enforces path`() {
+        val (sql, args) = TrackQueries.activeSourceFilter(
+            activeSources = setOf("srv1"),
+            offlineServerIds = setOf("srv1"),
+        )
+        assertTrue(sql.contains("(path IS NOT NULL AND path != '')"))
+        assertEquals(1, args.size)
+        assertEquals("srv1:%", args[0])
     }
 }
