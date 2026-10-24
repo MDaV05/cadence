@@ -300,6 +300,12 @@ class DownloadWorker(context: Context, params: WorkerParameters) :
                 return Result.retry()
             }
             val retryable = e is DownloadRetryable || e is IOException
+            // A raw connection failure (unknown host, refused, timeout) can mean
+            // the cached LAN/public URL is wrong for this network. Switch before
+            // the next attempt; HTTP 5xx/truncation is not URL-specific.
+            if (e is IOException && e !is DownloadRetryable) {
+                runCatching { app.container.library.switchActiveUrlFor(latest.serverId) }
+            }
             // Keep a resumable partial until the final attempt, then reclaim the space.
             if (!retryable || runAttemptCount + 1 >= MAX_ATTEMPTS) {
                 discardPartial()

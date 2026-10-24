@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.17.5
+
+- **Network Failover Fixes**:
+  - Alternate URLs are now actually tried during sync, ping, and playback instead of being replaced by the cached active URL.
+  - The active URL is forgotten when the network changes, so returning to Wi-Fi re-probes the LAN address instead of retrying the public one.
+  - Downloads switch to the alternate URL after a connection failure and retry.
+
 ## 0.17.4
 
 - **Cross-Source Library Deduplication**:

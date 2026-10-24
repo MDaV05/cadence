@@ -127,6 +127,27 @@ class LibraryRepository(
 
     private val activeUrls = java.util.concurrent.ConcurrentHashMap<String, String>()
 
+    init {
+        // The working URL is network-specific: the LAN address is unreachable
+        // on cellular, and the public address often cannot hairpin back inside
+        // the LAN. Drop the cached choice on a network change so the next
+        // request probes the primary URL again.
+        runCatching {
+            context.getSystemService(android.net.ConnectivityManager::class.java)
+                ?.registerDefaultNetworkCallback(
+                    object : android.net.ConnectivityManager.NetworkCallback() {
+                        override fun onAvailable(network: android.net.Network) {
+                            activeUrls.clear()
+                        }
+
+                        override fun onLost(network: android.net.Network) {
+                            activeUrls.clear()
+                        }
+                    },
+                )
+        }
+    }
+
     fun activeUrlFor(entry: ServerEntry): String {
         if (entry.secondaryUrl.isNullOrBlank()) return entry.url
         return activeUrls[entry.id] ?: entry.url
@@ -151,23 +172,30 @@ class LibraryRepository(
         return next
     }
 
+    /** Switches the active URL for the server that owns [serverId]. */
+    fun switchActiveUrlFor(serverId: String): String? {
+        val entry = entryForServerId(serverId) ?: return null
+        return switchActiveUrl(entry.id)
+    }
+
     fun effectiveEntry(entry: ServerEntry): ServerEntry {
         if (entry.secondaryUrl.isNullOrBlank()) return entry
         val active = activeUrlFor(entry)
         return if (active == entry.url) entry else entry.copy(url = active)
     }
 
-    private fun sourceFor(entry: ServerEntry): com.cadence.music.data.source.MusicSource {
-        val eff = effectiveEntry(entry)
-        return when (eff.type) {
-            ServerType.SUBSONIC -> SubsonicSource { ServerConfig(eff.url, eff.user, eff.password ?: "") }
-            ServerType.JELLYFIN -> JellyfinSource(eff, deviceId)
-            ServerType.EMBY -> EmbySource(eff, deviceId)
-            ServerType.PLEX -> PlexSource(eff, deviceId)
-            ServerType.TELEGRAM -> com.cadence.music.data.source.telegram.TelegramSource(context, eff)
-            ServerType.BALE -> com.cadence.music.data.source.bale.BaleSource(eff)
+    /** Builds a source for exactly [entry].url. Failover callers pass the URL explicitly. */
+    private fun sourceFor(entry: ServerEntry): com.cadence.music.data.source.MusicSource =
+        when (entry.type) {
+            ServerType.SUBSONIC -> SubsonicSource { ServerConfig(entry.url, entry.user, entry.password ?: "") }
+            ServerType.JELLYFIN -> JellyfinSource(entry, deviceId)
+            ServerType.EMBY -> EmbySource(entry, deviceId)
+            ServerType.PLEX -> PlexSource(entry, deviceId)
+            ServerType.TELEGRAM -> com.cadence.music.data.source.telegram.TelegramSource(context, entry)
+            ServerType.BALE -> com.cadence.music.data.source.bale.BaleSource(entry)
         }
-    }
+
+    private fun activeSourceFor(entry: ServerEntry) = sourceFor(effectiveEntry(entry))
 
     /** Entry id is the segment before the FIRST ':'; null when absent or unknown. */
     fun entryForServerId(serverId: String): ServerEntry? {
@@ -180,7 +208,7 @@ class LibraryRepository(
         track.localPath?.let { return it }
         val entry = entryForServerId(track.key) ?: return null
         val remote = remoteKey(track.key, entry)
-        val s = sourceFor(entry)
+        val s = activeSourceFor(entry)
         val url = runCatching { s.streamUrl(track.copy(key = remote)) }.getOrNull()
         if (url != null) return url
 
@@ -196,25 +224,25 @@ class LibraryRepository(
     fun downloadUrlFor(serverId: String, format: String, bitrate: Int): String? {
         val entry = entryForServerId(serverId) ?: return null
         val remote = remoteKey(serverId, entry)
-        return sourceFor(entry).downloadUrl(remote, format, bitrate)
+        return activeSourceFor(entry).downloadUrl(remote, format, bitrate)
     }
 
     suspend fun coverArtFor(albumKey: String): String? {
         val entry = entryForServerId(albumKey) ?: return null
         val remote = remoteKey(albumKey, entry)
-        return sourceFor(entry).coverArtUrl(remote)
+        return activeSourceFor(entry).coverArtUrl(remote)
     }
 
     suspend fun trackCoverArtFor(trackServerId: String): String? {
         val entry = entryForServerId(trackServerId) ?: return null
         val remote = remoteKey(trackServerId, entry)
-        return sourceFor(entry).trackCoverArtUrl(remote)
+        return activeSourceFor(entry).trackCoverArtUrl(remote)
     }
 
     suspend fun setStarredFor(serverId: String, starred: Boolean) {
         val entry = entryForServerId(serverId) ?: return
         val remote = remoteKey(serverId, entry)
-        runCatching { sourceFor(entry).setStarred(remote, starred) }
+        runCatching { activeSourceFor(entry).setStarred(remote, starred) }
     }
 
     suspend fun pingEntry(entry: ServerEntry): Boolean {
