@@ -10,6 +10,14 @@ import org.junit.Test
 class SubsonicLyricsTest {
 
     @Test
+    fun `lyrics endpoints get the raw remote song id`() {
+        // fetchServerLyrics passes remoteKey's output ("sub:s6") — the family
+        // prefix must be stripped before it rides in getLyricsBySongId?id=.
+        assertEquals("s6", SubsonicSource.rawSongId("sub:s6"))
+        assertEquals("s6", SubsonicSource.rawSongId("s6"))
+    }
+
+    @Test
     fun syncedEntryWinsAndAppliesSongOffset() {
         val resp = JSONObject(
             """{"lyricsList":{"structuredLyrics":[

@@ -572,6 +572,19 @@ class LibraryRepository(
     }
 
     /**
+     * One-shot: empty subsonic lyric rows predate the server-first lyrics
+     * pass — they were written after an LRCLIB-only check, so their "checked,
+     * none available" verdict never asked the server. Drop them; the worker
+     * re-checks those tracks with the server asked first.
+     */
+    suspend fun repairServerLyricsCache(): Int = withContext(Dispatchers.IO) {
+        if (prefs.lyricsServerRepairV1) return@withContext 0
+        val dropped = db.lyricsDao().deleteEmptyForSource("subsonic")
+        prefs.lyricsServerRepairV1 = true
+        dropped
+    }
+
+    /**
      * Drops rows for entries no longer configured (deleted servers).
      * Unprefixed non-local rows (shouldn't exist post-v9) are left alone.
      */

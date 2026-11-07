@@ -66,12 +66,15 @@ class CadenceApp : Application(), coil.ImageLoaderFactory {
         if (hasAudioPermission() || container.prefs.servers.any { it.active }) {
             appScope.launch {
                 val repaired = runCatching { container.library.repairArtistInfo() }.getOrDefault(0)
+                // Empty subsonic lyric rows never asked the server — drop them
+                // once so the worker re-checks with the server asked first.
+                val lyricsRepaired = runCatching { container.library.repairServerLyricsCache() }.getOrDefault(0)
                 // Clear downloads that were actually Subsonic error bodies before
                 // the sync makes those tracks look "already downloaded" forever.
                 runCatching { container.library.repairInvalidDownloadsOnce() }
                 runCatching { container.library.syncAll() }
                 runCatching { container.flushPendingScrobbles() }
-                if (repaired > 0) runCatching { MetadataSync.runNow(this@CadenceApp) }
+                if (repaired > 0 || lyricsRepaired > 0) runCatching { MetadataSync.runNow(this@CadenceApp) }
             }
         }
         // Downloads interrupted by process death must resume even when no

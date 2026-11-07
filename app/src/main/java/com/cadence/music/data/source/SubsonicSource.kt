@@ -204,7 +204,7 @@ class SubsonicSource(private val configProvider: () -> ServerConfig?) : MusicSou
      * getLyricsBySongId outright.
      */
     suspend fun fetchLyrics(trackServerId: String, artist: String, title: String): Pair<String, Boolean>? {
-        val id = trackServerId.removePrefix("sub:")
+        val id = rawSongId(trackServerId)
         val structured = runCatching {
             lyricsFromStructured(get("getLyricsBySongId", mapOf("id" to id)))
         }.getOrNull()
@@ -218,6 +218,9 @@ class SubsonicSource(private val configProvider: () -> ServerConfig?) : MusicSou
     }
 
     companion object {
+        /** remoteKey leaves the family prefix ("sub:s6"); endpoints want the raw song id. */
+        internal fun rawSongId(trackServerId: String): String = trackServerId.removePrefix("sub:")
+
         /**
          * Picks lyrics from a getLyricsBySongId payload: the first synced
          * entry converted to .lrc text, else the first unsynced entry's plain

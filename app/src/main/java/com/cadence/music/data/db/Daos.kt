@@ -184,6 +184,13 @@ interface LyricsDao {
             "WHERE l.trackId IS NULL"
     )
     suspend fun trackIdsMissingLyrics(): List<Long>
+
+    /** Drops empty (negative-cached) rows for a source so the worker re-checks it. */
+    @Query(
+        "DELETE FROM lyrics WHERE syncedLrc = '' AND trackId IN " +
+            "(SELECT id FROM tracks WHERE sourceId = :sourceId)"
+    )
+    suspend fun deleteEmptyForSource(sourceId: String): Int
 }
 
 @Dao

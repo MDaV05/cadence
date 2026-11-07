@@ -214,18 +214,36 @@ fun NowPlayingScreen(
                 }
                 cached != null -> emptyList<SyncedLine>() to null // checked previously: none available
                 else -> {
-                    val f = com.cadence.music.data.metadata.LrcLib.fetchBlocking(
-                        state.artist, state.title, durSec,
-                    )
-                    if (entity != null) {
+                    // Server lyrics first — same order as the metadata worker.
+                    // Going straight to LRCLIB would cache an empty/fuzzy row
+                    // over the server's own text and suppress it forever.
+                    val server = entity?.let {
+                        runCatching { container.library.fetchServerLyrics(it) }.getOrNull()
+                    }
+                    if (server != null) {
                         container.database.lyricsDao().upsert(
                             com.cadence.music.data.db.LyricsEntity(
                                 trackId = entity.id,
-                                syncedLrc = com.cadence.music.data.metadata.LrcLib.toLrcText(f),
+                                syncedLrc = server.first,
                             )
                         )
+                        val parsed = com.cadence.music.data.metadata.LrcLib.parse(server.first)
+                        if (parsed.isNotEmpty()) parsed to null
+                        else emptyList<SyncedLine>() to server.first
+                    } else {
+                        val f = com.cadence.music.data.metadata.LrcLib.fetchBlocking(
+                            state.artist, state.title, durSec,
+                        )
+                        if (entity != null) {
+                            container.database.lyricsDao().upsert(
+                                com.cadence.music.data.db.LyricsEntity(
+                                    trackId = entity.id,
+                                    syncedLrc = com.cadence.music.data.metadata.LrcLib.toLrcText(f),
+                                )
+                            )
+                        }
+                        f to null
                     }
-                    f to null
                 }
             }
         }
