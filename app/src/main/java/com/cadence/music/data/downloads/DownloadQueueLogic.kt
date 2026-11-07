@@ -44,3 +44,53 @@ fun byteProgress(rows: List<DownloadEntity>): ByteProgress {
     val fraction = if (bytesTotal <= 0) 0f else (bytesDone.toFloat() / bytesTotal).coerceIn(0f, 1f)
     return ByteProgress(fraction, bytesDone, bytesTotal, done.size, rows.size, failed.size)
 }
+
+/**
+ * Pure core of `LibraryRepository.moveQueued`: [queued] is the queue already in
+ * drain order (priority DESC, enqueuedAt ASC — the nextQueued order), and the
+ * result is the rows to write back so [serverId]/[sourceId] lands one slot up
+ * (-1) or down (+1). Null when the move is a no-op (row unknown or at an edge).
+ *
+ * A move swaps the pair's order keys. Rows of one enqueue call share priority
+ * AND enqueuedAt, so a bare swap between two tied rows is a no-op; their whole
+ * tied run is first re-keyed with 1ms spacing (relative order unchanged) so
+ * the swap changes the actual order.
+ * ponytail: 1ms spacing can collide with another run enqueued within runSize
+ * ms; derive keys from the gap between runs if that ever shows up in practice.
+ */
+internal fun queuedMoveWrites(
+    queued: List<DownloadEntity>,
+    serverId: String,
+    sourceId: String,
+    delta: Int,
+): List<DownloadEntity>? {
+    if (delta == 0) return null
+    val index = queued.indexOfFirst { it.trackServerId == serverId && it.sourceId == sourceId }
+    val target = index + delta
+    if (index < 0 || target < 0 || target >= queued.size) return null
+    val moving = queued[index]
+    val neighbor = queued[target]
+    var movingEnqueuedAt = moving.enqueuedAt
+    var neighborEnqueuedAt = neighbor.enqueuedAt
+    val writes = mutableListOf<DownloadEntity>()
+    if (moving.priority == neighbor.priority && moving.enqueuedAt == neighbor.enqueuedAt) {
+        var start = index
+        while (start > 0 && sameOrderKey(queued[start - 1], moving)) start--
+        var end = index
+        while (end < queued.size - 1 && sameOrderKey(queued[end + 1], moving)) end++
+        val base = moving.enqueuedAt
+        for (i in start..end) {
+            val enqueuedAt = base + (i - start)
+            writes += queued[i].copy(enqueuedAt = enqueuedAt)
+            if (i == index) movingEnqueuedAt = enqueuedAt
+            if (i == target) neighborEnqueuedAt = enqueuedAt
+        }
+    }
+    // The swap itself: each row takes the other's order keys.
+    writes += moving.copy(priority = neighbor.priority, enqueuedAt = neighborEnqueuedAt)
+    writes += neighbor.copy(priority = moving.priority, enqueuedAt = movingEnqueuedAt)
+    return writes
+}
+
+private fun sameOrderKey(a: DownloadEntity, b: DownloadEntity): Boolean =
+    a.priority == b.priority && a.enqueuedAt == b.enqueuedAt

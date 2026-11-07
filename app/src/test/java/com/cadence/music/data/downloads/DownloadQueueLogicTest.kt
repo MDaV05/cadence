@@ -2,6 +2,7 @@ package com.cadence.music.data.downloads
 
 import com.cadence.music.data.db.DownloadEntity
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -92,5 +93,96 @@ class DownloadQueueLogicTest {
         assertEquals(1, progress.doneCount)
         assertEquals(1, progress.failedCount)
         assertEquals(3, progress.totalCount)
+    }
+
+    // ---- queuedMoveWrites: the pure core of LibraryRepository.moveQueued ----
+
+    /** Queue in drain order (priority DESC, enqueuedAt ASC). */
+    private fun queuedRow(name: String, priority: Int = 0, enqueuedAt: Long) = DownloadEntity(
+        trackServerId = name,
+        sourceId = "plex",
+        status = DownloadStatus.QUEUED,
+        priority = priority,
+        enqueuedAt = enqueuedAt,
+    )
+
+    /** Applies the writes by row identity (upsert semantics) and re-sorts. */
+    private fun apply(queued: List<DownloadEntity>, writes: List<DownloadEntity>): List<DownloadEntity> {
+        val byKey = writes.associateBy { it.trackServerId to it.sourceId }
+        return queued.map { byKey[it.trackServerId to it.sourceId] ?: it }
+            .sortedWith(compareByDescending<DownloadEntity> { it.priority }.thenBy { it.enqueuedAt })
+    }
+
+    @Test
+    fun `move swaps order keys with the neighbor when they differ`() {
+        val queued = listOf(
+            queuedRow("a", enqueuedAt = 100),
+            queuedRow("b", enqueuedAt = 200),
+            queuedRow("c", enqueuedAt = 300),
+        )
+        val writes = queuedMoveWrites(queued, "b", "plex", -1)!!
+        val moved = apply(queued, writes)
+        assertEquals(listOf("b", "a", "c"), moved.map { it.trackServerId })
+    }
+
+    @Test
+    fun `move down swaps with the next neighbor`() {
+        val queued = listOf(
+            queuedRow("a", enqueuedAt = 100),
+            queuedRow("b", enqueuedAt = 200),
+            queuedRow("c", enqueuedAt = 300),
+        )
+        val writes = queuedMoveWrites(queued, "b", "plex", 1)!!
+        val moved = apply(queued, writes)
+        assertEquals(listOf("a", "c", "b"), moved.map { it.trackServerId })
+    }
+
+    @Test
+    fun `priority swap moves a user tap below bulk work`() {
+        val queued = listOf(
+            queuedRow("tap", priority = 1, enqueuedAt = 500),
+            queuedRow("bulk1", priority = 0, enqueuedAt = 100),
+            queuedRow("bulk2", priority = 0, enqueuedAt = 200),
+        )
+        val writes = queuedMoveWrites(queued, "tap", "plex", 1)!!
+        val moved = apply(queued, writes)
+        assertEquals(listOf("bulk1", "tap", "bulk2"), moved.map { it.trackServerId })
+        // Priorities were exchanged, not lost.
+        assertEquals(0, moved.first { it.trackServerId == "tap" }.priority)
+        assertEquals(1, moved.first { it.trackServerId == "bulk1" }.priority)
+    }
+
+    @Test
+    fun `tied rows of one enqueue call are re-keyed so the swap lands`() {
+        // One button press: every row shares priority AND enqueuedAt.
+        val queued = listOf(
+            queuedRow("a", enqueuedAt = 100),
+            queuedRow("b", enqueuedAt = 100),
+            queuedRow("c", enqueuedAt = 100),
+            queuedRow("d", enqueuedAt = 100),
+        )
+        val writes = queuedMoveWrites(queued, "c", "plex", -1)!!
+        val moved = apply(queued, writes)
+        // c moved one slot up; everyone else kept their relative order.
+        assertEquals(listOf("a", "c", "b", "d"), moved.map { it.trackServerId })
+        // The re-key left every row a distinct enqueuedAt (no new ties).
+        assertEquals(moved.size, moved.map { it.enqueuedAt }.toSet().size)
+    }
+
+    @Test
+    fun `moves are no-ops at the queue edges`() {
+        val queued = listOf(
+            queuedRow("a", enqueuedAt = 100),
+            queuedRow("b", enqueuedAt = 200),
+        )
+        assertNull(queuedMoveWrites(queued, "a", "plex", -1))
+        assertNull(queuedMoveWrites(queued, "b", "plex", 1))
+    }
+
+    @Test
+    fun `unknown row and zero delta are no-ops`() {
+        val queued = listOf(queuedRow("a", enqueuedAt = 100), queuedRow("b", enqueuedAt = 200))
+        assertNull(queuedMoveWrites(queued, "zz", "plex", -1))
+        assertNull(queuedMoveWrites(queued, "a", "plex", 0))
     }
 }

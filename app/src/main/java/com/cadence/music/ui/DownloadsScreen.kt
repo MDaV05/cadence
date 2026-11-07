@@ -17,8 +17,11 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.MoreVert
@@ -107,10 +110,11 @@ fun DownloadsScreen(
             it.download.status == DownloadStatus.RUNNING ||
                 it.download.status == DownloadStatus.QUEUED
         }.sortedWith(
-            compareBy(
-                { if (it.download.status == DownloadStatus.RUNNING) 0 else 1 },
-                { it.download.enqueuedAt },
-            )
+            // Display order == execution order: the worker drains by
+            // priority DESC, enqueuedAt ASC; running stays pinned first.
+            compareBy<DownloadStatusRow> { if (it.download.status == DownloadStatus.RUNNING) 0 else 1 }
+                .thenByDescending { it.download.priority }
+                .thenBy { it.download.enqueuedAt }
         )
     }
     val failedRows = remember(rows) { rows.filter { it.download.status == DownloadStatus.FAILED } }
@@ -147,7 +151,7 @@ fun DownloadsScreen(
                 when {
                     repaired == null -> "Could not verify downloads"
                     repaired == 0 -> "All downloads verified"
-                    else -> "$repaired downloads repaired"
+                    else -> "$repaired download${if (repaired == 1) "" else "s"} repaired"
                 }
             )
         }
@@ -158,7 +162,7 @@ fun DownloadsScreen(
             val n = withContext(Dispatchers.IO) {
                 runCatching { container.library.retryFailedDownloads() }.getOrDefault(0)
             }
-            snack(if (n == 0) "Nothing to retry" else "Queued $n tracks")
+            snack(if (n == 0) "Nothing to retry" else "Queued $n track${if (n == 1) "" else "s"}")
         }
     }
 
@@ -259,15 +263,25 @@ fun DownloadsScreen(
                     item(span = { GridItemSpan(maxLineSpan) }, key = "active-header") {
                         SectionTitle("In progress", "${queueRows.size} in queue")
                     }
-                    items(
+                    itemsIndexed(
                         queueRows,
-                        key = { "queue:${it.download.sourceId}:${it.download.trackServerId}" },
-                        span = { GridItemSpan(maxLineSpan) },
-                    ) { row ->
+                        key = { _, row -> "queue:${row.download.sourceId}:${row.download.trackServerId}" },
+                        span = { _, _ -> GridItemSpan(maxLineSpan) },
+                    ) { index, row ->
+                        // QUEUED rows follow the pinned RUNNING rows, so the
+                        // row's slot within the reorderable queue is index -
+                        // runningCount; up/down are disabled at its edges.
+                        val queuedIndex = index - runningCount
                         QueueRow(
                             row = row,
                             paused = paused,
                             wifiWaiting = wifiWaiting,
+                            queuedTotal = queuedCount,
+                            canMoveUp = queuedIndex > 0,
+                            canMoveDown = queuedIndex < queuedCount - 1,
+                            onMove = { delta ->
+                                scope.launch { container.library.moveQueued(row.download, delta) }
+                            },
                             onCancel = {
                                 scope.launch {
                                     container.library.cancelDownload(row.download, row.track)
@@ -388,7 +402,7 @@ fun DownloadsScreen(
                         val n = withContext(Dispatchers.IO) {
                             runCatching { container.library.clearCompletedDownloads() }.getOrDefault(0)
                         }
-                        snack("Removed $n downloads")
+                        snack("Removed $n download${if (n == 1) "" else "s"}")
                     }
                 }) { Text("Delete") }
             },
@@ -413,7 +427,7 @@ fun DownloadsScreen(
                         val n = withContext(Dispatchers.IO) {
                             runCatching { container.library.deleteAlbumDownloads(norm) }.getOrDefault(0)
                         }
-                        snack("Removed $n downloads")
+                        snack("Removed $n download${if (n == 1) "" else "s"}")
                     }
                 }) { Text("Delete") }
             },
@@ -617,6 +631,10 @@ private fun QueueRow(
     row: DownloadStatusRow,
     paused: Boolean,
     wifiWaiting: Boolean,
+    queuedTotal: Int,
+    canMoveUp: Boolean,
+    canMoveDown: Boolean,
+    onMove: (Int) -> Unit,
     onCancel: () -> Unit,
 ) {
     val download = row.download
@@ -629,7 +647,8 @@ private fun QueueRow(
         running -> "${formatBytes(download.bytesDone)} downloaded"
         paused -> "Paused"
         wifiWaiting -> "Waiting for Wi-Fi"
-        total > 0 -> "Queued · ${formatBytes(total)}"
+        // Queued rows show an estimate, not a server-reported size.
+        total > 0 -> "Queued · ~${formatBytes(total)}"
         else -> "Queued"
     }
     Surface(
@@ -641,6 +660,14 @@ private fun QueueRow(
             modifier = Modifier.fillMaxWidth().padding(start = 14.dp, end = 4.dp, top = 10.dp, bottom = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            if (!running && queuedTotal > 1) {
+                IconButton(onClick = { onMove(-1) }, enabled = canMoveUp) {
+                    Icon(Icons.Filled.ArrowUpward, "Move up in queue")
+                }
+                IconButton(onClick = { onMove(1) }, enabled = canMoveDown) {
+                    Icon(Icons.Filled.ArrowDownward, "Move down in queue")
+                }
+            }
             Column(Modifier.weight(1f)) {
                 Text(
                     row.track?.title ?: download.trackServerId,
@@ -833,7 +860,7 @@ private fun BulkDownloadDialog(
                     tracks == null -> Text("Counting tracks…")
                     n == 0 -> Text(emptyText)
                     else -> {
-                        Text("$n tracks · about ${formatBytes(estimate)}")
+                        Text("$n track${if (n == 1) "" else "s"} · about ${formatBytes(estimate)}")
                         Text(
                             "${formatBytes(free)} free on this device",
                             style = MaterialTheme.typography.bodySmall,

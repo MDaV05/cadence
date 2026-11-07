@@ -21,6 +21,7 @@ import com.cadence.music.data.db.LyricsEntity
 import com.cadence.music.data.downloads.DownloadScheduler
 import com.cadence.music.data.downloads.DownloadStatus
 import com.cadence.music.data.downloads.estimateDownloadBytes
+import com.cadence.music.data.downloads.queuedMoveWrites
 import com.cadence.music.data.db.TrackArtOverrideEntity
 import com.cadence.music.data.db.TrackEntity
 import com.cadence.music.data.db.TrackQueries
@@ -974,6 +975,25 @@ class LibraryRepository(
     fun pauseDownloads() = DownloadScheduler.pause(context, prefs)
 
     fun resumeDownloads() = DownloadScheduler.resume(context, prefs)
+
+    /**
+     * Moves a queued row one slot up (-1) or down (+1) in the drain order —
+     * the same `priority DESC, enqueuedAt ASC` the worker's nextQueued uses —
+     * by swapping the row's order keys with its neighbor's in one transaction.
+     * No-op at the queue edges, or when the row is no longer queued; the
+     * re-key/swap math lives in [queuedMoveWrites].
+     */
+    suspend fun moveQueued(row: DownloadEntity, delta: Int) {
+        db.withTransaction {
+            // Fresh read inside the transaction: a row the worker just picked
+            // is no longer queued and must not be reordered mid-download.
+            val queued = db.downloadDao().byStatus(DownloadStatus.QUEUED)
+                .sortedWith(compareByDescending<DownloadEntity> { it.priority }.thenBy { it.enqueuedAt })
+            val writes = queuedMoveWrites(queued, row.trackServerId, row.sourceId, delta)
+                ?: return@withTransaction
+            writes.forEach { db.downloadDao().upsert(it) }
+        }
+    }
 
     /**
      * App-start recovery: a killed process leaves rows stuck on "running" that
