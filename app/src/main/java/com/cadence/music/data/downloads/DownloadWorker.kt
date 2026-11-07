@@ -1,8 +1,10 @@
 package com.cadence.music.data.downloads
 
 import android.content.Context
+import android.content.pm.ServiceInfo
 import android.net.Uri
 import androidx.work.CoroutineWorker
+import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import com.cadence.music.CadenceApp
 import com.cadence.music.data.db.AppDatabase
@@ -11,6 +13,7 @@ import com.cadence.music.data.db.TrackEntity
 import com.cadence.music.data.source.sameOrigin
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
@@ -50,6 +53,9 @@ private enum class Outcome { CONTINUE, RETRY, STOP }
 class DownloadWorker(context: Context, params: WorkerParameters) :
     CoroutineWorker(context, params) {
 
+    /** Batches whose rows settled (done or failed) during this drain run. */
+    private val settledBatches = mutableSetOf<Long>()
+
     override suspend fun doWork(): Result {
         val app = applicationContext as CadenceApp
         val prefs = app.container.prefs
@@ -75,6 +81,8 @@ class DownloadWorker(context: Context, params: WorkerParameters) :
                     // served their purpose (spec D2), so the next wait starts clean.
                     prefs.allowMeteredOnce = false
                     prefs.waitWifiOnce = false
+                    reportCompletion(db)
+                    DownloadNotifications.cancel(applicationContext)
                     return Result.success()
                 }
                 val track = db.trackDao().byServerId(row.trackServerId)
@@ -175,6 +183,7 @@ class DownloadWorker(context: Context, params: WorkerParameters) :
                 null,
                 0,
             )
+            settledBatches.add(prior.batchId)
             return Outcome.CONTINUE
         }
         // Anything that failed verification is poison: deleting it and clearing the
@@ -219,6 +228,7 @@ class DownloadWorker(context: Context, params: WorkerParameters) :
             done, total, null, attempts,
         )
         if (running == 0) return Outcome.CONTINUE
+        enterForeground(db)
 
         suspend fun reportProgress(force: Boolean = false) {
             if (force || done - lastReported >= PROGRESS_STEP_BYTES) {
@@ -228,6 +238,12 @@ class DownloadWorker(context: Context, params: WorkerParameters) :
                 // cancelRequests check is the authoritative signal.
                 db.downloadDao().updateProgress(
                     track.serverId, track.sourceId, DownloadStatus.RUNNING, done, total,
+                )
+                // Same 500 KB cadence as the row: the notification is the
+                // progress surface while the app is closed (spec D7).
+                val p = downloadScopeProgress(db)
+                DownloadNotifications.showProgress(
+                    applicationContext, p.doneCount, p.totalCount, p.bytesDone, p.bytesTotal, paused = false,
                 )
             }
         }
@@ -350,6 +366,7 @@ class DownloadWorker(context: Context, params: WorkerParameters) :
                             return Outcome.CONTINUE
                         }
                         db.trackDao().setPath(latest.id, Uri.fromFile(out).toString())
+                        settledBatches.add(prior.batchId)
                         return Outcome.CONTINUE
                     }
                     is PayloadVerdict.Rejected -> {
@@ -443,6 +460,7 @@ class DownloadWorker(context: Context, params: WorkerParameters) :
             latest.serverId, latest.sourceId, DownloadStatus.FAILED,
             0, totalBytes, message, attempts,
         )
+        settledBatches.add(prior.batchId)
         // Once a track is finally failed, continue the queue; the failed row
         // (shown in Downloads) is what matters, not WorkInfo state.
         return Outcome.CONTINUE
@@ -462,6 +480,49 @@ class DownloadWorker(context: Context, params: WorkerParameters) :
                 doneBytes, totalBytes, null, attempts,
             )
         }
+    }
+
+    /**
+     * Promotes the drain to a dataSync foreground service while bytes flow
+     * (spec D7). The platform can refuse a background FGS start (Android 12+);
+     * a plain notification keeps the progress visible instead.
+     */
+    private suspend fun enterForeground(db: AppDatabase) {
+        val p = downloadScopeProgress(db)
+        val info = ForegroundInfo(
+            DownloadNotifications.NOTIFICATION_ID_PROGRESS,
+            DownloadNotifications.progressNotification(
+                applicationContext, p.doneCount, p.totalCount, p.bytesDone, p.bytesTotal, paused = false,
+            ),
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
+        )
+        try {
+            setForeground(info)
+        } catch (_: Exception) {
+            DownloadNotifications.showProgress(
+                applicationContext, p.doneCount, p.totalCount, p.bytesDone, p.bytesTotal, paused = false,
+            )
+        }
+    }
+
+    /**
+     * The completion notice for the batches that settled in this run (spec
+     * D7): "Download complete · N tracks · size", honest about failures.
+     * Counts come from the rows themselves, so a batch finished across
+     * several runs is still reported once, whole.
+     */
+    private suspend fun reportCompletion(db: AppDatabase) {
+        if (settledBatches.isEmpty()) return
+        val done = db.downloadDao().byStatus(DownloadStatus.DONE).filter { it.batchId in settledBatches }
+        val failed = db.downloadDao().byStatus(DownloadStatus.FAILED).filter { it.batchId in settledBatches }
+        if (done.isEmpty() && failed.isEmpty()) return
+        DownloadNotifications.showComplete(
+            applicationContext,
+            title = if (done.isEmpty()) "Download failed" else "Download complete",
+            count = done.size,
+            bytes = done.sumOf { it.bytesDone },
+            failed = failed.size,
+        )
     }
 
     private fun fileFromPath(path: String): File? =
@@ -552,6 +613,11 @@ class DownloadWorker(context: Context, params: WorkerParameters) :
         /** Stops the active track and deletes its partial; the queue continues. */
         fun requestCancel(trackRowId: Long) {
             cancelRequests.add(trackRowId)
+        }
+
+        /** Stops every in-flight writer; the notification's "Cancel all" also drops their rows. */
+        fun requestCancelAll() {
+            for (trackRowId in activeTracks) cancelRequests.add(trackRowId)
         }
 
         /** Stops the active track but keeps its partial for a later resume. */

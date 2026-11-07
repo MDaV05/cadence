@@ -1,8 +1,6 @@
 package com.cadence.music.ui
 
-import android.Manifest
 import android.app.Activity
-import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
@@ -818,11 +816,10 @@ private fun songsTab(
     ) { }
 
     fun askNotifications() {
-        if (Build.VERSION.SDK_INT >= 33 && !notifAsked &&
-            !isGranted(context, Manifest.permission.POST_NOTIFICATIONS)
-        ) {
+        val permission = notificationsPermission() ?: return
+        if (!notifAsked && !isGranted(context, permission)) {
             notifAsked = true
-            notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            notifLauncher.launch(permission)
         }
     }
 

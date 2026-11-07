@@ -269,6 +269,10 @@ interface DownloadDao {
     @Query("DELETE FROM downloads WHERE trackServerId = :serverId AND sourceId = :sourceId")
     suspend fun delete(serverId: String, sourceId: String)
 
+    /** Notification "Cancel all": drops every row of one status at once. */
+    @Query("DELETE FROM downloads WHERE status = :status")
+    suspend fun deleteByStatus(status: String): Int
+
     /** Keeps a download row attached to its track when a sync learns a new server id. */
     @Query("UPDATE downloads SET trackServerId = :newId WHERE trackServerId = :oldId AND sourceId = :sourceId")
     suspend fun renameTrack(oldId: String, newId: String, sourceId: String)

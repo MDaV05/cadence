@@ -93,7 +93,12 @@ import com.cadence.music.CadenceApp
 import com.cadence.music.data.update.UpdateStatus
 
 @Composable
-fun AppNav(initialSettingsTab: Int = 0, onDeepLinkConsumed: () -> Unit = {}) {
+fun AppNav(
+    initialSettingsTab: Int = 0,
+    onDeepLinkConsumed: () -> Unit = {},
+    openDownloads: Boolean = false,
+    onDownloadsLinkConsumed: () -> Unit = {},
+) {
     val navController = rememberNavController()
     val backStack by navController.currentBackStackEntryAsState()
     val current = backStack?.destination?.route
@@ -138,6 +143,19 @@ fun AppNav(initialSettingsTab: Int = 0, onDeepLinkConsumed: () -> Unit = {}) {
     }
     androidx.compose.runtime.LaunchedEffect(current) {
         if (current != null && current != "settings") deepLinkTab = 0
+    }
+
+    // Notification tap: the progress/completion notices deep-link to the queue
+    // via MainActivity's open_downloads extra (mirrors the settings tab above).
+    androidx.compose.runtime.LaunchedEffect(openDownloads) {
+        if (openDownloads) {
+            navController.navigate("downloads") {
+                launchSingleTop = true
+                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                restoreState = true
+            }
+            onDownloadsLinkConsumed()
+        }
     }
 
     // One-shot hint: the Home "Playlists" quick tile wants Library to open on its

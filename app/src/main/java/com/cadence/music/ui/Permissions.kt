@@ -17,6 +17,13 @@ fun audioPermission(): String =
     if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_AUDIO
     else Manifest.permission.READ_EXTERNAL_STORAGE
 
+/**
+ * Notification permission for this API level: POST_NOTIFICATIONS on 33+,
+ * null below (pre-33 apps may notify without asking).
+ */
+fun notificationsPermission(): String? =
+    if (Build.VERSION.SDK_INT >= 33) Manifest.permission.POST_NOTIFICATIONS else null
+
 fun isGranted(context: Context, permission: String): Boolean =
     ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
 

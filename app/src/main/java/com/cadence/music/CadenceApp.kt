@@ -22,6 +22,7 @@ import androidx.work.WorkManager
 import com.cadence.music.data.LibraryRepository
 import com.cadence.music.data.SyncWorker
 import com.cadence.music.data.db.AppDatabase
+import com.cadence.music.data.downloads.DownloadNotifications
 import com.cadence.music.data.metadata.ArtResolver
 import com.cadence.music.data.metadata.MetadataSync
 import com.cadence.music.data.prefs.Prefs
@@ -58,6 +59,7 @@ class CadenceApp : Application(), coil.ImageLoaderFactory {
     override fun onCreate() {
         super.onCreate()
         container = AppContainer(this)
+        DownloadNotifications.createChannels(this)
         schedulePeriodicSync()
         MetadataSync.schedule(this)
         // Catch up on library changes since the app was last open.
