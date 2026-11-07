@@ -62,7 +62,10 @@ class DownloadWorker(context: Context, params: WorkerParameters) :
             requeueInterrupted(db)
             while (!isStopped) {
                 if (prefs.downloadsPaused || pauseRequested) return Result.success()
-                if (prefs.downloadWifiOnly && !isUnmetered(applicationContext)) {
+                // The one-shot mobile-data override (spec D2) suspends this wait
+                // too: "Download anyway" must actually download on metered, not
+                // retry here until Wi-Fi.
+                if (prefs.downloadWifiOnly && !prefs.allowMeteredOnce && !isUnmetered(applicationContext)) {
                     return Result.retry()
                 }
                 val row = db.downloadDao().nextQueued(System.currentTimeMillis())
