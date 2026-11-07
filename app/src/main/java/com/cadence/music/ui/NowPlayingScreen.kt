@@ -133,6 +133,7 @@ fun NowPlayingScreen(
     var position by remember { mutableLongStateOf(0L) }
     var duration by remember { mutableLongStateOf(0L) }
     val sleepLeft by player.sleepRemainingMs.collectAsStateWithLifecycle()
+    val sleepAtEnd by player.sleepAtTrackEnd.collectAsStateWithLifecycle()
     val queueSnapshot by player.queueItems.collectAsStateWithLifecycle()
     val queueIdx by player.queueIndexFlow.collectAsStateWithLifecycle()
     var showSleepDialog by remember { mutableStateOf(false) }
@@ -213,18 +214,36 @@ fun NowPlayingScreen(
                 }
                 cached != null -> emptyList<SyncedLine>() to null // checked previously: none available
                 else -> {
-                    val f = com.cadence.music.data.metadata.LrcLib.fetchBlocking(
-                        state.artist, state.title, durSec,
-                    )
-                    if (entity != null) {
+                    // Server lyrics first — same order as the metadata worker.
+                    // Going straight to LRCLIB would cache an empty/fuzzy row
+                    // over the server's own text and suppress it forever.
+                    val server = entity?.let {
+                        runCatching { container.library.fetchServerLyrics(it) }.getOrNull()
+                    }
+                    if (server != null) {
                         container.database.lyricsDao().upsert(
                             com.cadence.music.data.db.LyricsEntity(
                                 trackId = entity.id,
-                                syncedLrc = com.cadence.music.data.metadata.LrcLib.toLrcText(f),
+                                syncedLrc = server.first,
                             )
                         )
+                        val parsed = com.cadence.music.data.metadata.LrcLib.parse(server.first)
+                        if (parsed.isNotEmpty()) parsed to null
+                        else emptyList<SyncedLine>() to server.first
+                    } else {
+                        val f = com.cadence.music.data.metadata.LrcLib.fetchBlocking(
+                            state.artist, state.title, durSec,
+                        )
+                        if (entity != null) {
+                            container.database.lyricsDao().upsert(
+                                com.cadence.music.data.db.LyricsEntity(
+                                    trackId = entity.id,
+                                    syncedLrc = com.cadence.music.data.metadata.LrcLib.toLrcText(f),
+                                )
+                            )
+                        }
+                        f to null
                     }
-                    f to null
                 }
             }
         }
@@ -534,7 +553,7 @@ fun NowPlayingScreen(
                     IconButton(onClick = { showSleepDialog = true }) {
                         Icon(
                             Icons.Filled.Bedtime, "Sleep timer", Modifier.size(22.dp),
-                            tint = if (sleepLeft != null) primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            tint = if (sleepLeft != null || sleepAtEnd) primary else MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                     if (lyrics.isNotEmpty() || unsynced != null) {
@@ -890,7 +909,7 @@ fun NowPlayingScreen(
                     IconButton(onClick = { showSleepDialog = true }) {
                         Icon(
                             Icons.Filled.Bedtime, "Sleep timer", Modifier.size(22.dp),
-                            tint = if (sleepLeft != null) primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            tint = if (sleepLeft != null || sleepAtEnd) primary else MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                     sleepLeft?.let {
@@ -1205,7 +1224,11 @@ fun NowPlayingScreen(
                             showSleepDialog = false
                         }) { Text("$minutes minutes") }
                     }
-                    if (sleepLeft != null) {
+                    TextButton(onClick = {
+                        player.sleepAtEndOfTrack()
+                        showSleepDialog = false
+                    }) { Text("End of track") }
+                    if (sleepLeft != null || sleepAtEnd) {
                         TextButton(onClick = {
                             player.cancelSleepTimer()
                             showSleepDialog = false

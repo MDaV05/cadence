@@ -127,6 +127,44 @@ interface TrackDao {
 
     @Query("SELECT * FROM tracks ORDER BY id DESC LIMIT 10")
     suspend fun recentlyAdded(): List<TrackEntity>
+
+    // Smart playlist presets: live queries over the tracks table, each capped
+    // at 100 rows — the query IS the playlist, nothing is stored. Counts apply
+    // the same LIMIT so a browser row's subtitle always matches what opening
+    // the playlist shows.
+
+    @Query("SELECT * FROM tracks WHERE playCount > 0 ORDER BY playCount DESC, lastPlayed DESC LIMIT 100")
+    fun observeMostPlayed(): Flow<List<TrackEntity>>
+
+    @Query("SELECT COUNT(*) FROM (SELECT 1 FROM tracks WHERE playCount > 0 LIMIT 100)")
+    fun observeMostPlayedCount(): Flow<Int>
+
+    // No added-date column exists; autoincrement id is the insertion order.
+    @Query("SELECT * FROM tracks ORDER BY id DESC LIMIT 100")
+    fun observeRecentlyAdded(): Flow<List<TrackEntity>>
+
+    @Query("SELECT COUNT(*) FROM (SELECT 1 FROM tracks LIMIT 100)")
+    fun observeRecentlyAddedCount(): Flow<Int>
+
+    @Query("SELECT * FROM tracks WHERE lastPlayed IS NOT NULL ORDER BY lastPlayed DESC LIMIT 100")
+    fun observeRecentlyPlayed(): Flow<List<TrackEntity>>
+
+    @Query("SELECT COUNT(*) FROM (SELECT 1 FROM tracks WHERE lastPlayed IS NOT NULL LIMIT 100)")
+    fun observeRecentlyPlayedCount(): Flow<Int>
+
+    @Query("SELECT * FROM tracks WHERE playCount = 0 ORDER BY title COLLATE NOCASE ASC LIMIT 100")
+    fun observeNeverPlayed(): Flow<List<TrackEntity>>
+
+    @Query("SELECT COUNT(*) FROM (SELECT 1 FROM tracks WHERE playCount = 0 LIMIT 100)")
+    fun observeNeverPlayedCount(): Flow<Int>
+
+    // Non-null path = a local file backs the track (local scan URI or a
+    // completed download), i.e. it plays without the network.
+    @Query("SELECT * FROM tracks WHERE path IS NOT NULL ORDER BY title COLLATE NOCASE ASC LIMIT 100")
+    fun observeOffline(): Flow<List<TrackEntity>>
+
+    @Query("SELECT COUNT(*) FROM (SELECT 1 FROM tracks WHERE path IS NOT NULL LIMIT 100)")
+    fun observeOfflineCount(): Flow<Int>
 }
 
 @Dao
@@ -146,6 +184,13 @@ interface LyricsDao {
             "WHERE l.trackId IS NULL"
     )
     suspend fun trackIdsMissingLyrics(): List<Long>
+
+    /** Drops empty (negative-cached) rows for a source so the worker re-checks it. */
+    @Query(
+        "DELETE FROM lyrics WHERE syncedLrc = '' AND trackId IN " +
+            "(SELECT id FROM tracks WHERE sourceId = :sourceId)"
+    )
+    suspend fun deleteEmptyForSource(sourceId: String): Int
 }
 
 @Dao

@@ -249,6 +249,20 @@ class LibraryRepository(
         runCatching { activeSourceFor(entry).setStarred(remote, starred) }
     }
 
+    /**
+     * Server-provided lyrics for subsonic-family sources — their own lookup
+     * beats a fuzzy LRCLIB match. Null for every other source (local,
+     * Plex/Jellyfin/Emby/Telegram have no lyrics endpoints here).
+     */
+    suspend fun fetchServerLyrics(track: TrackEntity): Pair<String, Boolean>? {
+        if (track.sourceId != "subsonic") return null
+        val entry = entryForServerId(track.serverId) ?: return null
+        val remote = remoteKey(track.serverId, entry)
+        return runCatching {
+            (activeSourceFor(entry) as? SubsonicSource)?.fetchLyrics(remote, track.artistName, track.title)
+        }.getOrNull()
+    }
+
     suspend fun pingEntry(entry: ServerEntry): Boolean {
         if (runCatching { sourceFor(entry.copy(url = entry.url)).ping() }.getOrDefault(false)) {
             markActiveUrl(entry.id, entry.url)
@@ -554,6 +568,19 @@ class LibraryRepository(
             dropped += db.artistInfoDao().deleteAll()
             prefs.artistRepairV3 = true
         }
+        dropped
+    }
+
+    /**
+     * One-shot: empty subsonic lyric rows predate the server-first lyrics
+     * pass — they were written after an LRCLIB-only check, so their "checked,
+     * none available" verdict never asked the server. Drop them; the worker
+     * re-checks those tracks with the server asked first.
+     */
+    suspend fun repairServerLyricsCache(): Int = withContext(Dispatchers.IO) {
+        if (prefs.lyricsServerRepairV1) return@withContext 0
+        val dropped = db.lyricsDao().deleteEmptyForSource("subsonic")
+        prefs.lyricsServerRepairV1 = true
         dropped
     }
 

@@ -299,6 +299,11 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("artist_repair_v3", false)
         set(value) = sp.edit().putBoolean("artist_repair_v3", value).apply()
 
+    /** One-shot: dropped empty subsonic lyric rows written without consulting the server. */
+    var lyricsServerRepairV1: Boolean
+        get() = sp.getBoolean("lyrics_server_repair_v1", false)
+        set(value) = sp.edit().putBoolean("lyrics_server_repair_v1", value).apply()
+
     /** Last update tag a heads-up notification was posted for; "" = none yet. */
     var lastNotifiedTag: String
         get() = sp.getString("update_notified_tag", null) ?: ""

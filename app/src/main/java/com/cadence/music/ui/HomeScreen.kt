@@ -103,12 +103,13 @@ fun HomeScreen(
         recent = r; most = m; added = a; total = t
     }
 
-    // Running-download keys collected once at the list level, never per item.
+    // Download rows collected once at the list level, never per item — the
+    // same live rows LibraryScreen feeds TrackRow, so badges tap through.
     val downloadRows by container.library.observeDownloads()
         .collectAsStateWithLifecycle(initialValue = emptyList())
-    val downloadStatuses = remember(downloadRows) {
+    val downloadRowsByKey = remember(downloadRows) {
         downloadRows.associate {
-            "${it.download.sourceId}:${it.download.trackServerId}" to it.download.status
+            "${it.download.sourceId}:${it.download.trackServerId}" to it
         }
     }
 
@@ -154,7 +155,7 @@ fun HomeScreen(
                         track,
                         onArtistClick,
                         onAlbumClick,
-                        downloadStatus = downloadStatuses["${track.sourceId}:${track.serverId}"],
+                        downloadRow = downloadRowsByKey["${track.sourceId}:${track.serverId}"],
                     ) {
                         player.playNow(listOf(track.toTrack()))
                     }

@@ -121,6 +121,7 @@ fun LibraryScreen(
     onAlbumClick: (String) -> Unit = {},
     onOpenPlaylist: (Long) -> Unit = {},
     onOpenLiked: () -> Unit = {},
+    onOpenSmart: (String) -> Unit = {},
 ) {
     val player = container.player
     val albumGroups by container.library.albumGroups()
@@ -200,7 +201,7 @@ fun LibraryScreen(
                 0 -> songsTab(container, onArtistClick, onAlbumClick, player, songsListState)
                 1 -> albumsTab(albumGroups, container, onAlbumClick)
                 2 -> artistsTab(artists, onArtistClick)
-                3 -> PlaylistsContent(container, onOpen = onOpenPlaylist, onOpenLiked = onOpenLiked)
+                3 -> PlaylistsContent(container, onOpen = onOpenPlaylist, onOpenLiked = onOpenLiked, onOpenSmart = onOpenSmart)
             }
         }
     }

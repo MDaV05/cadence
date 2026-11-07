@@ -59,6 +59,10 @@ class PlayerConnection(
     val sleepRemainingMs: StateFlow<Long?> = _sleepRemainingMs
     private var sleepJob: Job? = null
 
+    private val _sleepAtTrackEnd = MutableStateFlow(false)
+    /** True when the sleep timer is set to pause at the end of the current track. */
+    val sleepAtTrackEnd: StateFlow<Boolean> = _sleepAtTrackEnd
+
     // Live queue snapshot driven by controller timeline events, so UI observes
     // changes instead of re-reading the controller on every recomposition.
     private val _queue = MutableStateFlow<List<MediaItem>>(emptyList())
@@ -107,11 +111,23 @@ class PlayerConnection(
                 }
 
                 override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                    // End-of-track sleep: the previous item just completed — pause
+                    // before the next one gets going.
+                    if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO && _sleepAtTrackEnd.value) {
+                        endOfTrackPause(c)
+                    }
                     val title = mediaItem?.mediaMetadata?.title?.toString() ?: ""
                     val artist = mediaItem?.mediaMetadata?.artist?.toString() ?: ""
                     _state.value = _state.value.copy(title = title, artist = artist)
                     scheduleListen(mediaItem)
                     refreshQueue(c)
+                }
+
+                override fun onPlaybackStateChanged(playbackState: Int) {
+                    // Queue's very end: no transition event, just STATE_ENDED.
+                    if (playbackState == Player.STATE_ENDED && _sleepAtTrackEnd.value) {
+                        endOfTrackPause(c)
+                    }
                 }
 
                 override fun onPositionDiscontinuity(
@@ -121,13 +137,19 @@ class PlayerConnection(
                 ) {
                     // Repeat-one replays the same item with no transition event:
                     // an auto transition inside one item is a completed loop.
-                    if (reason == Player.DISCONTINUITY_REASON_AUTO_TRANSITION &&
-                        oldPosition.mediaItemIndex == newPosition.mediaItemIndex &&
+                    val looped = reason == Player.DISCONTINUITY_REASON_AUTO_TRANSITION &&
+                        oldPosition.mediaItemIndex == newPosition.mediaItemIndex
+                    if (looped &&
                         newPosition.mediaItem?.mediaId != null &&
                         newPosition.mediaItem?.mediaId == pendingListenKey
                     ) {
                         finishListenNow()
                         scheduleListen(c.currentMediaItem)
+                    }
+                    // The loop point is the only "completion" repeat-one reports
+                    // — also right after a restart, where no listen was armed.
+                    if (looped && _sleepAtTrackEnd.value) {
+                        endOfTrackPause(c)
                     }
                 }
 
@@ -167,6 +189,9 @@ class PlayerConnection(
                 .coerceAtMost(durMs.takeIf { it > 0 } ?: Long.MAX_VALUE)
             delay(thresholdMs)
             if (c.currentMediaItem?.mediaId != key) return@launch
+            // Paused when the threshold fires (end-of-track sleep parked the
+            // next item at 0:00, or the user paused) — nothing was listened to.
+            if (!c.isPlaying) return@launch
             listenJob = null
             completeListen(item)
         }
@@ -290,10 +315,22 @@ class PlayerConnection(
         }
     }
 
+    /** Pauses the player when the current track completes ("End of track" sleep). */
+    fun sleepAtEndOfTrack() {
+        cancelSleepTimer()
+        _sleepAtTrackEnd.value = true
+    }
+
+    private fun endOfTrackPause(c: MediaController) {
+        _sleepAtTrackEnd.value = false
+        c.pause()
+    }
+
     fun cancelSleepTimer() {
         sleepJob?.cancel()
         sleepJob = null
         _sleepRemainingMs.value = null
+        _sleepAtTrackEnd.value = false
         controller?.volume = 1.0f
     }
 
