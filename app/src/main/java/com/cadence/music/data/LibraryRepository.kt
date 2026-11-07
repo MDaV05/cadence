@@ -938,18 +938,22 @@ class LibraryRepository(
         // One id per call: every row of a single button press shares it, so the
         // progress bar can scope itself to the batch the user just started.
         val batchId = System.currentTimeMillis()
-        val rows = withContext(Dispatchers.IO) {
+        // Read + decide + write under one transaction: the worker can flip a
+        // row to RUNNING between the tap and this write, and the check that
+        // used to run outside the transaction lost that race.
+        val queued = db.withTransaction {
             val out = mutableListOf<DownloadEntity>()
             val seen = mutableSetOf<String>()
             for (track in tracks) {
                 if (track.sourceId == "local" || track.path != null) continue
                 if (!seen.add("${track.sourceId}:${track.serverId}")) continue
                 val existing = db.downloadDao().byTrack(track.sourceId, track.serverId)
-                // A running track is already being written. A done row whose
-                // track has no path is inconsistent, so it is requeued below.
-                if (existing?.status == DownloadStatus.RUNNING) continue
+                // A running track is already being written; a done row must not
+                // be reset to queued by a re-tap (an inconsistent done row is
+                // repairInvalidDownloads' job, not the enqueue's).
+                if (existing?.status == DownloadStatus.RUNNING || existing?.status == DownloadStatus.DONE) continue
                 val estimate = estimateDownloadBytes(track, format, bitrate)
-                out += DownloadEntity(
+                val row = DownloadEntity(
                     trackServerId = track.serverId,
                     sourceId = track.sourceId,
                     status = DownloadStatus.QUEUED,
@@ -964,11 +968,12 @@ class LibraryRepository(
                     batchId = batchId,
                     nextAttemptAt = 0L,
                 )
+                out += row
+                db.downloadDao().upsert(row)
             }
-            out
+            out.size
         }
-        if (rows.isEmpty()) return
-        db.withTransaction { rows.forEach { db.downloadDao().upsert(it) } }
+        if (queued == 0) return
         DownloadScheduler.start(context, prefs)
     }
 
@@ -1212,6 +1217,12 @@ class LibraryRepository(
 
     /** Removes the downloaded file and its status row; the track stays streamable. */
     suspend fun deleteDownload(download: DownloadEntity, track: TrackEntity?) {
+        // Signal an active writer before touching anything it owns (mirrors
+        // cancelDownload): it aborts at its next loop check and cleans up its
+        // own partial, instead of writing on against a deleted row.
+        if (track != null && com.cadence.music.data.downloads.DownloadWorker.isActive(track.id)) {
+            com.cadence.music.data.downloads.DownloadWorker.requestCancel(track.id)
+        }
         withContext(Dispatchers.IO) {
             val file = track?.path?.takeIf { it.startsWith("file:") }?.let { fileFromPath(it) }
             file?.let { runCatching { it.delete() } }

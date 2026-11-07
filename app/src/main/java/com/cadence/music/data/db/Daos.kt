@@ -239,7 +239,8 @@ interface DownloadDao {
     @Query(
         "UPDATE downloads SET status = :status, bytesDone = :bytesDone, " +
             "totalBytes = :totalBytes, errorText = :errorText, attempts = :attempts, " +
-            "updatedAt = :now WHERE trackServerId = :serverId AND sourceId = :sourceId"
+            "nextAttemptAt = :nextAttemptAt, updatedAt = :now " +
+            "WHERE trackServerId = :serverId AND sourceId = :sourceId"
     )
     suspend fun update(
         serverId: String,
@@ -250,6 +251,8 @@ interface DownloadDao {
         errorText: String?,
         attempts: Int,
         now: Long = System.currentTimeMillis(),
+        /** Set on the retry requeue (spec D5); 0 keeps the row eligible now. */
+        nextAttemptAt: Long = 0L,
     ): Int
 
     @Query(

@@ -8,19 +8,18 @@ import org.junit.Test
 class DownloadProgressTest {
     @Test fun `empty list is zero progress`() {
         val p = progressOf(emptyList())
-        assertEquals(DownloadProgress(0, 0, 0, 0, 0, 0), p)
+        assertEquals(DownloadProgress(0, 0, 0, 0, 0), p)
         assertEquals(0f, p.fraction, 0f)
         assertFalse(p.active)
     }
 
     @Test fun `counts each known status`() {
-        val p = progressOf(listOf("queued", "running", "running", "done", "failed", "cancelled"))
-        assertEquals(6, p.total)
+        val p = progressOf(listOf("queued", "running", "running", "done", "failed"))
+        assertEquals(5, p.total)
         assertEquals(1, p.queued)
         assertEquals(2, p.running)
         assertEquals(1, p.done)
         assertEquals(1, p.failed)
-        assertEquals(1, p.cancelled)
     }
 
     @Test fun `unknown statuses count as queued`() {
@@ -42,14 +41,6 @@ class DownloadProgressTest {
         assertTrue(p.active)
     }
 
-    @Test fun `cancelled rows leave the denominator`() {
-        val p = progressOf(listOf("done", "failed", "cancelled", "queued"))
-        assertEquals(3, p.visibleTotal)
-        assertEquals(1f / 3f, p.fraction, 0.0001f)
-        assertEquals(1, p.cancelled)
-        assertTrue(p.active)
-    }
-
     @Test fun `all done is full fraction`() {
         val p = progressOf(listOf("done", "done", "done"))
         assertEquals(1f, p.fraction, 0f)
@@ -61,12 +52,5 @@ class DownloadProgressTest {
         assertEquals(0f, p.fraction, 0f)
         assertEquals(2, p.pending)
         assertTrue(p.active)
-    }
-
-    @Test fun `all cancelled never divides by zero`() {
-        val p = progressOf(listOf("cancelled", "cancelled"))
-        assertEquals(0, p.visibleTotal)
-        assertEquals(0f, p.fraction, 0f)
-        assertFalse(p.active)
     }
 }

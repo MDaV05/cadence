@@ -5,7 +5,8 @@ package com.cadence.music.data.downloads
  *
  * [fraction] deliberately counts only completed tracks. A failed download is
  * not progress: the old behavior counted it as settled, so a fully failed
- * batch could display as 100% complete.
+ * batch could display as 100% complete. Cancelling deletes the row outright,
+ * so there is no cancelled state to model here.
  */
 data class DownloadProgress(
     val total: Int,
@@ -13,26 +14,22 @@ data class DownloadProgress(
     val running: Int,
     val done: Int,
     val failed: Int,
-    val cancelled: Int = 0,
 ) {
-    val visibleTotal: Int get() = (total - cancelled).coerceAtLeast(0)
     val pending: Int get() = queued + running
     val active: Boolean get() = pending > 0
-    val fraction: Float get() = if (visibleTotal == 0) 0f else done.toFloat() / visibleTotal
+    val fraction: Float get() = if (total == 0) 0f else done.toFloat() / total
 }
 
-/** statuses: "queued" | "running" | "done" | "failed" | "cancelled" | unknown = queued. */
+/** statuses: "queued" | "running" | "done" | "failed" | unknown = queued. */
 fun progressOf(statuses: List<String>): DownloadProgress {
     var queued = 0
     var running = 0
     var done = 0
     var failed = 0
-    var cancelled = 0
     for (s in statuses) when (s) {
         "running" -> running++
         "done" -> done++
         "failed" -> failed++
-        "cancelled" -> cancelled++
         else -> queued++
     }
     return DownloadProgress(
@@ -41,6 +38,5 @@ fun progressOf(statuses: List<String>): DownloadProgress {
         running = running,
         done = done,
         failed = failed,
-        cancelled = cancelled,
     )
 }

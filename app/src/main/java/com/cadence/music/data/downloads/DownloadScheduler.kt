@@ -40,7 +40,11 @@ object DownloadScheduler {
             .build()
         WorkManager.getInstance(context).enqueueUniqueWork(
             WORK_NAME,
-            if (replace) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.KEEP,
+            // APPEND, not KEEP: KEEP drops a request made while a drain is
+            // running (the enqueue's new rows would sit unserved until some
+            // later kick). Chained work runs right after the current drain —
+            // or starts immediately when none is running.
+            if (replace) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.APPEND,
             request,
         )
     }

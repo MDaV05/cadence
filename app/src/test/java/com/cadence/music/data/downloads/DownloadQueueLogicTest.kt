@@ -95,6 +95,24 @@ class DownloadQueueLogicTest {
         assertEquals(3, progress.totalCount)
     }
 
+    // ---- retry backoff and pacing tables (spec D5/D6) ----
+
+    @Test
+    fun `backoff is 15s then 60s then flat five minutes`() {
+        assertEquals(15_000L, backoffMillis(1))
+        assertEquals(60_000L, backoffMillis(2))
+        assertEquals(300_000L, backoffMillis(3))
+        assertEquals(300_000L, backoffMillis(9))
+    }
+
+    @Test
+    fun `pacing is one second for telegram sources and 250ms otherwise`() {
+        assertEquals(1_000L, pacingMillis("telegram"))
+        assertEquals(1_000L, pacingMillis("bale"))
+        assertEquals(250L, pacingMillis("plex"))
+        assertEquals(250L, pacingMillis("subsonic"))
+    }
+
     // ---- queuedMoveWrites: the pure core of LibraryRepository.moveQueued ----
 
     /** Queue in drain order (priority DESC, enqueuedAt ASC). */

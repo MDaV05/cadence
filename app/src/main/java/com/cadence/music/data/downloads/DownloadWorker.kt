@@ -13,6 +13,7 @@ import com.cadence.music.data.db.TrackEntity
 import com.cadence.music.data.source.sameOrigin
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -77,6 +78,12 @@ class DownloadWorker(context: Context, params: WorkerParameters) :
                 }
                 val row = db.downloadDao().nextQueued(System.currentTimeMillis())
                 if (row == null) {
+                    // Null is not proof the queue is empty: rows waiting out
+                    // their retry backoff (spec D5) are still queued but not
+                    // yet due. Hand control back to WorkManager — its retry
+                    // brings the drain back after the wait — instead of
+                    // reporting a drain that has not happened.
+                    if (db.downloadDao().queuedCount() > 0) return Result.retry()
                     // The queue drained: the one-shot network overrides have
                     // served their purpose (spec D2), so the next wait starts clean.
                     prefs.allowMeteredOnce = false
@@ -95,6 +102,10 @@ class DownloadWorker(context: Context, params: WorkerParameters) :
                     Outcome.RETRY -> return Result.retry()
                     Outcome.STOP -> return Result.success()
                 }
+                // Pacing between tracks (spec D6): telegram/bale sources get a
+                // full second, everything else 250 ms — only when another row
+                // is actually waiting.
+                if (db.downloadDao().queuedCount() > 0) delay(pacingMillis(track.sourceId))
             }
             Result.success()
         } catch (e: CancellationException) {
@@ -131,11 +142,16 @@ class DownloadWorker(context: Context, params: WorkerParameters) :
 
     private suspend fun downloadOne(app: CadenceApp, track: TrackEntity): Outcome {
         if (!activeTracks.add(track.id)) return Outcome.CONTINUE
-        cancelRequests.remove(track.id)
         return try {
             val current = app.container.database.downloadDao()
                 .byTrack(track.sourceId, track.serverId)
                 ?: return Outcome.CONTINUE
+            // Consume a cancel request only after the row read: the entry-time
+            // remove used to wipe a request that landed between pickup and the
+            // read, and the track the user just cancelled downloaded anyway.
+            // A request present here means cancel-before-pickup — skip the
+            // track; whoever signalled owns deleting its row.
+            if (cancelRequests.remove(track.id)) return Outcome.CONTINUE
             if (current.status != DownloadStatus.QUEUED) return Outcome.CONTINUE
             download(app, track, current)
         } catch (_: DownloadCancelled) {
@@ -420,9 +436,14 @@ class DownloadWorker(context: Context, params: WorkerParameters) :
                 current?.let { runCatching { it.delete() } }
             }
             if (willRetry) {
+                // Per-row backoff (spec D5): the row stays QUEUED with its
+                // error message and becomes eligible again only after the
+                // wait; attempts were already incremented above. Only the
+                // final attempt marks FAILED.
                 db.downloadDao().update(
                     latest.serverId, latest.sourceId, DownloadStatus.QUEUED,
                     done, total, e.message ?: "retrying", attempts,
+                    nextAttemptAt = System.currentTimeMillis() + backoffMillis(attempts.toLong()),
                 )
                 return Outcome.RETRY
             }

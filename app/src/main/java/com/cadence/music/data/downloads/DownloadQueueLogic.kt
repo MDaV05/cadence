@@ -46,6 +46,26 @@ fun byteProgress(rows: List<DownloadEntity>): ByteProgress {
 }
 
 /**
+ * Per-row retry backoff (spec D5): the first transient failure waits 15 s, the
+ * second a minute, everything after that five minutes flat. A waiting row stays
+ * QUEUED with its error message and is not eligible for pickup until
+ * `nextAttemptAt` passes — attempts are not burned during an outage.
+ */
+fun backoffMillis(attempts: Long): Long = when {
+    attempts <= 1 -> 15_000L
+    attempts == 2L -> 60_000L
+    else -> 300_000L
+}
+
+/**
+ * Inter-track pacing (spec D6): telegram/bale sources get a full second
+ * between tracks, everything else 250 ms. A constant table on purpose — no
+ * settings.
+ */
+fun pacingMillis(sourceId: String): Long =
+    if (sourceId == "telegram" || sourceId == "bale") 1_000L else 250L
+
+/**
  * Pure core of `LibraryRepository.moveQueued`: [queued] is the queue already in
  * drain order (priority DESC, enqueuedAt ASC — the nextQueued order), and the
  * result is the rows to write back so [serverId]/[sourceId] lands one slot up
