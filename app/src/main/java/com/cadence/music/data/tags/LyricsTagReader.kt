@@ -146,13 +146,18 @@ object LyricsTagReader {
         if (payload.size < 5) return null
         val enc = payload[0].toInt() and 0xFF
         val wide = enc == 1 || enc == 2
+        // Scan the descriptor terminator in whole characters: a byte-wise scan
+        // matches a 00 00 pair straddling the descriptor's last UTF-16 unit and
+        // the terminator, leaving the text one byte short (misaligned pairs).
         var p = 4
-        while (p < payload.size) {
-            if (wide && p + 1 < payload.size && payload[p].toInt() == 0 && payload[p + 1].toInt() == 0) { p += 2; break }
-            if (!wide && payload[p].toInt() == 0) { p += 1; break }
+        if (wide) {
+            while (p + 1 < payload.size && !(payload[p].toInt() == 0 && payload[p + 1].toInt() == 0)) p += 2
+            p += 2
+        } else {
+            while (p < payload.size && payload[p].toInt() != 0) p++
             p++
         }
-        if (p >= payload.size) return null
+        if (p > payload.size) return null
         return decodeText(payload, p, payload.size, enc).trim().ifEmpty { null }
     }
 

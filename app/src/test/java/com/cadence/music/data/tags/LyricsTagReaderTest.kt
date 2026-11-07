@@ -163,6 +163,14 @@ class LyricsTagReaderTest {
     }
 
     @Test
+    fun `id3v2_4 uslt utf16 non-empty descriptor stays aligned`() {
+        // A byte-wise terminator scan pairs the descriptor's final low byte with
+        // the terminator's first zero, shifting every UTF-16 pair (mojibake).
+        val s = id3Stream(4, listOf("USLT" to usltPayload("en", "[00:05.00]aligned", encoding = 1)))
+        assertEquals("[00:05.00]aligned", LyricsTagReader.read(ByteArrayInputStream(s)))
+    }
+
+    @Test
     fun `id3 skips junk frames before uslt`() {
         val junk = "JUNK" to "irrelevant".toByteArray(Charsets.ISO_8859_1)
         val s = id3Stream(3, listOf(junk, "USLT" to usltPayload("", "found")))

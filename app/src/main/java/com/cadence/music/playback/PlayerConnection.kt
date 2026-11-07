@@ -137,15 +137,19 @@ class PlayerConnection(
                 ) {
                     // Repeat-one replays the same item with no transition event:
                     // an auto transition inside one item is a completed loop.
-                    if (reason == Player.DISCONTINUITY_REASON_AUTO_TRANSITION &&
-                        oldPosition.mediaItemIndex == newPosition.mediaItemIndex &&
+                    val looped = reason == Player.DISCONTINUITY_REASON_AUTO_TRANSITION &&
+                        oldPosition.mediaItemIndex == newPosition.mediaItemIndex
+                    if (looped &&
                         newPosition.mediaItem?.mediaId != null &&
                         newPosition.mediaItem?.mediaId == pendingListenKey
                     ) {
                         finishListenNow()
                         scheduleListen(c.currentMediaItem)
-                        // The loop point is the only "completion" repeat-one reports.
-                        if (_sleepAtTrackEnd.value) endOfTrackPause(c)
+                    }
+                    // The loop point is the only "completion" repeat-one reports
+                    // — also right after a restart, where no listen was armed.
+                    if (looped && _sleepAtTrackEnd.value) {
+                        endOfTrackPause(c)
                     }
                 }
 
@@ -185,6 +189,9 @@ class PlayerConnection(
                 .coerceAtMost(durMs.takeIf { it > 0 } ?: Long.MAX_VALUE)
             delay(thresholdMs)
             if (c.currentMediaItem?.mediaId != key) return@launch
+            // Paused when the threshold fires (end-of-track sleep parked the
+            // next item at 0:00, or the user paused) — nothing was listened to.
+            if (!c.isPlaying) return@launch
             listenJob = null
             completeListen(item)
         }

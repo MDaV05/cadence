@@ -56,7 +56,7 @@ class MetadataWorker(appContext: Context, params: WorkerParameters) :
             val embedded = if (server == null) t.path?.let { p ->
                 withContext(Dispatchers.IO) { embeddedLyrics(p) }
             } else null
-            val lrc = server?.first ?: embedded?.first ?: run {
+            val lrc = server?.first ?: embedded ?: run {
                 val lines = runCatching {
                     LrcLib.fetchBlocking(t.artistName, t.title, t.durationMs / 1000)
                 }.getOrDefault(emptyList())
@@ -73,16 +73,14 @@ class MetadataWorker(appContext: Context, params: WorkerParameters) :
     }
 
     /**
-     * Embedded lyrics from a local file's tags (see LyricsTagReader for the
-     * formats). LRC-shaped text (with [mm:ss] timestamps) counts as synced;
-     * anything else is plain. Null when the file has no lyric tag at all.
+     * Embedded lyric text from a local file's tags (see LyricsTagReader for
+     * the formats); null when the file has none. Stored raw — the lyrics
+     * reader decides synced-vs-plain by whether it parses timestamps.
      */
-    private fun embeddedLyrics(path: String): Pair<String, Boolean>? {
-        val text = runCatching {
+    private fun embeddedLyrics(path: String): String? =
+        runCatching {
             com.cadence.music.data.tags.LyricsTagReader.read(applicationContext, android.net.Uri.parse(path))
-        }.getOrNull() ?: return null
-        return text to Regex("""\[\d{1,2}:\d{2}""").containsMatchIn(text)
-    }
+        }.getOrNull()
 
     private suspend fun fetchArtistInfo(db: com.cadence.music.data.db.AppDatabase) {
         withContext(Dispatchers.IO) { db.artistInfoDao().deleteNullRows() }
