@@ -240,6 +240,16 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE downloads ADD COLUMN enqueuedAt INTEGER NOT NULL DEFAULT 0")
                 db.execSQL("ALTER TABLE downloads ADD COLUMN priority INTEGER NOT NULL DEFAULT 0")
                 db.execSQL("ALTER TABLE downloads ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0")
+                // Rows of one enqueue call share a batch id; per-row retry backoff
+                // is a wall-clock gate the drain loop must respect.
+                db.execSQL("ALTER TABLE downloads ADD COLUMN batchId INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE downloads ADD COLUMN nextAttemptAt INTEGER NOT NULL DEFAULT 0")
+                // Pre-v18 rows defaulted to enqueuedAt = 0, which sorted them
+                // ahead of everything enqueued after the upgrade.
+                db.execSQL(
+                    "UPDATE downloads SET enqueuedAt = " +
+                        "CAST(strftime('%s','now') AS INTEGER) * 1000 WHERE enqueuedAt = 0"
+                )
                 // Advertised source size, used for offline storage forecasts.
                 db.execSQL("ALTER TABLE tracks ADD COLUMN sizeBytes INTEGER NOT NULL DEFAULT 0")
             }

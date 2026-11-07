@@ -159,4 +159,8 @@ data class DownloadEntity(
     val priority: Int = 0,
     /** Consecutive transient failures for this track, reset when it is requeued. */
     val attempts: Int = 0,
+    /** Timestamp of the enqueue call that created this row. Rows of one button press share it. */
+    val batchId: Long = 0L,
+    /** Earliest wall-clock time the worker may pick this row again (per-row retry backoff). 0 = immediately. */
+    val nextAttemptAt: Long = 0L,
 )

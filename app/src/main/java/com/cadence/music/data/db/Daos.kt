@@ -216,10 +216,22 @@ interface DownloadDao {
 
     /** Next unit of work; user taps outrank bulk album/library queues. */
     @Query(
-        "SELECT * FROM downloads WHERE status = 'queued' " +
+        "SELECT * FROM downloads WHERE status = 'queued' AND nextAttemptAt <= :now " +
             "ORDER BY priority DESC, enqueuedAt ASC, updatedAt ASC LIMIT 1"
     )
-    suspend fun nextQueued(): DownloadEntity?
+    suspend fun nextQueued(now: Long): DownloadEntity?
+
+    /**
+     * Every pending row plus the finished siblings of any batch that still has
+     * pending rows — the scope the progress bar describes, empty when idle.
+     */
+    @Query(
+        "SELECT * FROM downloads " +
+            "WHERE status IN ('queued', 'running') " +
+            "OR batchId IN (SELECT DISTINCT batchId FROM downloads WHERE status IN ('queued', 'running')) " +
+            "ORDER BY priority DESC, enqueuedAt ASC"
+    )
+    fun observeActiveScope(): Flow<List<DownloadEntity>>
 
     @Query("SELECT COUNT(*) FROM downloads WHERE status = 'queued'")
     suspend fun queuedCount(): Int

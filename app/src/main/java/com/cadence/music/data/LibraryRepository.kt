@@ -931,6 +931,9 @@ class LibraryRepository(
         val format = prefs.downloadFormat
         val bitrate = prefs.downloadBitrate
         val now = System.currentTimeMillis()
+        // One id per call: every row of a single button press shares it, so the
+        // progress bar can scope itself to the batch the user just started.
+        val batchId = System.currentTimeMillis()
         val rows = withContext(Dispatchers.IO) {
             val out = mutableListOf<DownloadEntity>()
             val seen = mutableSetOf<String>()
@@ -954,6 +957,8 @@ class LibraryRepository(
                     enqueuedAt = existing?.enqueuedAt?.takeIf { it > 0 } ?: now,
                     priority = maxOf(priority, existing?.priority ?: 0),
                     attempts = 0,
+                    batchId = batchId,
+                    nextAttemptAt = 0L,
                 )
             }
             out

@@ -65,7 +65,7 @@ class DownloadWorker(context: Context, params: WorkerParameters) :
                 if (prefs.downloadWifiOnly && !isUnmetered(applicationContext)) {
                     return Result.retry()
                 }
-                val row = db.downloadDao().nextQueued() ?: return Result.success()
+                val row = db.downloadDao().nextQueued(System.currentTimeMillis()) ?: return Result.success()
                 val track = db.trackDao().byServerId(row.trackServerId)
                 if (track == null || track.sourceId != row.sourceId) {
                     db.downloadDao().delete(row.trackServerId, row.sourceId)

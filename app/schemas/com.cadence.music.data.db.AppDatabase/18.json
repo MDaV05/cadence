@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 18,
-    "identityHash": "4464724d078cfcd122e1148b523113f4",
+    "identityHash": "736f494181a4ce65acbfc245c4ab956e",
     "entities": [
       {
         "tableName": "tracks",
@@ -229,7 +229,7 @@
       },
       {
         "tableName": "downloads",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`trackServerId` TEXT NOT NULL, `sourceId` TEXT NOT NULL, `status` TEXT NOT NULL, `bytesDone` INTEGER NOT NULL, `transcode` TEXT, `updatedAt` INTEGER NOT NULL, `errorText` TEXT, `totalBytes` INTEGER NOT NULL, `enqueuedAt` INTEGER NOT NULL, `priority` INTEGER NOT NULL, `attempts` INTEGER NOT NULL, PRIMARY KEY(`trackServerId`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`trackServerId` TEXT NOT NULL, `sourceId` TEXT NOT NULL, `status` TEXT NOT NULL, `bytesDone` INTEGER NOT NULL, `transcode` TEXT, `updatedAt` INTEGER NOT NULL, `errorText` TEXT, `totalBytes` INTEGER NOT NULL, `enqueuedAt` INTEGER NOT NULL, `priority` INTEGER NOT NULL, `attempts` INTEGER NOT NULL, `batchId` INTEGER NOT NULL, `nextAttemptAt` INTEGER NOT NULL, PRIMARY KEY(`trackServerId`))",
         "fields": [
           {
             "fieldPath": "trackServerId",
@@ -292,6 +292,18 @@
           {
             "fieldPath": "attempts",
             "columnName": "attempts",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "batchId",
+            "columnName": "batchId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "nextAttemptAt",
+            "columnName": "nextAttemptAt",
             "affinity": "INTEGER",
             "notNull": true
           }
@@ -643,7 +655,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '4464724d078cfcd122e1148b523113f4')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '736f494181a4ce65acbfc245c4ab956e')"
     ]
   }
 }
