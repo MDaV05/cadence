@@ -65,10 +65,13 @@ import com.cadence.music.AppContainer
 import com.cadence.music.data.DownloadStatusRow
 import com.cadence.music.data.db.AlbumGroup
 import com.cadence.music.data.db.TrackEntity
+import com.cadence.music.data.downloads.DownloadCause
 import com.cadence.music.data.downloads.DownloadStatus
 import com.cadence.music.data.downloads.activeScope
 import com.cadence.music.data.downloads.byteProgress
+import com.cadence.music.data.downloads.downloadCause
 import com.cadence.music.data.downloads.estimateQueueBytes
+import com.cadence.music.data.downloads.groupTitle
 import com.cadence.music.data.downloads.humanizeDownloadError
 import com.cadence.music.data.downloads.isUnmetered
 import com.cadence.music.data.downloads.observeUnmetered
@@ -84,6 +87,8 @@ fun DownloadsScreen(
     container: AppContainer,
     onBack: () -> Unit = {},
     onAlbumClick: (String) -> Unit = {},
+    onBrowseLibrary: () -> Unit = {},
+    onOpenSettingsTab: (Int) -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -118,6 +123,12 @@ fun DownloadsScreen(
         )
     }
     val failedRows = remember(rows) { rows.filter { it.download.status == DownloadStatus.FAILED } }
+    // Failure triage by cause (spec D8): one group per bucket, one fix per group.
+    val failedGroups = remember(failedRows) {
+        failedRows.groupBy { downloadCause(it.download.errorText) }
+            .toList()
+            .sortedBy { it.first.ordinal }
+    }
     val doneRows = remember(rows) { rows.filter { it.download.status == DownloadStatus.DONE } }
     val doneAlbums = remember(doneRows) {
         doneRows.filter { it.track != null }
@@ -163,6 +174,19 @@ fun DownloadsScreen(
                 runCatching { container.library.retryFailedDownloads() }.getOrDefault(0)
             }
             snack(if (n == 0) "Nothing to retry" else "Queued $n track${if (n == 1) "" else "s"}")
+        }
+    }
+
+    /** Retries one cause group only — the group's "Retry all" action. */
+    fun retryGroup(group: List<DownloadStatusRow>) {
+        if (group.isEmpty()) return
+        scope.launch {
+            group.forEach { row ->
+                withContext(Dispatchers.IO) {
+                    runCatching { container.library.retryDownload(row.download, row.track) }
+                }
+            }
+            snack("Queued ${group.size} track${if (group.size == 1) "" else "s"}")
         }
     }
 
@@ -231,8 +255,10 @@ fun DownloadsScreen(
         if (rows.isEmpty()) {
             EmptyDownloads(
                 modifier = Modifier.fillMaxSize().padding(padding),
-                onLiked = { showDownloadLiked = true },
-                onLibrary = { showDownloadAll = true },
+                // Goes through the bulk dialog so the metered-data ask applies (spec D2).
+                onDownloadAll = { showDownloadAll = true },
+                onBrowse = onBrowseLibrary,
+                onFreeUpSpace = { onOpenSettingsTab(2) }, // 2 = Storage tab
             )
         } else {
             LazyVerticalGrid(
@@ -290,17 +316,21 @@ fun DownloadsScreen(
                         )
                     }
                 }
-                if (failedRows.isNotEmpty()) {
-                    item(span = { GridItemSpan(maxLineSpan) }, key = "failed-header") {
-                        SectionTitle(
-                            "Needs attention",
-                            "${failedRows.size} failed",
-                            actionLabel = "Retry all",
-                            onAction = ::retryFailed,
+                failedGroups.forEach { (cause, group) ->
+                    item(span = { GridItemSpan(maxLineSpan) }, key = "failed-header:${cause.name}") {
+                        FailedGroupHeader(
+                            cause = cause,
+                            count = group.size,
+                            onRetryAll = { retryGroup(group) },
+                            onRefreshLibrary = {
+                                container.library.refreshLibraryAndRetryFailedAsync()
+                                snack("Refreshing library…")
+                            },
+                            onOpenSettingsTab = onOpenSettingsTab,
                         )
                     }
                     items(
-                        failedRows,
+                        group,
                         key = { "failed:${it.download.sourceId}:${it.download.trackServerId}" },
                         span = { GridItemSpan(maxLineSpan) },
                     ) { row ->
@@ -465,8 +495,9 @@ fun DownloadsScreen(
 @Composable
 private fun EmptyDownloads(
     modifier: Modifier = Modifier,
-    onLiked: () -> Unit,
-    onLibrary: () -> Unit,
+    onDownloadAll: () -> Unit,
+    onBrowse: () -> Unit,
+    onFreeUpSpace: () -> Unit,
 ) {
     Column(
         modifier = modifier.padding(32.dp),
@@ -491,12 +522,15 @@ private fun EmptyDownloads(
             textAlign = TextAlign.Center,
             modifier = Modifier.padding(top = 4.dp),
         )
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        // Stacked so three buttons never overflow a narrow screen.
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.padding(top = 20.dp),
         ) {
-            OutlinedButton(onClick = onLiked) { Text("Liked songs") }
-            OutlinedButton(onClick = onLibrary) { Text("Whole library") }
+            OutlinedButton(onClick = onDownloadAll) { Text("Download all") }
+            OutlinedButton(onClick = onBrowse) { Text("Browse playlists") }
+            OutlinedButton(onClick = onFreeUpSpace) { Text("Free up space") }
         }
     }
 }
@@ -701,6 +735,35 @@ private fun QueueRow(
     }
 }
 
+/**
+ * Header of one cause group (spec D8): the humanized bucket name plus the one
+ * fix that addresses the whole group — retry for network/server/unknown,
+ * refresh for tracks the server no longer knows, sign-in and storage deep
+ * links for the rest.
+ */
+@Composable
+private fun FailedGroupHeader(
+    cause: DownloadCause,
+    count: Int,
+    onRetryAll: () -> Unit,
+    onRefreshLibrary: () -> Unit,
+    onOpenSettingsTab: (Int) -> Unit,
+) {
+    val action: Pair<String, () -> Unit> = when (cause) {
+        DownloadCause.NETWORK, DownloadCause.SERVER, DownloadCause.UNKNOWN -> "Retry all" to onRetryAll
+        DownloadCause.NOT_FOUND -> "Refresh library" to onRefreshLibrary
+        // Settings tabs: 1 = Server, 2 = Storage.
+        DownloadCause.AUTH -> "Check sign-in" to { onOpenSettingsTab(1) }
+        DownloadCause.STORAGE -> "Free up space" to { onOpenSettingsTab(2) }
+    }
+    SectionTitle(
+        groupTitle(cause),
+        "$count failed",
+        actionLabel = action.first,
+        onAction = action.second,
+    )
+}
+
 @Composable
 private fun FailedRow(
     row: DownloadStatusRow,
@@ -708,35 +771,53 @@ private fun FailedRow(
     onRemove: () -> Unit,
 ) {
     val download = row.download
+    // The collapsed row shows humanized copy only; tapping reveals the raw
+    // diagnostic under "Details" for bug reports.
+    var expanded by remember { mutableStateOf(false) }
     Surface(
         color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.35f),
         shape = MaterialTheme.shapes.medium,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded },
     ) {
-        Row(
+        Column(
             modifier = Modifier.fillMaxWidth().padding(start = 14.dp, end = 4.dp, top = 10.dp, bottom = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Column(Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        row.track?.title ?: download.trackServerId,
+                        style = MaterialTheme.typography.bodyLarge,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        humanizeDownloadError(download.errorText),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                IconButton(onClick = onRetry) {
+                    Icon(Icons.Filled.Refresh, "Retry download")
+                }
+                IconButton(onClick = onRemove) {
+                    Icon(Icons.Filled.Close, "Remove failed download")
+                }
+            }
+            if (expanded) {
                 Text(
-                    row.track?.title ?: download.trackServerId,
-                    style = MaterialTheme.typography.bodyLarge,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                    "Details",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 2.dp),
                 )
                 Text(
-                    humanizeDownloadError(download.errorText),
+                    download.errorText?.takeIf { it.isNotBlank() } ?: "No error details",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 2.dp, bottom = 4.dp),
                 )
-            }
-            IconButton(onClick = onRetry) {
-                Icon(Icons.Filled.Refresh, "Retry download")
-            }
-            IconButton(onClick = onRemove) {
-                Icon(Icons.Filled.Close, "Remove failed download")
             }
         }
     }

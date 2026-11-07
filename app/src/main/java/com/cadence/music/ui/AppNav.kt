@@ -368,6 +368,19 @@ fun AppNav(
                         onAlbumClick = { name ->
                             navController.navigate("album/${Uri.encode(name)}")
                         },
+                        onBrowseLibrary = {
+                            navController.navigate("library") {
+                                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
+                        },
+                        // Same settings-tab deep link the notification path uses:
+                        // pin the tab before navigating (Server = 1, Storage = 2).
+                        onOpenSettingsTab = { tab ->
+                            deepLinkTab = tab
+                            onTabSelect("settings")
+                        },
                     )
                 }
                 composable("nowplaying") {
