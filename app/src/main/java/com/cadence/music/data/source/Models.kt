@@ -17,6 +17,8 @@ data class Track(
     val albumArtist: String? = null,
     // First genre tag (local MediaStore reads only; server sources null for now).
     val genre: String? = null,
+    // Advertised source file size, when the backend exposes one.
+    val sizeBytes: Long = 0,
 )
 
 data class Album(

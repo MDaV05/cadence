@@ -1,24 +1,46 @@
 package com.cadence.music.data.downloads
 
 /**
- * Count-based snapshot of the download queue. The worker does not report
- * per-file byte progress upward, so the UI bar advances per settled track.
+ * Count-based snapshot of the download queue.
+ *
+ * [fraction] deliberately counts only completed tracks. A failed download is
+ * not progress: the old behavior counted it as settled, so a fully failed
+ * batch could display as 100% complete.
  */
-data class DownloadProgress(val total: Int, val running: Int, val done: Int, val failed: Int) {
-    /** Failed counts as settled: the queue is done with that item either way. */
-    val fraction: Float get() = if (total == 0) 0f else (done + failed).toFloat() / total
-    val active: Boolean get() = running > 0
+data class DownloadProgress(
+    val total: Int,
+    val queued: Int,
+    val running: Int,
+    val done: Int,
+    val failed: Int,
+    val cancelled: Int = 0,
+) {
+    val visibleTotal: Int get() = (total - cancelled).coerceAtLeast(0)
+    val pending: Int get() = queued + running
+    val active: Boolean get() = pending > 0
+    val fraction: Float get() = if (visibleTotal == 0) 0f else done.toFloat() / visibleTotal
 }
 
-/** statuses: "running" | "done" | "failed" | anything else = queued (counted in total only). */
+/** statuses: "queued" | "running" | "done" | "failed" | "cancelled" | unknown = queued. */
 fun progressOf(statuses: List<String>): DownloadProgress {
+    var queued = 0
     var running = 0
     var done = 0
     var failed = 0
+    var cancelled = 0
     for (s in statuses) when (s) {
         "running" -> running++
         "done" -> done++
         "failed" -> failed++
+        "cancelled" -> cancelled++
+        else -> queued++
     }
-    return DownloadProgress(total = statuses.size, running = running, done = done, failed = failed)
+    return DownloadProgress(
+        total = statuses.size,
+        queued = queued,
+        running = running,
+        done = done,
+        failed = failed,
+        cancelled = cancelled,
+    )
 }

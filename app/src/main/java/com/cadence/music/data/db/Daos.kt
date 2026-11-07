@@ -214,17 +214,45 @@ interface DownloadDao {
     @Query("SELECT * FROM downloads WHERE status = :status")
     suspend fun byStatus(status: String): List<DownloadEntity>
 
+    /** Next unit of work; user taps outrank bulk album/library queues. */
+    @Query(
+        "SELECT * FROM downloads WHERE status = 'queued' " +
+            "ORDER BY priority DESC, enqueuedAt ASC, updatedAt ASC LIMIT 1"
+    )
+    suspend fun nextQueued(): DownloadEntity?
+
+    @Query("SELECT COUNT(*) FROM downloads WHERE status = 'queued'")
+    suspend fun queuedCount(): Int
+
     @Query(
         "UPDATE downloads SET status = :status, bytesDone = :bytesDone, " +
+            "totalBytes = :totalBytes, errorText = :errorText, attempts = :attempts, " +
             "updatedAt = :now WHERE trackServerId = :serverId AND sourceId = :sourceId"
+    )
+    suspend fun update(
+        serverId: String,
+        sourceId: String,
+        status: String,
+        bytesDone: Long,
+        totalBytes: Long,
+        errorText: String?,
+        attempts: Int,
+        now: Long = System.currentTimeMillis(),
+    ): Int
+
+    @Query(
+        "UPDATE downloads SET status = :status, bytesDone = :bytesDone, " +
+            "totalBytes = :totalBytes, updatedAt = :now " +
+            "WHERE trackServerId = :serverId AND sourceId = :sourceId"
     )
     suspend fun updateProgress(
         serverId: String,
         sourceId: String,
         status: String,
         bytesDone: Long,
+        totalBytes: Long,
         now: Long = System.currentTimeMillis(),
-    )
+    ): Int
 
     @Query("DELETE FROM downloads WHERE trackServerId = :serverId AND sourceId = :sourceId")
     suspend fun delete(serverId: String, sourceId: String)

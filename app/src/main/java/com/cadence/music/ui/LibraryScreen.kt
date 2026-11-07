@@ -240,7 +240,7 @@ fun TrackRow(
     track: TrackEntity,
     onArtistClick: (String) -> Unit = {},
     onAlbumClick: (String) -> Unit = {},
-    isDownloading: Boolean = false,
+    downloadStatus: String? = null,
     onClick: () -> Unit,
 ) {
     val art by produceState<String?>(null, track.id) {
@@ -277,15 +277,23 @@ fun TrackRow(
                 maxLines = 1,
             )
         }
-        // A running download replaces the duration with a live spinner — the
-        // trigger point must show feedback, not a dead icon.
-        if (isDownloading) {
-            CircularProgressIndicator(Modifier.size(18.dp))
-        } else {
-            Text(
-                formatDuration(track.durationMs),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+        Text(
+            formatDuration(track.durationMs),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        // Server tracks always show their offline state, and the empty state is
+        // itself the download action — no need to long-press for common work.
+        if (track.sourceId != "local") {
+            val downloaded = track.path != null
+            DownloadStatusIcon(
+                status = downloadStatus,
+                isDownloaded = downloaded,
+                onDownload = if (!downloaded) {
+                    { container.library.enqueueDownload(track) }
+                } else {
+                    null
+                },
             )
         }
     }
@@ -801,9 +809,10 @@ private fun songsTab(
     // Running-download keys collected once at the list level, never per item.
     val downloadRows by container.library.observeDownloads()
         .collectAsStateWithLifecycle(initialValue = emptyList())
-    val runningDownloads = remember(downloadRows) {
-        downloadRows.filter { it.download.status == "running" }
-            .mapTo(mutableSetOf()) { "${it.download.sourceId}:${it.download.trackServerId}" }
+    val downloadStatuses = remember(downloadRows) {
+        downloadRows.associate {
+            "${it.download.sourceId}:${it.download.trackServerId}" to it.download.status
+        }
     }
 
     // Empty gate on the mode-aware count + pager state (never on the initial 0
@@ -892,7 +901,7 @@ private fun songsTab(
                         track,
                         onArtistClick,
                         onAlbumClick,
-                        isDownloading = "${track.sourceId}:${track.serverId}" in runningDownloads,
+                        downloadStatus = downloadStatuses["${track.sourceId}:${track.serverId}"],
                     ) { player.playNow(listOf(track.toTrack())) }
                 }
             }

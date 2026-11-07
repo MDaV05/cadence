@@ -103,6 +103,7 @@ class BaleSource(
                 durationMs = duration * 1000L,
                 localPath = null,
                 streamUrl = null,
+                sizeBytes = audio.optLong("file_size", 0),
             )
             chatTracks.getOrPut(albumKey) { mutableListOf() }.add(track)
         }

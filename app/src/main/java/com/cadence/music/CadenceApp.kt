@@ -72,6 +72,9 @@ class CadenceApp : Application(), coil.ImageLoaderFactory {
                 if (repaired > 0) runCatching { MetadataSync.runNow(this@CadenceApp) }
             }
         }
+        // Downloads interrupted by process death must resume even when no
+        // library permission/server exists to trigger the block above.
+        appScope.launch { runCatching { container.library.recoverDownloadQueue() } }
         appScope.launch { container.loadCustomThemes() }
         // Update check: tiny JSON, any network, never blocks startup, never dialogs.
         // A new Available tag posts one heads-up notification (About stays the fallback).

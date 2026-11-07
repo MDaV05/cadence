@@ -68,9 +68,10 @@ fun SearchScreen(
     // Running-download keys collected once at the list level, never per item.
     val downloadRows by container.library.observeDownloads()
         .collectAsStateWithLifecycle(initialValue = emptyList())
-    val runningDownloads = remember(downloadRows) {
-        downloadRows.filter { it.download.status == "running" }
-            .mapTo(mutableSetOf()) { "${it.download.sourceId}:${it.download.trackServerId}" }
+    val downloadStatuses = remember(downloadRows) {
+        downloadRows.associate {
+            "${it.download.sourceId}:${it.download.trackServerId}" to it.download.status
+        }
     }
 
     fun recordQuery(q: String) {
@@ -172,7 +173,7 @@ fun SearchScreen(
                                     track,
                                     onArtistClick,
                                     onAlbumClick,
-                                    isDownloading = "${track.sourceId}:${track.serverId}" in runningDownloads,
+                                    downloadStatus = downloadStatuses["${track.sourceId}:${track.serverId}"],
                                 ) {
                                     recordQuery(query)
                                     focusManager.clearFocus()

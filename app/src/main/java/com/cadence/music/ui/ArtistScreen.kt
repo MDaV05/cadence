@@ -173,9 +173,10 @@ fun ArtistScreen(
     // Running-download keys collected once at the list level, never per item.
     val downloadRows by container.library.observeDownloads()
         .collectAsStateWithLifecycle(initialValue = emptyList())
-    val runningDownloads = remember(downloadRows) {
-        downloadRows.filter { it.download.status == "running" }
-            .mapTo(mutableSetOf()) { "${it.download.sourceId}:${it.download.trackServerId}" }
+    val downloadStatuses = remember(downloadRows) {
+        downloadRows.associate {
+            "${it.download.sourceId}:${it.download.trackServerId}" to it.download.status
+        }
     }
 
     val albums = remember(tracks) {
@@ -331,7 +332,7 @@ fun ArtistScreen(
                     track,
                     onArtistClick = onArtistClick,
                     onAlbumClick = onAlbumClick,
-                    isDownloading = "${track.sourceId}:${track.serverId}" in runningDownloads,
+                    downloadStatus = downloadStatuses["${track.sourceId}:${track.serverId}"],
                 ) { player.playNow(listOf(track.toTrack())) }
             }
             if (tracks.isEmpty()) {

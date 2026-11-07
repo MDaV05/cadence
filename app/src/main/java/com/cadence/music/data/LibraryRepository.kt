@@ -18,6 +18,9 @@ import com.cadence.music.data.db.ArtistOverrideEntity
 import com.cadence.music.data.db.ArtistTile
 import com.cadence.music.data.db.DownloadEntity
 import com.cadence.music.data.db.LyricsEntity
+import com.cadence.music.data.downloads.DownloadScheduler
+import com.cadence.music.data.downloads.DownloadStatus
+import com.cadence.music.data.downloads.estimateDownloadBytes
 import com.cadence.music.data.db.TrackArtOverrideEntity
 import com.cadence.music.data.db.TrackEntity
 import com.cadence.music.data.db.TrackQueries
@@ -636,6 +639,7 @@ class LibraryRepository(
                     lastPlayed = prev?.lastPlayed,
                     genre = t.genre,
                     starred = prev?.starred ?: false,
+                    sizeBytes = t.sizeBytes,
                 )
             }
         }
@@ -799,6 +803,7 @@ class LibraryRepository(
                 // must clear here); local/telegram/plex tracks keep the local flag
                 // because their worlds have no server truth to defer to.
                 starred = mergedStarred(sourceId, t.starred, prev?.starred ?: false),
+                sizeBytes = t.sizeBytes,
             )
         }
         db.withTransaction {
@@ -908,28 +913,93 @@ class LibraryRepository(
             dls.map { DownloadStatusRow(it, byKey["${it.sourceId}:${it.trackServerId}"]) }
         }
 
-    /** Queues a track for download; only server tracks are downloadable. */
-    fun enqueueDownload(track: TrackEntity) {
-        if (track.sourceId == "local") return
-        com.cadence.music.data.downloads.DownloadWorker.enqueue(context, track.id)
-    }
-
-    fun enqueueDownloads(tracks: List<TrackEntity>) {
-        tracks.filter { it.sourceId != "local" }.forEach { enqueueDownload(it) }
-    }
+    /**
+     * Adds tracks to the persistent queue. A user tap gets priority 1 so it
+     * jumps ahead of an album or whole-library batch, but still uses the same
+     * single drain loop and Wi-Fi policy.
+     */
+    fun enqueueDownload(track: TrackEntity) = enqueueDownloadsAsync(listOf(track), priority = 1)
 
     /** Off-main bulk enqueue that survives dialog disposal (app-lifetime scope). */
-    fun enqueueDownloadsAsync(tracks: List<TrackEntity>) {
-        syncScope.launch { enqueueDownloads(tracks) }
+    fun enqueueDownloadsAsync(tracks: List<TrackEntity>, priority: Int = 0) {
+        if (tracks.isEmpty()) return
+        syncScope.launch { enqueueDownloads(tracks, priority) }
     }
+
+    suspend fun enqueueDownloads(tracks: List<TrackEntity>, priority: Int = 0) {
+        if (tracks.isEmpty()) return
+        val format = prefs.downloadFormat
+        val bitrate = prefs.downloadBitrate
+        val now = System.currentTimeMillis()
+        val rows = withContext(Dispatchers.IO) {
+            val out = mutableListOf<DownloadEntity>()
+            val seen = mutableSetOf<String>()
+            for (track in tracks) {
+                if (track.sourceId == "local" || track.path != null) continue
+                if (!seen.add("${track.sourceId}:${track.serverId}")) continue
+                val existing = db.downloadDao().byTrack(track.sourceId, track.serverId)
+                // A running track is already being written. A done row whose
+                // track has no path is inconsistent, so it is requeued below.
+                if (existing?.status == DownloadStatus.RUNNING) continue
+                val estimate = estimateDownloadBytes(track, format, bitrate)
+                out += DownloadEntity(
+                    trackServerId = track.serverId,
+                    sourceId = track.sourceId,
+                    status = DownloadStatus.QUEUED,
+                    bytesDone = if (existing?.status == DownloadStatus.QUEUED) existing.bytesDone else 0,
+                    transcode = format,
+                    updatedAt = now,
+                    errorText = null,
+                    totalBytes = if (estimate > 0) estimate else -1,
+                    enqueuedAt = existing?.enqueuedAt?.takeIf { it > 0 } ?: now,
+                    priority = maxOf(priority, existing?.priority ?: 0),
+                    attempts = 0,
+                )
+            }
+            out
+        }
+        if (rows.isEmpty()) return
+        db.withTransaction { rows.forEach { db.downloadDao().upsert(it) } }
+        DownloadScheduler.start(context, prefs)
+    }
+
+    fun pauseDownloads() = DownloadScheduler.pause(context, prefs)
+
+    fun resumeDownloads() = DownloadScheduler.resume(context, prefs)
+
+    /**
+     * App-start recovery: a killed process leaves rows stuck on "running" that
+     * no WorkManager job will ever pick up. Put them back in the queue (the
+     * partial file is preserved) and restart the drain unless the user paused.
+     */
+    suspend fun recoverDownloadQueue(): Int = withContext(Dispatchers.IO) {
+        var requeued = 0
+        for (row in db.downloadDao().byStatus(DownloadStatus.RUNNING)) {
+            val track = db.trackDao().byServerId(row.trackServerId)
+            if (track != null && com.cadence.music.data.downloads.DownloadWorker.isActive(track.id)) continue
+            db.downloadDao().update(
+                row.trackServerId,
+                row.sourceId,
+                DownloadStatus.QUEUED,
+                row.bytesDone,
+                row.totalBytes,
+                null,
+                row.attempts,
+            )
+            requeued++
+        }
+        if (db.downloadDao().queuedCount() > 0) DownloadScheduler.start(context, prefs)
+        requeued
+    }
+
+    /** Re-applies the Wi-Fi policy after the user flips the setting. */
+    fun applyDownloadNetworkPolicy() = DownloadScheduler.start(context, prefs, replace = true)
 
     suspend fun retryDownload(download: DownloadEntity, track: TrackEntity?) {
         if (track != null) {
-            enqueueDownload(track)
+            enqueueDownloads(listOf(track), priority = 1)
         } else {
-            db.downloadDao().updateProgress(
-                download.trackServerId, download.sourceId, "failed", 0,
-            )
+            db.downloadDao().delete(download.trackServerId, download.sourceId)
         }
     }
 
@@ -941,6 +1011,15 @@ class LibraryRepository(
         val base = com.cadence.music.data.downloads.downloadBaseName(sourceId, serverId)
         dir.listFiles()?.filter {
             it.name == "$base.part" || it.name.startsWith("$base.")
+        }?.forEach {
+            runCatching { it.delete() }
+        }
+    }
+
+    private fun deletePartialDownloadFiles(dir: java.io.File, sourceId: String, serverId: String) {
+        val base = com.cadence.music.data.downloads.downloadBaseName(sourceId, serverId)
+        dir.listFiles()?.filter {
+            it.name == "$base.part" || it.name == "$base.part.meta"
         }?.forEach {
             runCatching { it.delete() }
         }
@@ -963,18 +1042,19 @@ class LibraryRepository(
         var repaired = 0
         val filesByBase = dir.listFiles()?.groupBy { it.name.substringBefore('.') } ?: emptyMap()
         val allTracks = db.trackDao().observeAll().first().associateBy { "${it.sourceId}:${it.serverId}" }
-        val done = db.downloadDao().byStatus("done")
-        val running = db.downloadDao().byStatus("running")
+        val done = db.downloadDao().byStatus(DownloadStatus.DONE)
+        val running = db.downloadDao().byStatus(DownloadStatus.RUNNING)
 
         for (row in running) {
             val track = allTracks["${row.sourceId}:${row.trackServerId}"]
             if (track == null || com.cadence.music.data.downloads.DownloadWorker.isActive(track.id)) continue
+            // An interrupted row keeps its resumable partial; the queue picks it
+            // up again instead of forcing the user to find and retry it manually.
             db.downloadDao().upsert(
                 row.copy(
-                    status = "failed",
-                    bytesDone = 0L,
+                    status = DownloadStatus.QUEUED,
                     updatedAt = System.currentTimeMillis(),
-                    errorText = "download was interrupted"
+                    errorText = null,
                 )
             )
             repaired++
@@ -1016,10 +1096,11 @@ class LibraryRepository(
                 if (pathChanged || row.bytesDone != file.length() || row.errorText != null) {
                     db.downloadDao().upsert(
                         row.copy(
-                            status = "done",
+                            status = DownloadStatus.DONE,
                             bytesDone = file.length(),
+                            totalBytes = file.length(),
                             updatedAt = System.currentTimeMillis(),
-                            errorText = null
+                            errorText = null,
                         )
                     )
                 }
@@ -1039,10 +1120,10 @@ class LibraryRepository(
 
                 db.downloadDao().upsert(
                     row.copy(
-                        status = "failed",
+                        status = DownloadStatus.FAILED,
                         bytesDone = 0L,
                         updatedAt = System.currentTimeMillis(),
-                        errorText = issue
+                        errorText = issue,
                     )
                 )
                 repaired++
@@ -1062,7 +1143,7 @@ class LibraryRepository(
             repaired++
         }
 
-        val failed = db.downloadDao().byStatus("failed")
+        val failed = db.downloadDao().byStatus(DownloadStatus.FAILED)
         for (row in failed) {
             if (com.cadence.music.data.downloads.isStaleDownloadError(row.errorText)) {
                 val track = allTracks["${row.sourceId}:${row.trackServerId}"]
@@ -1070,6 +1151,7 @@ class LibraryRepository(
             }
         }
 
+        if (db.downloadDao().queuedCount() > 0) DownloadScheduler.start(context, prefs)
         repaired
     }
 
@@ -1077,13 +1159,11 @@ class LibraryRepository(
         val tracks = db.trackDao().observeAll().first()
             .filter { it.sourceId != "local" }
             .associateBy { "${it.sourceId}:${it.serverId}" }
-        val failed = db.downloadDao().byStatus("failed")
+        val failed = db.downloadDao().byStatus(DownloadStatus.FAILED)
         val targets = failed.mapNotNull { row ->
             tracks["${row.sourceId}:${row.trackServerId}"]
         }
-        targets.forEach { track ->
-            com.cadence.music.data.downloads.DownloadWorker.enqueue(context, track.id, serial = true)
-        }
+        if (targets.isNotEmpty()) enqueueDownloads(targets, priority = 0)
         return targets.size
     }
 
@@ -1091,7 +1171,9 @@ class LibraryRepository(
         syncScope.launch {
             runCatching { launchSync().join() }
             val stillStale = runCatching {
-                db.downloadDao().byStatus("failed").any { com.cadence.music.data.downloads.isStaleDownloadError(it.errorText) }
+                db.downloadDao().byStatus(DownloadStatus.FAILED).any {
+                    com.cadence.music.data.downloads.isStaleDownloadError(it.errorText)
+                }
             }.getOrDefault(false)
             if (stillStale) {
                 runCatching { syncAll() }
@@ -1111,6 +1193,70 @@ class LibraryRepository(
             deleteDownloadFiles(java.io.File(context.filesDir, "downloads"), download.sourceId, download.trackServerId)
             db.downloadDao().delete(download.trackServerId, download.sourceId)
         }
+    }
+
+    /**
+     * Drops a queued/running/failed row. A running worker gets a cancel signal
+     * and owns cleanup of its in-flight partial; deleting the file from under
+     * an open stream would leave the writer pointing at an unlinked inode.
+     */
+    suspend fun cancelDownload(download: DownloadEntity, track: TrackEntity?) {
+        val active = track != null && com.cadence.music.data.downloads.DownloadWorker.isActive(track.id)
+        if (track != null) com.cadence.music.data.downloads.DownloadWorker.requestCancel(track.id)
+        withContext(Dispatchers.IO) {
+            if (!active) {
+                deletePartialDownloadFiles(
+                    java.io.File(context.filesDir, "downloads"),
+                    download.sourceId,
+                    download.trackServerId,
+                )
+            }
+            db.downloadDao().delete(download.trackServerId, download.sourceId)
+        }
+    }
+
+    /** Deletes every completed download; returns how many tracks were removed. */
+    suspend fun clearCompletedDownloads(): Int = withContext(Dispatchers.IO) {
+        val done = db.downloadDao().byStatus(DownloadStatus.DONE)
+        val tracks = db.trackDao().observeAll().first()
+            .associateBy { "${it.sourceId}:${it.serverId}" }
+        for (row in done) {
+            val track = tracks["${row.sourceId}:${row.trackServerId}"]
+            track?.path?.takeIf { it.startsWith("file:") }?.let(::fileFromPath)
+                ?.let { runCatching { it.delete() } }
+            if (track != null && track.sourceId != "local") db.trackDao().setPath(track.id, null)
+            deleteDownloadFiles(java.io.File(context.filesDir, "downloads"), row.sourceId, row.trackServerId)
+            db.downloadDao().delete(row.trackServerId, row.sourceId)
+        }
+        done.size
+    }
+
+    /**
+     * Removes an album's downloads, including queued/running rows, so a bulk
+     * delete never leaves a worker writing a file the user just removed.
+     */
+    suspend fun deleteAlbumDownloads(albumNorm: String): Int = withContext(Dispatchers.IO) {
+        // A blank key would match every untagged track, not one album.
+        if (albumNorm.isBlank()) return@withContext 0
+        val tracks = db.trackDao().byAlbumNorm(albumNorm)
+        val dir = java.io.File(context.filesDir, "downloads")
+        var removed = 0
+        for (track in tracks) {
+            val row = db.downloadDao().byTrack(track.sourceId, track.serverId) ?: continue
+            val active = com.cadence.music.data.downloads.DownloadWorker.isActive(track.id)
+            if (row.status == DownloadStatus.RUNNING || active) {
+                com.cadence.music.data.downloads.DownloadWorker.requestCancel(track.id)
+            }
+            if (!active) {
+                track.path?.takeIf { it.startsWith("file:") }?.let(::fileFromPath)
+                    ?.let { runCatching { it.delete() } }
+                if (track.sourceId != "local") db.trackDao().setPath(track.id, null)
+                deleteDownloadFiles(dir, row.sourceId, row.trackServerId)
+            }
+            db.downloadDao().delete(row.trackServerId, row.sourceId)
+            removed++
+        }
+        removed
     }
 
     /** Edits a local file's tags via MediaStore, then mirrors them into the DB row. */

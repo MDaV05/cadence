@@ -1,43 +1,72 @@
 package com.cadence.music.data.downloads
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DownloadProgressTest {
     @Test fun `empty list is zero progress`() {
         val p = progressOf(emptyList())
-        assertEquals(DownloadProgress(0, 0, 0, 0), p)
+        assertEquals(DownloadProgress(0, 0, 0, 0, 0, 0), p)
         assertEquals(0f, p.fraction, 0f)
-        assertEquals(false, p.active)
+        assertFalse(p.active)
     }
 
     @Test fun `counts each known status`() {
-        val p = progressOf(listOf("running", "running", "done", "failed"))
-        assertEquals(4, p.total)
+        val p = progressOf(listOf("queued", "running", "running", "done", "failed", "cancelled"))
+        assertEquals(6, p.total)
+        assertEquals(1, p.queued)
         assertEquals(2, p.running)
         assertEquals(1, p.done)
         assertEquals(1, p.failed)
-        assertEquals(true, p.active)
+        assertEquals(1, p.cancelled)
     }
 
-    @Test fun `unknown statuses count in total as queued`() {
+    @Test fun `unknown statuses count as queued`() {
         val p = progressOf(listOf("queued", "pending", "done"))
         assertEquals(3, p.total)
-        assertEquals(0, p.running)
+        assertEquals(2, p.queued)
         assertEquals(1, p.done)
         assertEquals(0, p.failed)
-        assertEquals(false, p.active)
+        assertTrue(p.active)
     }
 
-    @Test fun `fraction counts failed as settled`() {
-        // 2 done + 1 failed of 6 settled = 0.5
+    @Test fun `failed downloads are not progress`() {
+        // 2 done out of 6 visible: the old behavior counted the failure as
+        // settled and displayed 50% for work that did not land.
         val p = progressOf(listOf("done", "done", "failed", "running", "queued", "queued"))
-        assertEquals(0.5f, p.fraction, 0.0001f)
+        assertEquals(2f / 6f, p.fraction, 0.0001f)
+        assertEquals(1, p.failed)
+        assertEquals(3, p.pending)
+        assertTrue(p.active)
+    }
+
+    @Test fun `cancelled rows leave the denominator`() {
+        val p = progressOf(listOf("done", "failed", "cancelled", "queued"))
+        assertEquals(3, p.visibleTotal)
+        assertEquals(1f / 3f, p.fraction, 0.0001f)
+        assertEquals(1, p.cancelled)
+        assertTrue(p.active)
     }
 
     @Test fun `all done is full fraction`() {
         val p = progressOf(listOf("done", "done", "done"))
         assertEquals(1f, p.fraction, 0f)
-        assertEquals(false, p.active)
+        assertFalse(p.active)
+    }
+
+    @Test fun `queued-only queue is active but has no fraction`() {
+        val p = progressOf(listOf("queued", "queued"))
+        assertEquals(0f, p.fraction, 0f)
+        assertEquals(2, p.pending)
+        assertTrue(p.active)
+    }
+
+    @Test fun `all cancelled never divides by zero`() {
+        val p = progressOf(listOf("cancelled", "cancelled"))
+        assertEquals(0, p.visibleTotal)
+        assertEquals(0f, p.fraction, 0f)
+        assertFalse(p.active)
     }
 }

@@ -2,15 +2,8 @@ package com.cadence.music.data.downloads
 
 import android.content.Context
 import android.net.Uri
-import androidx.work.BackoffPolicy
-import androidx.work.Constraints
 import androidx.work.CoroutineWorker
-import androidx.work.ExistingWorkPolicy
-import androidx.work.NetworkType
-import androidx.work.OneTimeWorkRequestBuilder
-import androidx.work.WorkManager
 import androidx.work.WorkerParameters
-import androidx.work.workDataOf
 import com.cadence.music.CadenceApp
 import com.cadence.music.data.db.AppDatabase
 import com.cadence.music.data.db.DownloadEntity
@@ -24,7 +17,8 @@ import java.io.FileOutputStream
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
-import java.util.concurrent.TimeUnit
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 
 // Storage guard rails: refuse to start a write unless filesDir has the announced
 // size plus headroom (or a flat floor when the server hides Content-Length).
@@ -40,49 +34,105 @@ private class DownloadRejected(message: String, val staleId: Boolean = false) : 
 /** A transient network/HTTP failure; keep the partial and try again. */
 private class DownloadRetryable(message: String) : IOException(message)
 
+/** The user removed this track from the queue. Delete the partial and move on. */
+private class DownloadCancelled : Exception()
+
+/** The user paused the queue. Keep the partial; it will resume later. */
+private class DownloadPaused : Exception()
+
+private enum class Outcome { CONTINUE, RETRY, STOP }
+
+/**
+ * Drains the persistent queue one track at a time. The row is the source of
+ * truth: a queued row exists before WorkManager runs, survives process death,
+ * and carries the byte total, attempt count, and queue order the UI needs.
+ */
 class DownloadWorker(context: Context, params: WorkerParameters) :
     CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
         val app = applicationContext as CadenceApp
-        val trackId = inputData.getLong("trackRowId", -1)
-        if (trackId <= 0) return Result.success()
-        // A user tap (unique name "dl_<id>") can overlap the same track waiting
-        // in the bulk chain ("downloads"); both would write the same .part.
-        // Retry so the second request picks up after the active one finishes.
-        if (!activeTracks.add(trackId)) return Result.retry()
+        val prefs = app.container.prefs
+        if (prefs.downloadsPaused) return Result.success()
+        // Legacy work requests from the old per-track chain may overlap this
+        // queue after an upgrade. One drain loop is enough.
+        if (!draining.compareAndSet(false, true)) return Result.success()
+        val db = app.container.database
         return try {
-            download(app, trackId)
-        } catch (e: CancellationException) {
-            // WorkManager is stopping us; never turn that into a failed download.
-            throw e
-        } catch (e: Exception) {
-            // download() handles every expected failure itself, but an
-            // unexpected throw must not leave a "running" row forever.
-            runCatching {
-                val db = app.container.database
-                val current = db.trackDao().byId(trackId) ?: return@runCatching
-                db.downloadDao().upsert(
-                    DownloadEntity(
-                        current.serverId, current.sourceId, "failed", 0,
-                        app.container.prefs.downloadFormat,
-                        errorText = e.message ?: "download failed",
-                    )
-                )
+            requeueInterrupted(db)
+            while (!isStopped) {
+                if (prefs.downloadsPaused || pauseRequested) return Result.success()
+                if (prefs.downloadWifiOnly && !isUnmetered(applicationContext)) {
+                    return Result.retry()
+                }
+                val row = db.downloadDao().nextQueued() ?: return Result.success()
+                val track = db.trackDao().byServerId(row.trackServerId)
+                if (track == null || track.sourceId != row.sourceId) {
+                    db.downloadDao().delete(row.trackServerId, row.sourceId)
+                    continue
+                }
+                when (downloadOne(app, track)) {
+                    Outcome.CONTINUE -> Unit
+                    Outcome.RETRY -> return Result.retry()
+                    Outcome.STOP -> return Result.success()
+                }
             }
-            // Never fail the serial chain from here, or every queued track
-            // after this one dies.
             Result.success()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            // A row-level failure is already persisted. A database failure keeps
+            // the queue alive for the next run instead of losing it.
+            Result.retry()
         } finally {
-            activeTracks.remove(trackId)
+            draining.set(false)
         }
     }
 
-    private suspend fun download(app: CadenceApp, trackId: Long): Result {
+    /**
+     * Rows left "running" by a killed process would otherwise never be picked
+     * up again. An active track is skipped so two workers can never reset each
+     * other mid-flight.
+     */
+    private suspend fun requeueInterrupted(db: AppDatabase) {
+        for (row in db.downloadDao().byStatus(DownloadStatus.RUNNING)) {
+            val track = db.trackDao().byServerId(row.trackServerId) ?: continue
+            if (isActive(track.id)) continue
+            db.downloadDao().update(
+                row.trackServerId,
+                row.sourceId,
+                DownloadStatus.QUEUED,
+                row.bytesDone,
+                row.totalBytes,
+                null,
+                row.attempts,
+            )
+        }
+    }
+
+    private suspend fun downloadOne(app: CadenceApp, track: TrackEntity): Outcome {
+        if (!activeTracks.add(track.id)) return Outcome.CONTINUE
+        cancelRequests.remove(track.id)
+        return try {
+            val current = app.container.database.downloadDao()
+                .byTrack(track.sourceId, track.serverId)
+                ?: return Outcome.CONTINUE
+            if (current.status != DownloadStatus.QUEUED) return Outcome.CONTINUE
+            download(app, track, current)
+        } catch (_: DownloadCancelled) {
+            Outcome.CONTINUE
+        } catch (_: DownloadPaused) {
+            Outcome.STOP
+        } finally {
+            activeTracks.remove(track.id)
+            cancelRequests.remove(track.id)
+        }
+    }
+
+    private suspend fun download(app: CadenceApp, track: TrackEntity, prior: DownloadEntity): Outcome {
         val db = app.container.database
         val prefs = app.container.prefs
-        // The track may have been deleted while it sat in the bulk queue.
-        val track = db.trackDao().byId(trackId) ?: return Result.success()
+        val trackId = track.id
         val format = prefs.downloadFormat
 
         val dir = File(applicationContext.filesDir, "downloads").apply { mkdirs() }
@@ -95,23 +145,26 @@ class DownloadWorker(context: Context, params: WorkerParameters) :
             runCatching { tmp.delete() }
             runCatching { meta.delete() }
         }
-        val prior = db.downloadDao().byTrack(track.sourceId, track.serverId)
         var current = track.path?.let(::fileFromPath)?.takeIf { it.exists() }
 
         // Reuse a playable file in the requested format. This also adopts a file
         // whose download row was lost, and replaces a row that was wrongly "done".
         val currentIssue = current?.let(::audioFileIssue)
         // Pre-transcode rows have a null transcode; they hold the original file.
-        val sameFormat = prior == null || prior.transcode == format ||
+        val sameFormat = prior.transcode == format ||
             (prior.transcode == null && format == "raw")
         if (current != null && currentIssue == null && sameFormat) {
             db.trackDao().setPath(trackId, Uri.fromFile(current).toString())
-            if (prior == null || prior.status != "done" || prior.transcode != format) {
-                db.downloadDao().upsert(
-                    DownloadEntity(track.serverId, track.sourceId, "done", current.length(), format)
-                )
-            }
-            return Result.success()
+            db.downloadDao().update(
+                track.serverId,
+                track.sourceId,
+                DownloadStatus.DONE,
+                current.length(),
+                current.length(),
+                null,
+                0,
+            )
+            return Outcome.CONTINUE
         }
         // Anything that failed verification is poison: deleting it and clearing the
         // path is what lets the track become downloadable again.
@@ -123,12 +176,11 @@ class DownloadWorker(context: Context, params: WorkerParameters) :
 
         val url = app.container.library.downloadUrlFor(track.serverId, format, prefs.downloadBitrate)
             ?: return markFailed(
-                db, track, prior?.transcode ?: format, "server is not configured",
-                retryable = false, clearPath = false,
+                db, track, prior, "server is not configured", retryable = false, clearPath = false,
             )
 
         // A format switch must not reuse the old container as "done".
-        if (prior != null && prior.transcode != format) {
+        if (prior.transcode != format) {
             current?.let { runCatching { it.delete() } }
             current = null
             db.trackDao().setPath(trackId, null)
@@ -137,12 +189,10 @@ class DownloadWorker(context: Context, params: WorkerParameters) :
         // A partial that is actually a JSON/HTML error page can never be resumed.
         if (tmp.exists() && looksLikeErrorBody(tmp)) discardPartial()
 
-        db.downloadDao().upsert(
-            DownloadEntity(track.serverId, track.sourceId, "running", transcode = format)
-        )
-
         var done = if (tmp.exists()) tmp.length() else 0L
+        var total = prior.totalBytes
         var lastReported = -1L
+        var attempts = prior.attempts
         // If the server honors If-Range only when the file is unchanged, a
         // changed file comes back as 200 and the partial is replaced below.
         // No validator means we cannot prove the partial still matches the
@@ -152,38 +202,49 @@ class DownloadWorker(context: Context, params: WorkerParameters) :
             discardPartial()
             done = 0L
         }
-        suspend fun reportProgress() {
-            if (done - lastReported >= PROGRESS_STEP_BYTES) {
+
+        val running = db.downloadDao().update(
+            track.serverId, track.sourceId, DownloadStatus.RUNNING,
+            done, total, null, attempts,
+        )
+        if (running == 0) return Outcome.CONTINUE
+
+        suspend fun reportProgress(force: Boolean = false) {
+            if (force || done - lastReported >= PROGRESS_STEP_BYTES) {
                 lastReported = done
-                db.downloadDao().updateProgress(track.serverId, track.sourceId, "running", done)
+                // A relink can move this row to a new server id mid-flight, so a
+                // zero-row update is not proof of cancellation; the loop's
+                // cancelRequests check is the authoritative signal.
+                db.downloadDao().updateProgress(
+                    track.serverId, track.sourceId, DownloadStatus.RUNNING, done, total,
+                )
             }
         }
-        reportProgress()
+        reportProgress(force = true)
 
         try {
             val conn = openFollowingRedirects(url, done, validator)
             try {
                 val code = conn.responseCode
-                var expectedTotal: Long
                 when {
                     code == 200 -> {
                         done = 0L
                         writeValidator(meta, conn, fullResponse = true)
                         val announcedLen = conn.contentLengthLong
-                        expectedTotal = if (announcedLen > 0) announcedLen else -1L
+                        total = if (announcedLen > 0) announcedLen else -1L
                     }
                     code == 206 -> {
                         val range = conn.getHeaderField("Content-Range")
                         val start = contentRangeStart(range)
-                        val total = contentRangeTotal(range)
+                        val announcedTotal = contentRangeTotal(range)
                         if (range == null || start != done) {
                             discardPartial()
                             throw DownloadRetryable("server resumed at the wrong offset")
                         }
                         writeValidator(meta, conn, fullResponse = false)
                         val announcedLen = conn.contentLengthLong
-                        expectedTotal = when {
-                            total != null && total > 0 -> total
+                        total = when {
+                            announcedTotal != null && announcedTotal > 0 -> announcedTotal
                             announcedLen > 0 -> done + announcedLen
                             else -> -1L
                         }
@@ -192,7 +253,8 @@ class DownloadWorker(context: Context, params: WorkerParameters) :
                         // Stale/unsatisfiable range (file changed server-side): drop the
                         // partial and let the next attempt start clean.
                         discardPartial()
-                        db.downloadDao().updateProgress(track.serverId, track.sourceId, "queued", 0)
+                        done = 0L
+                        total = -1L
                         throw DownloadRetryable("HTTP 416")
                     }
                     code == 408 || code == 425 || code == 429 || code in 500..599 ->
@@ -200,8 +262,9 @@ class DownloadWorker(context: Context, params: WorkerParameters) :
                     // A missing id (404/410) is just as stale as Subsonic 70.
                     else -> throw DownloadRejected("HTTP $code", staleId = code == 404 || code == 410)
                 }
+                reportProgress(force = true)
 
-                val needed = if (expectedTotal > done) (expectedTotal - done) + HEADROOM_BYTES else MIN_FREE_UNKNOWN_BYTES
+                val needed = if (total > done) (total - done) + HEADROOM_BYTES else MIN_FREE_UNKNOWN_BYTES
                 if (applicationContext.filesDir.usableSpace <= needed) {
                     throw DownloadRejected("not enough free storage")
                 }
@@ -210,14 +273,10 @@ class DownloadWorker(context: Context, params: WorkerParameters) :
                     FileOutputStream(tmp, done > 0).use { output ->
                         val buf = ByteArray(64 * 1024)
                         while (true) {
+                            if (cancelRequests.contains(trackId)) throw DownloadCancelled()
+                            if (pauseRequested) throw DownloadPaused()
                             if (isStopped) {
-                                if (runAttemptCount < MAX_ATTEMPTS) {
-                                    db.downloadDao().updateProgress(
-                                        track.serverId, track.sourceId, "queued", done,
-                                    )
-                                    return Result.retry()
-                                }
-                                throw DownloadRetryable("stopped")
+                                throw CancellationException("download worker stopped")
                             }
                             val n = input.read(buf)
                             if (n == -1) break
@@ -228,8 +287,8 @@ class DownloadWorker(context: Context, params: WorkerParameters) :
                     }
                 }
                 // Premature EOF must not be marked done when the size was known.
-                if (expectedTotal > 0 && done != expectedTotal) {
-                    throw DownloadRetryable("truncated: $done of $expectedTotal bytes")
+                if (total > 0 && done != total) {
+                    throw DownloadRetryable("truncated: $done of $total bytes")
                 }
 
                 // The whole point: no response body becomes a track until it
@@ -247,7 +306,7 @@ class DownloadWorker(context: Context, params: WorkerParameters) :
                         if (latest == null) {
                             discardPartial()
                             current?.let { runCatching { it.delete() } }
-                            return Result.success()
+                            return Outcome.CONTINUE
                         }
                         val outBase = downloadBaseName(latest.sourceId, latest.serverId)
                         val out = File(dir, "$outBase.${verdict.extension}")
@@ -264,11 +323,23 @@ class DownloadWorker(context: Context, params: WorkerParameters) :
                                 it.name != out.name && !it.name.endsWith(".part") &&
                                 !it.name.endsWith(".meta")
                         }?.forEach { runCatching { it.delete() } }
-                        db.trackDao().setPath(trackId, Uri.fromFile(out).toString())
-                        db.downloadDao().upsert(
-                            DownloadEntity(latest.serverId, latest.sourceId, "done", out.length(), format)
+                        val stored = db.downloadDao().update(
+                            latest.serverId,
+                            latest.sourceId,
+                            DownloadStatus.DONE,
+                            out.length(),
+                            out.length(),
+                            null,
+                            0,
                         )
-                        return Result.success()
+                        if (stored == 0) {
+                            // The user cancelled while the final bytes were landing.
+                            runCatching { out.delete() }
+                            db.trackDao().setPath(latest.id, null)
+                            return Outcome.CONTINUE
+                        }
+                        db.trackDao().setPath(latest.id, Uri.fromFile(out).toString())
+                        return Outcome.CONTINUE
                     }
                     is PayloadVerdict.Rejected -> {
                         throw DownloadRejected(verdict.message, staleId = verdict.staleId)
@@ -277,12 +348,16 @@ class DownloadWorker(context: Context, params: WorkerParameters) :
             } finally {
                 conn.disconnect()
             }
+        } catch (e: DownloadCancelled) {
+            discardPartial()
+            current?.let { runCatching { it.delete() } }
+            throw e
+        } catch (e: DownloadPaused) {
+            markQueued(db, track, done, total, attempts)
+            throw e
         } catch (e: CancellationException) {
             withContext(NonCancellable) {
-                val latest = runCatching { db.trackDao().byId(trackId) }.getOrNull() ?: track
-                runCatching {
-                    db.downloadDao().updateProgress(latest.serverId, latest.sourceId, "queued", done)
-                }
+                markQueued(db, track, done, total, attempts)
             }
             throw e
         } catch (e: DownloadRejected) {
@@ -292,13 +367,17 @@ class DownloadWorker(context: Context, params: WorkerParameters) :
             if (e.staleId) {
                 latest.albumKey?.let { runCatching { db.albumDao().invalidateToken(it) } }
             }
-            return markFailed(db, latest, format, e.message ?: "download rejected", retryable = false)
+            return markFailed(
+                db, latest, prior, e.message ?: "download rejected",
+                retryable = false, clearPath = true, doneBytes = done, totalBytes = total,
+            )
         } catch (e: Exception) {
             val latest = db.trackDao().byId(trackId) ?: track
-            if (isStopped) {
-                db.downloadDao().updateProgress(latest.serverId, latest.sourceId, "queued", done)
-                return Result.retry()
+            if (isStopped || pauseRequested) {
+                markQueued(db, latest, done, total, attempts)
+                return Outcome.STOP
             }
+            attempts += 1
             val retryable = e is DownloadRetryable || e is IOException
             // A raw connection failure (unknown host, refused, timeout) can mean
             // the cached LAN/public URL is wrong for this network. Switch before
@@ -307,14 +386,22 @@ class DownloadWorker(context: Context, params: WorkerParameters) :
                 runCatching { app.container.library.switchActiveUrlFor(latest.serverId) }
             }
             // Keep a resumable partial until the final attempt, then reclaim the space.
-            if (!retryable || runAttemptCount + 1 >= MAX_ATTEMPTS) {
+            val willRetry = retryable && attempts < MAX_ATTEMPTS
+            if (!willRetry) {
                 discardPartial()
+                current?.let { runCatching { it.delete() } }
             }
-            current?.let { runCatching { it.delete() } }
+            if (willRetry) {
+                db.downloadDao().update(
+                    latest.serverId, latest.sourceId, DownloadStatus.QUEUED,
+                    done, total, e.message ?: "retrying", attempts,
+                )
+                return Outcome.RETRY
+            }
             return markFailed(
-                db, latest, format, e.message ?: "download failed",
-                retryable = retryable && runAttemptCount + 1 < MAX_ATTEMPTS,
-                doneBytes = done,
+                db, latest, prior, e.message ?: "download failed",
+                retryable = false, clearPath = true, doneBytes = done, totalBytes = total,
+                attempts = attempts,
             )
         }
     }
@@ -322,34 +409,48 @@ class DownloadWorker(context: Context, params: WorkerParameters) :
     private suspend fun markFailed(
         db: AppDatabase,
         track: TrackEntity,
-        format: String,
+        prior: DownloadEntity,
         message: String,
         retryable: Boolean,
         clearPath: Boolean = true,
         doneBytes: Long = 0L,
-    ): Result {
+        totalBytes: Long = prior.totalBytes,
+        attempts: Int = prior.attempts,
+    ): Outcome {
         // Re-read once more: a relink can land between the caller's lookup and
         // this write, and a row under the old server id would be an orphan.
         val latest = runCatching { db.trackDao().byId(track.id) }.getOrNull() ?: track
         if (retryable) {
-            runCatching {
-                db.downloadDao().updateProgress(latest.serverId, latest.sourceId, "queued", doneBytes)
-            }
-            return Result.retry()
+            db.downloadDao().update(
+                latest.serverId, latest.sourceId, DownloadStatus.QUEUED,
+                doneBytes, totalBytes, message, attempts,
+            )
+            return Outcome.RETRY
         }
         if (clearPath) runCatching { db.trackDao().setPath(latest.id, null) }
+        db.downloadDao().update(
+            latest.serverId, latest.sourceId, DownloadStatus.FAILED,
+            0, totalBytes, message, attempts,
+        )
+        // Once a track is finally failed, continue the queue; the failed row
+        // (shown in Downloads) is what matters, not WorkInfo state.
+        return Outcome.CONTINUE
+    }
+
+    private suspend fun markQueued(
+        db: AppDatabase,
+        track: TrackEntity,
+        doneBytes: Long,
+        totalBytes: Long,
+        attempts: Int = 0,
+    ) {
+        val latest = runCatching { db.trackDao().byId(track.id) }.getOrNull() ?: track
         runCatching {
-            db.downloadDao().upsert(
-                DownloadEntity(
-                    latest.serverId, latest.sourceId, "failed", 0, format,
-                    errorText = message,
-                )
+            db.downloadDao().update(
+                latest.serverId, latest.sourceId, DownloadStatus.QUEUED,
+                doneBytes, totalBytes, null, attempts,
             )
         }
-        // Once a track is finally failed, report success so the serial bulk chain
-        // continues to the next track; the failed row (shown in Downloads) is what
-        // matters, not WorkInfo state.
-        return Result.success()
     }
 
     private fun fileFromPath(path: String): File? =
@@ -423,35 +524,34 @@ class DownloadWorker(context: Context, params: WorkerParameters) :
 
     companion object {
         /** Tracks with a worker running in this process; guards shared .part files. */
-        private val activeTracks = java.util.concurrent.ConcurrentHashMap.newKeySet<Long>()
+        private val activeTracks = ConcurrentHashMap.newKeySet<Long>()
+
+        /** Tracks the user removed while their bytes were in flight. */
+        private val cancelRequests = ConcurrentHashMap.newKeySet<Long>()
+
+        /** One drain loop per process; legacy work requests become no-ops. */
+        private val draining = AtomicBoolean(false)
+
+        @Volatile
+        private var pauseRequested = false
 
         /** True while this track's worker is writing its file in this process. */
         internal fun isActive(trackRowId: Long): Boolean = activeTracks.contains(trackRowId)
 
-        /** Unique per track: a user tap never waits behind the bulk queue. */
-        fun enqueue(context: Context, trackRowId: Long) = enqueue(context, trackRowId, serial = false)
-
-        /**
-         * Bulk (album/playlist/library) work is chained on one unique name so the
-         * server never sees thousands of simultaneous requests. [ExistingWorkPolicy.APPEND_OR_REPLACE]
-         * keeps the queue moving even after one item fails.
-         */
-        fun enqueue(context: Context, trackRowId: Long, serial: Boolean) {
-            val request = OneTimeWorkRequestBuilder<DownloadWorker>()
-                .setInputData(workDataOf("trackRowId" to trackRowId))
-                .setConstraints(
-                    Constraints.Builder()
-                        .setRequiredNetworkType(NetworkType.CONNECTED)
-                        .build()
-                )
-                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 15, TimeUnit.SECONDS)
-                .build()
-            val wm = WorkManager.getInstance(context)
-            if (serial) {
-                wm.beginUniqueWork("downloads", ExistingWorkPolicy.APPEND_OR_REPLACE, request).enqueue()
-            } else {
-                wm.enqueueUniqueWork("dl_$trackRowId", ExistingWorkPolicy.KEEP, request)
-            }
+        /** Stops the active track and deletes its partial; the queue continues. */
+        fun requestCancel(trackRowId: Long) {
+            cancelRequests.add(trackRowId)
         }
+
+        /** Stops the active track but keeps its partial for a later resume. */
+        fun requestPause() {
+            pauseRequested = true
+        }
+
+        fun clearPause() {
+            pauseRequested = false
+        }
+
+        internal val isPauseRequested: Boolean get() = pauseRequested
     }
 }

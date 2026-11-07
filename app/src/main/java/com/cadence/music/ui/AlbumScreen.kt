@@ -29,6 +29,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -53,6 +54,7 @@ import coil.compose.AsyncImage
 import com.cadence.music.AppContainer
 import com.cadence.music.data.WriteConsentRequired
 import com.cadence.music.data.db.TrackEntity
+import com.cadence.music.data.downloads.DownloadStatus
 import com.cadence.music.data.tags.albumNormKey
 import kotlinx.coroutines.launch
 
@@ -104,8 +106,15 @@ fun AlbumScreen(
     fun downloadAll() {
         // Album downloads are bulk work: queue them on the serial chain instead
         // of one independent work per track.
-        container.library.enqueueDownloadsAsync(
-            tracks.filter { it.sourceId != "local" && it.path == null }
+        val missing = tracks.filter { it.sourceId != "local" && it.path == null }
+        if (missing.isEmpty()) {
+            toast("Album is already offline")
+            return
+        }
+        container.library.enqueueDownloadsAsync(missing)
+        toast(
+            if (container.prefs.downloadsPaused) "Queued ${missing.size} tracks — downloads are paused"
+            else "Queued ${missing.size} tracks"
         )
     }
 
@@ -163,15 +172,33 @@ fun AlbumScreen(
 
     val allLocal = tracks.isNotEmpty() && tracks.all { it.sourceId == "local" }
 
-    // Header download button shows a live spinner while any album track is running.
+    // Per-track markers + a determinate header bar instead of a bare spinner:
+    // the album row tells you how much is actually offline right now.
     val downloadRows by container.library.observeDownloads()
         .collectAsStateWithLifecycle(initialValue = emptyList())
-    val runningDownloads = remember(downloadRows) {
-        downloadRows.filter { it.download.status == "running" }
-            .mapTo(mutableSetOf()) { "${it.download.sourceId}:${it.download.trackServerId}" }
+    val downloadStatuses = remember(downloadRows) {
+        downloadRows.associate {
+            "${it.download.sourceId}:${it.download.trackServerId}" to it.download.status
+        }
     }
-    val albumDownloading = remember(tracks, runningDownloads) {
-        tracks.any { "${it.sourceId}:${it.serverId}" in runningDownloads }
+    val downloadServerTracks = remember(tracks) {
+        tracks.filter { it.sourceId != "local" }
+    }
+    val offlineCount = remember(downloadServerTracks, downloadStatuses) {
+        downloadServerTracks.count {
+            it.path != null || downloadStatuses["${it.sourceId}:${it.serverId}"] == DownloadStatus.DONE
+        }
+    }
+    val pendingCount = remember(downloadServerTracks, downloadStatuses) {
+        downloadServerTracks.count {
+            val status = downloadStatuses["${it.sourceId}:${it.serverId}"]
+            status == DownloadStatus.QUEUED || status == DownloadStatus.RUNNING
+        }
+    }
+    val albumDownloading = remember(downloadServerTracks, downloadStatuses) {
+        downloadServerTracks.any {
+            downloadStatuses["${it.sourceId}:${it.serverId}"] == DownloadStatus.RUNNING
+        }
     }
 
     Scaffold(
@@ -224,10 +251,22 @@ fun AlbumScreen(
                             style = MaterialTheme.typography.titleLarge,
                         )
                         Text(
-                            "${tracks.size} tracks",
+                            buildString {
+                                append("${tracks.size} tracks")
+                                if (downloadServerTracks.isNotEmpty()) {
+                                    append(" · $offlineCount offline")
+                                    if (pendingCount > 0) append(" · $pendingCount queued")
+                                }
+                            },
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        if (downloadServerTracks.isNotEmpty() && (offlineCount > 0 || pendingCount > 0)) {
+                            LinearProgressIndicator(
+                                progress = { offlineCount.toFloat() / downloadServerTracks.size },
+                                modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                            )
+                        }
                     }
                     Column {
                         IconButton(onClick = { player.playNow(tracks.map { it.toTrack() }) }) {
@@ -281,6 +320,18 @@ fun AlbumScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    if (track.sourceId != "local") {
+                        val downloaded = track.path != null
+                        DownloadStatusIcon(
+                            status = downloadStatuses["${track.sourceId}:${track.serverId}"],
+                            isDownloaded = downloaded,
+                            onDownload = if (!downloaded) {
+                                { container.library.enqueueDownload(track) }
+                            } else {
+                                null
+                            },
+                        )
+                    }
                 }
             }
             }

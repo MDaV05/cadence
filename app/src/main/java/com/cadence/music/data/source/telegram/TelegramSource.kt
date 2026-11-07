@@ -96,6 +96,7 @@ class TelegramSource(
                     durationMs = audio.duration * 1000L,
                     localPath = null,
                     streamUrl = proxy.streamUrl(remoteId),
+                    sizeBytes = audio.audio?.size ?: 0,
                 )
                 tracks += track
             }
@@ -155,6 +156,7 @@ class TelegramSource(
                     durationMs = audio.duration * 1000L,
                     localPath = null,
                     streamUrl = proxy.streamUrl(remoteId),
+                    sizeBytes = audio.audio?.size ?: 0,
                 )
             }
             albumCache[albumKey] = tracks

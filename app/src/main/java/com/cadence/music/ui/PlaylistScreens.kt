@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -39,6 +40,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -68,6 +70,7 @@ import coil.compose.AsyncImage
 import com.cadence.music.AppContainer
 import com.cadence.music.data.db.PlaylistTrackRow
 import com.cadence.music.data.db.PlaylistWithCount
+import com.cadence.music.data.downloads.DownloadStatus
 import com.cadence.music.data.db.TrackEntity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -514,15 +517,31 @@ fun PlaylistDetailScreen(container: AppContainer, playlistId: Long, onBack: () -
 
     LaunchedEffect(playlistId) { reload() }
 
-    // Header download button shows a live spinner while any playlist track is running.
+    // Per-track markers and a truthful header count, no full-library spinner.
     val downloadRows by container.library.observeDownloads()
         .collectAsStateWithLifecycle(initialValue = emptyList())
-    val runningDownloads = remember(downloadRows) {
-        downloadRows.filter { it.download.status == "running" }
-            .mapTo(mutableSetOf()) { "${it.download.sourceId}:${it.download.trackServerId}" }
+    val downloadStatuses = remember(downloadRows) {
+        downloadRows.associate {
+            "${it.download.sourceId}:${it.download.trackServerId}" to it.download.status
+        }
     }
-    val playlistDownloading = remember(tracks, runningDownloads) {
-        tracks.any { "${it.track.sourceId}:${it.track.serverId}" in runningDownloads }
+    val serverTracks = remember(tracks) { tracks.filter { it.track.sourceId != "local" } }
+    val offlineCount = remember(serverTracks, downloadStatuses) {
+        serverTracks.count {
+            it.track.path != null ||
+                downloadStatuses["${it.track.sourceId}:${it.track.serverId}"] == DownloadStatus.DONE
+        }
+    }
+    val pendingCount = remember(serverTracks, downloadStatuses) {
+        serverTracks.count {
+            val status = downloadStatuses["${it.track.sourceId}:${it.track.serverId}"]
+            status == DownloadStatus.QUEUED || status == DownloadStatus.RUNNING
+        }
+    }
+    val playlistDownloading = remember(serverTracks, downloadStatuses) {
+        serverTracks.any {
+            downloadStatuses["${it.track.sourceId}:${it.track.serverId}"] == DownloadStatus.RUNNING
+        }
     }
 
     val pickCover = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
@@ -544,7 +563,22 @@ fun PlaylistDetailScreen(container: AppContainer, playlistId: Long, onBack: () -
                 },
                 actions = {
                     IconButton(onClick = {
-                        container.library.enqueueDownloadsAsync(tracks.map { it.track })
+                        val missing = tracks.map { it.track }
+                            .filter { it.sourceId != "local" && it.path == null }
+                        if (missing.isEmpty()) {
+                            Toast.makeText(context, "Playlist is already offline", Toast.LENGTH_SHORT).show()
+                        } else {
+                            container.library.enqueueDownloadsAsync(missing)
+                            Toast.makeText(
+                                context,
+                                if (container.prefs.downloadsPaused) {
+                                    "Queued ${missing.size} songs — downloads are paused"
+                                } else {
+                                    "Queued ${missing.size} songs"
+                                },
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                        }
                     }) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Icon(Icons.Filled.Download, "Download playlist")
@@ -571,10 +605,22 @@ fun PlaylistDetailScreen(container: AppContainer, playlistId: Long, onBack: () -
                     PlaylistCover(container, playlistId, coverPath, 96.dp, MaterialTheme.shapes.large)
                     Column(Modifier.weight(1f).padding(start = 16.dp)) {
                         Text(
-                            if (trackCount == 1) "1 song" else "$trackCount songs",
+                            buildString {
+                                append(if (trackCount == 1) "1 song" else "$trackCount songs")
+                                if (serverTracks.isNotEmpty()) {
+                                    append(" · $offlineCount offline")
+                                    if (pendingCount > 0) append(" · $pendingCount queued")
+                                }
+                            },
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        if (serverTracks.isNotEmpty() && (offlineCount > 0 || pendingCount > 0)) {
+                            LinearProgressIndicator(
+                                progress = { offlineCount.toFloat() / serverTracks.size },
+                                modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                            )
+                        }
                         Spacer(Modifier.height(4.dp))
                         Box {
                             TextButton(onClick = { coverMenu = true }) {
@@ -643,6 +689,20 @@ fun PlaylistDetailScreen(container: AppContainer, playlistId: Long, onBack: () -
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        if (entry.track.sourceId != "local") {
+                            val downloaded = entry.track.path != null
+                            DownloadStatusIcon(
+                                status = downloadStatuses[
+                                    "${entry.track.sourceId}:${entry.track.serverId}"
+                                ],
+                                isDownloaded = downloaded,
+                                onDownload = if (!downloaded) {
+                                    { container.library.enqueueDownload(entry.track) }
+                                } else {
+                                    null
+                                },
+                            )
+                        }
                         IconButton(onClick = {
                             scope.launch {
                                 container.library.removeFromPlaylist(entry.row.id)

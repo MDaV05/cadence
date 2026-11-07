@@ -139,6 +139,7 @@ class SubsonicSource(private val configProvider: () -> ServerConfig?) : MusicSou
                 localPath = null,
                 streamUrl = streamUrlFor(s.getString("id")),
                 starred = s.has("starred"),
+                sizeBytes = s.optLong("size", 0),
             )
         }
     }
@@ -167,6 +168,7 @@ class SubsonicSource(private val configProvider: () -> ServerConfig?) : MusicSou
                 durationMs = s.optLong("duration", 0) * 1000,
                 localPath = null,
                 streamUrl = streamUrlFor(s.getString("id")),
+                sizeBytes = s.optLong("size", 0),
             )
         }
     }

@@ -2028,6 +2028,7 @@ private fun StorageTab(container: AppContainer, onOpenDownloads: () -> Unit) {
     val scope = rememberCoroutineScope()
     val dlFormat = remember { mutableStateOf(container.prefs.downloadFormat) }
     val dlBitrate = remember { mutableIntStateOf(container.prefs.downloadBitrate) }
+    val dlWifiOnly = remember { mutableStateOf(container.prefs.downloadWifiOnly) }
     val cacheGb = remember { mutableIntStateOf(container.prefs.cacheGb) }
     val cacheUnlimited = remember { mutableStateOf(container.prefs.cacheUnlimited) }
     var refreshTrigger by remember { mutableIntStateOf(0) }
@@ -2141,6 +2142,22 @@ private fun StorageTab(container: AppContainer, onOpenDownloads: () -> Unit) {
                 }
             }
         }
+        item {
+            SettingRow(
+                title = "Download only on Wi-Fi",
+                subtitle = "Queued downloads wait for an unmetered connection",
+                trailing = {
+                    Switch(
+                        checked = dlWifiOnly.value,
+                        onCheckedChange = {
+                            dlWifiOnly.value = it
+                            container.prefs.downloadWifiOnly = it
+                            container.library.applyDownloadNetworkPolicy()
+                        },
+                    )
+                },
+            )
+        }
 
         item { SectionHeader("Stream cache") }
         item {
@@ -2166,23 +2183,25 @@ private fun StorageTab(container: AppContainer, onOpenDownloads: () -> Unit) {
                 SettingRow(
                     title = "Downloads",
                     subtitle = when {
-                        prog.total == 0 -> "Nothing offline yet"
-                        else -> "${prog.done} of ${prog.total} offline"
+                        prog.visibleTotal == 0 -> "Nothing offline yet"
+                        prog.pending > 0 -> "${prog.done} offline · ${prog.pending} in queue"
+                        else -> "${prog.done} offline"
                     },
                     trailing = {
                         TextButton(onClick = { showDownloadAll = true }) { Text("Download library") }
                     },
                     onClick = onOpenDownloads,
                 )
-                if (prog.total > 0) {
+                if (prog.visibleTotal > 0) {
                     LinearProgressIndicator(
                         progress = { prog.fraction },
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                     )
                     Text(
-                        if (prog.done == prog.total) "Library fully offline"
-                        else "${prog.done} done · ${prog.running} downloading" +
-                            (if (prog.failed > 0) " · ${prog.failed} failed" else ""),
+                        "${prog.done} of ${prog.visibleTotal} complete" +
+                            (if (prog.failed > 0) " · ${prog.failed} failed" else "") +
+                            (if (prog.pending > 0) " · ${prog.pending} queued" else "") +
+                            (if (container.prefs.downloadsPaused) " · paused" else ""),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 8.dp),
