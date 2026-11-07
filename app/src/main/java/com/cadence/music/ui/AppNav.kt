@@ -746,6 +746,7 @@ private class PendingMeteredAsk(
     val trackCount: Int,
     val estimateBytes: Long,
     val prefs: Prefs,
+    val library: LibraryRepository,
     val go: () -> Unit,
 ) {
     var remembered by mutableStateOf(false)
@@ -782,7 +783,11 @@ fun enqueueWithFeedback(
             val message = buildString {
                 append("Queued ${fresh.size} track${if (fresh.size == 1) "" else "s"}")
                 if (estimate > 0) append(" · ~${formatBytes(estimate)}")
-                if (prefs.downloadsPaused) append(" — downloads are paused")
+                when {
+                    prefs.downloadsPaused -> append(" — downloads are paused")
+                    (prefs.downloadWifiOnly || prefs.waitWifiOnce) && !isUnmetered(context) ->
+                        append(" — waiting for Wi-Fi")
+                }
             }
             if (snackbar != null) {
                 val result = snackbar.showSnackbar(message, actionLabel = "View queue")
@@ -794,7 +799,7 @@ fun enqueueWithFeedback(
         prefs.downloadWifiOnly || isUnmetered(context) -> go()
         // Single tracks never prompt (spec D2) — small data.
         fresh.size == 1 -> go()
-        else -> pendingMeteredAsk = PendingMeteredAsk(fresh.size, estimate, prefs) { go() }
+        else -> pendingMeteredAsk = PendingMeteredAsk(fresh.size, estimate, prefs, library) { go() }
     }
 }
 
@@ -817,18 +822,26 @@ private fun MeteredDataAskDialog() {
         confirmButton = {
             TextButton(onClick = {
                 pendingMeteredAsk = null
-                // "Remember" makes mobile-data downloads the standing choice.
+                // "Remember" makes mobile-data downloads the standing choice;
+                // without it nothing persists and the next bulk ask shows again.
+                // Either way a lingering one-shot wait is superseded by the
+                // user's latest intent: download now.
                 if (ask.remembered) ask.prefs.downloadWifiOnly = false
+                ask.prefs.waitWifiOnce = false
+                ask.library.applyDownloadNetworkPolicy()
                 ask.go()
             }) { Text("Download now") }
         },
         dismissButton = {
             TextButton(onClick = {
                 pendingMeteredAsk = null
-                // Rows can only wait behind an UNMETERED constraint while
-                // Wi-Fi-only is on; DownloadsScreen then offers the one-shot
-                // "Download on mobile" override for going ahead (spec D2).
-                ask.prefs.downloadWifiOnly = true
+                // Rows can only wait behind an UNMETERED constraint. "Remember"
+                // persists waiting into Wi-Fi-only (spec D2); without it, just
+                // this batch waits on a one-shot flag that the worker clears
+                // when the queue drains or pauses — no settings change.
+                if (ask.remembered) ask.prefs.downloadWifiOnly = true
+                else ask.prefs.waitWifiOnce = true
+                ask.library.applyDownloadNetworkPolicy()
                 ask.go()
             }) { Text("Wait for Wi-Fi") }
         },

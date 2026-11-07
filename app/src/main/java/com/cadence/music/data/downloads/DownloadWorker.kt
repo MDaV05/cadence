@@ -62,17 +62,19 @@ class DownloadWorker(context: Context, params: WorkerParameters) :
             requeueInterrupted(db)
             while (!isStopped) {
                 if (prefs.downloadsPaused || pauseRequested) return Result.success()
-                // The one-shot mobile-data override (spec D2) suspends this wait
-                // too: "Download anyway" must actually download on metered, not
-                // retry here until Wi-Fi.
-                if (prefs.downloadWifiOnly && !prefs.allowMeteredOnce && !isUnmetered(applicationContext)) {
+                // Wi-Fi-only and its one-shot overrides (spec D2) decide this
+                // gate: "Download anyway" must actually download on metered, a
+                // not-remembered "Wait for Wi-Fi" must actually wait.
+                val wifiOnly = (prefs.downloadWifiOnly || prefs.waitWifiOnce) && !prefs.allowMeteredOnce
+                if (wifiOnly && !isUnmetered(applicationContext)) {
                     return Result.retry()
                 }
                 val row = db.downloadDao().nextQueued(System.currentTimeMillis())
                 if (row == null) {
-                    // The queue drained: a one-time mobile-data override has served
-                    // its purpose (spec D2), so the next wait starts clean.
+                    // The queue drained: the one-shot network overrides have
+                    // served their purpose (spec D2), so the next wait starts clean.
                     prefs.allowMeteredOnce = false
+                    prefs.waitWifiOnce = false
                     return Result.success()
                 }
                 val track = db.trackDao().byServerId(row.trackServerId)

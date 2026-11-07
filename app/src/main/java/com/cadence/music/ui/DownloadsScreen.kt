@@ -128,7 +128,8 @@ fun DownloadsScreen(
     val queuedCount = queueRows.size - runningCount
     val wifi by remember(context) { observeUnmetered(context) }
         .collectAsStateWithLifecycle(initialValue = isUnmetered(context))
-    val wifiWaiting = !paused && prefs.downloadWifiOnly && !wifi && queuedCount > 0
+    val wifiWaiting =
+        !paused && (prefs.downloadWifiOnly || prefs.waitWifiOnce) && !wifi && queuedCount > 0
     val feedback = LocalDownloadFeedback.current
 
     // Download feedback goes through the app-level snackbar (spec D4), not toasts.
