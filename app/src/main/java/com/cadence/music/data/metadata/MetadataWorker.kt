@@ -51,9 +51,12 @@ class MetadataWorker(appContext: Context, params: WorkerParameters) :
             if (isStopped) return
             val t = withContext(Dispatchers.IO) { db.trackDao().byId(id) } ?: continue
             // Source-first: the server's own lyrics beat a fuzzy LRCLIB match
-            // (null for non-subsonic sources — fall through to LRCLIB below).
+            // (null for non-subsonic sources), then embedded file tags.
             val server = runCatching { container.library.fetchServerLyrics(t) }.getOrNull()
-            val lrc = server?.first ?: run {
+            val embedded = if (server == null) t.path?.let { p ->
+                withContext(Dispatchers.IO) { embeddedLyrics(p) }
+            } else null
+            val lrc = server?.first ?: embedded?.first ?: run {
                 val lines = runCatching {
                     LrcLib.fetchBlocking(t.artistName, t.title, t.durationMs / 1000)
                 }.getOrDefault(emptyList())
@@ -67,6 +70,18 @@ class MetadataWorker(appContext: Context, params: WorkerParameters) :
             }
             delay(250)
         }
+    }
+
+    /**
+     * Embedded lyrics from a local file's tags (see LyricsTagReader for the
+     * formats). LRC-shaped text (with [mm:ss] timestamps) counts as synced;
+     * anything else is plain. Null when the file has no lyric tag at all.
+     */
+    private fun embeddedLyrics(path: String): Pair<String, Boolean>? {
+        val text = runCatching {
+            com.cadence.music.data.tags.LyricsTagReader.read(applicationContext, android.net.Uri.parse(path))
+        }.getOrNull() ?: return null
+        return text to Regex("""\[\d{1,2}:\d{2}""").containsMatchIn(text)
     }
 
     private suspend fun fetchArtistInfo(db: com.cadence.music.data.db.AppDatabase) {
