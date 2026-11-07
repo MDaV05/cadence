@@ -293,33 +293,32 @@ fun PlaylistsContent(
         }
 
         LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
-            item(key = "smart-header") {
-                Text(
-                    "Smart",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp),
-                )
-            }
-            items(smartPresets, key = { it.id }) { preset ->
-                SmartPlaylistRow(preset, onClick = { onOpenSmart(preset.id) })
-            }
             if (playlists.isEmpty()) {
-                item(key = "empty") {
-                    Column(
-                        modifier = Modifier.fillMaxWidth().padding(32.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        Text("No playlists yet", style = MaterialTheme.typography.titleMedium)
-                        Text(
-                            "Tap + to create one, then long-press any song to add it.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(top = 4.dp),
-                        )
+                // Full-viewport item: smart rows on top, the empty message
+                // centered in the space below — as it was before the Smart
+                // section moved into this list.
+                item(key = "smart-empty") {
+                    Column(Modifier.fillParentMaxSize()) {
+                        SmartSection(smartPresets, onOpenSmart)
+                        Column(
+                            modifier = Modifier.weight(1f).fillMaxWidth().padding(32.dp),
+                            verticalArrangement = Arrangement.Center,
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            Text("No playlists yet", style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                "Tap + to create one, then long-press any song to add it.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(top = 4.dp),
+                            )
+                        }
                     }
                 }
             } else {
+                item(key = "smart") {
+                    SmartSection(smartPresets, onOpenSmart)
+                }
                 items(playlists, key = { it.id }) { p ->
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -487,6 +486,20 @@ fun PlaylistsContent(
                 TextButton(onClick = { deleteTarget = null }) { Text("Cancel") }
             },
         )
+    }
+}
+
+/** "Smart" header plus the five preset rows, shared by the list and the empty state. */
+@Composable
+private fun SmartSection(smartPresets: List<SmartPlaylist>, onOpenSmart: (String) -> Unit) {
+    Text(
+        "Smart",
+        style = MaterialTheme.typography.titleSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp),
+    )
+    smartPresets.forEach { preset ->
+        SmartPlaylistRow(preset, onClick = { onOpenSmart(preset.id) })
     }
 }
 

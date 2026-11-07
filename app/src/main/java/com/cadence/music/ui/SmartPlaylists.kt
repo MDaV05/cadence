@@ -142,12 +142,12 @@ fun SmartPlaylistScreen(
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Text(
-                    "No music found",
+                    "Nothing here yet",
                     style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.padding(top = 8.dp),
                 )
                 Text(
-                    "Tracks will show up here once your library has some.",
+                    "Nothing matches this playlist yet.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
