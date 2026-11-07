@@ -1,8 +1,6 @@
 package com.cadence.music.ui
 
-import android.Manifest
 import android.app.Activity
-import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
@@ -29,6 +27,8 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Smartphone
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -101,9 +101,11 @@ import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.itemKey
 import coil.compose.AsyncImage
 import com.cadence.music.AppContainer
+import com.cadence.music.data.DownloadStatusRow
 import com.cadence.music.data.WriteConsentRequired
 import com.cadence.music.data.db.ArtistTile
 import com.cadence.music.data.db.TrackEntity
+import com.cadence.music.data.downloads.DownloadStatus
 import com.cadence.music.data.tags.artistCandidates
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -240,13 +242,17 @@ fun TrackRow(
     track: TrackEntity,
     onArtistClick: (String) -> Unit = {},
     onAlbumClick: (String) -> Unit = {},
-    isDownloading: Boolean = false,
+    downloadStatus: String? = null,
+    downloadRow: DownloadStatusRow? = null,
     onClick: () -> Unit,
 ) {
     val art by produceState<String?>(null, track.id) {
         value = container.artResolver.urlFor(track)
     }
     var showSheet by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val feedback = LocalDownloadFeedback.current
 
     Row(
         modifier = Modifier
@@ -267,7 +273,6 @@ fun TrackRow(
             Text(track.title, style = MaterialTheme.typography.bodyLarge, maxLines = 1)
             val sub = when {
                 track.sourceId == "local" -> listOfNotNull(track.artistName.ifBlank { null }, "Local")
-                track.path != null -> listOfNotNull(track.artistName.ifBlank { null }, "Downloaded")
                 else -> listOfNotNull(track.artistName.ifBlank { null }, formatStreamTag(container.prefs, track.sourceId, track.serverId))
             }
             Text(
@@ -277,15 +282,40 @@ fun TrackRow(
                 maxLines = 1,
             )
         }
-        // A running download replaces the duration with a live spinner — the
-        // trigger point must show feedback, not a dead icon.
-        if (isDownloading) {
-            CircularProgressIndicator(Modifier.size(18.dp))
-        } else {
-            Text(
-                formatDuration(track.durationMs),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+        Text(
+            formatDuration(track.durationMs),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        // Server tracks always show their offline state, and the badge is the
+        // tap target: queued/running cancels, failed retries — no long-press
+        // needed for common work. The offline check lives on the badge now,
+        // so the row subtitle keeps the source tag instead of "Downloaded".
+        if (track.sourceId != "local") {
+            val downloaded = track.path != null
+            DownloadStatusIcon(
+                status = downloadRow?.download?.status ?: downloadStatus,
+                isDownloaded = downloaded,
+                onDownload = if (!downloaded) {
+                    {
+                        enqueueWithFeedback(
+                            listOf(track), scope, container.library, container.prefs,
+                            context, feedback.snackbar, feedback.navigateToQueue, priority = 1,
+                        )
+                    }
+                } else {
+                    null
+                },
+                onCancel = if (downloadRow != null) {
+                    { scope.launch { container.library.cancelDownload(downloadRow.download, downloadRow.track) } }
+                } else {
+                    null
+                },
+                onRetry = if (downloadRow != null) {
+                    { scope.launch { container.library.retryDownload(downloadRow.download, downloadRow.track) } }
+                } else {
+                    null
+                },
             )
         }
     }
@@ -312,6 +342,7 @@ fun TrackActionsSheet(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val feedback = LocalDownloadFeedback.current
     var showEdit by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var sheetVisible by remember { mutableStateOf(true) }
@@ -411,18 +442,13 @@ fun TrackActionsSheet(
         }
     }
 
-    fun deleteDownloaded() {
-        scope.launch {
-            val dl = container.database.downloadDao().byTrack(track.sourceId, track.serverId)
-            if (dl != null) container.library.deleteDownload(dl, track)
-            else container.database.trackDao().setPath(track.id, null)
-            toast("Download deleted")
-            close()
-        }
-    }
-
     if (sheetVisible) {
         val playlists by container.library.playlists()
+            .collectAsStateWithLifecycle(initialValue = emptyList())
+        // Live queue row for the sheet's track — the same source the row badge
+        // reads, so the sheet's download item always reflects the real state
+        // (even while the sheet is open).
+        val downloadRows by container.library.observeDownloads()
             .collectAsStateWithLifecycle(initialValue = emptyList())
         var showNew by remember { mutableStateOf(false) }
         ModalBottomSheet(onDismissRequest = { close() }) {
@@ -489,15 +515,62 @@ fun TrackActionsSheet(
                         }
                     },
                 )
-                if (track.sourceId != "local" && track.path == null) {
-                    ListItem(
-                        headlineContent = { Text("Download for offline") },
-                        leadingContent = { Icon(Icons.Filled.Download, null) },
-                        modifier = Modifier.clickable {
-                            container.library.enqueueDownload(track)
-                            close()
-                        },
-                    )
+                if (track.sourceId != "local") {
+                    // One download item mirroring the row badge's states: the
+                    // live queue row decides between cancel / retry / remove /
+                    // enqueue, so the sheet never offers a stale action.
+                    val downloadRow = downloadRows.firstOrNull {
+                        it.download.sourceId == track.sourceId &&
+                            it.download.trackServerId == track.serverId
+                    }
+                    when {
+                        downloadRow != null && (
+                            downloadRow.download.status == DownloadStatus.QUEUED ||
+                                downloadRow.download.status == DownloadStatus.RUNNING
+                            ) ->
+                            ListItem(
+                                headlineContent = { Text("Cancel download") },
+                                leadingContent = { Icon(Icons.Filled.Close, null) },
+                                modifier = Modifier.clickable {
+                                    scope.launch {
+                                        container.library.cancelDownload(downloadRow.download, track)
+                                    }
+                                    close()
+                                },
+                            )
+                        downloadRow != null && downloadRow.download.status == DownloadStatus.FAILED ->
+                            ListItem(
+                                headlineContent = { Text("Retry download") },
+                                leadingContent = { Icon(Icons.Filled.Refresh, null) },
+                                modifier = Modifier.clickable {
+                                    scope.launch {
+                                        container.library.retryDownload(downloadRow.download, track)
+                                    }
+                                    close()
+                                },
+                            )
+                        downloadRow?.download?.status == DownloadStatus.DONE || track.path != null ->
+                            ListItem(
+                                headlineContent = { Text("Remove download") },
+                                leadingContent = { Icon(Icons.Filled.Delete, null) },
+                                modifier = Modifier.clickable {
+                                    scope.launch { container.library.removeDownloadForTrack(track) }
+                                    close()
+                                },
+                            )
+                        else ->
+                            ListItem(
+                                headlineContent = { Text("Keep offline") },
+                                leadingContent = { Icon(Icons.Filled.Download, null) },
+                                modifier = Modifier.clickable {
+                                    enqueueWithFeedback(
+                                        listOf(track), scope, container.library, container.prefs,
+                                        context, feedback.snackbar, feedback.navigateToQueue, priority = 1,
+                                    )
+                                    close()
+                                },
+                            )
+                    }
                 }
                 if (track.sourceId == "local") {
                     ListItem(
@@ -514,17 +587,13 @@ fun TrackActionsSheet(
                     leadingContent = { Icon(Icons.Filled.AddPhotoAlternate, null) },
                     modifier = Modifier.clickable { coverPicker.launch("image/*") },
                 )
-                if (track.sourceId == "local" || track.path != null) {
+                if (track.sourceId == "local") {
                     ListItem(
                         headlineContent = { Text("Delete file") },
                         leadingContent = { Icon(Icons.Filled.Delete, null) },
                         modifier = Modifier.clickable {
-                            if (track.sourceId == "local") {
-                                sheetVisible = false
-                                showDeleteConfirm = true
-                            } else {
-                                deleteDownloaded()
-                            }
+                            sheetVisible = false
+                            showDeleteConfirm = true
                         },
                     )
                 }
@@ -747,11 +816,10 @@ private fun songsTab(
     ) { }
 
     fun askNotifications() {
-        if (Build.VERSION.SDK_INT >= 33 && !notifAsked &&
-            !isGranted(context, Manifest.permission.POST_NOTIFICATIONS)
-        ) {
+        val permission = notificationsPermission() ?: return
+        if (!notifAsked && !isGranted(context, permission)) {
             notifAsked = true
-            notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            notifLauncher.launch(permission)
         }
     }
 
@@ -801,9 +869,10 @@ private fun songsTab(
     // Running-download keys collected once at the list level, never per item.
     val downloadRows by container.library.observeDownloads()
         .collectAsStateWithLifecycle(initialValue = emptyList())
-    val runningDownloads = remember(downloadRows) {
-        downloadRows.filter { it.download.status == "running" }
-            .mapTo(mutableSetOf()) { "${it.download.sourceId}:${it.download.trackServerId}" }
+    val downloadRowsByKey = remember(downloadRows) {
+        downloadRows.associate {
+            "${it.download.sourceId}:${it.download.trackServerId}" to it
+        }
     }
 
     // Empty gate on the mode-aware count + pager state (never on the initial 0
@@ -892,7 +961,7 @@ private fun songsTab(
                         track,
                         onArtistClick,
                         onAlbumClick,
-                        isDownloading = "${track.sourceId}:${track.serverId}" in runningDownloads,
+                        downloadRow = downloadRowsByKey["${track.sourceId}:${track.serverId}"],
                     ) { player.playNow(listOf(track.toTrack())) }
                 }
             }

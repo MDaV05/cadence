@@ -23,6 +23,7 @@ class LocalSource(private val context: Context) : MusicSource {
             add(MediaStore.Audio.Media.ALBUM)
             add(MediaStore.Audio.Media.ALBUM_ID)
             add(MediaStore.Audio.Media.DURATION)
+            add(MediaStore.Audio.Media.SIZE)
             add(MediaStore.Audio.Media.DATA)
             // Genre became a direct Media column in Q; older devices skip it.
             if (isQPlus) add(MediaStore.Audio.Media.GENRE)
@@ -36,6 +37,7 @@ class LocalSource(private val context: Context) : MusicSource {
             val albumC = c.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM)
             val albumIdC = c.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID)
             val durC = c.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
+            val sizeC = c.getColumnIndexOrThrow(MediaStore.Audio.Media.SIZE)
             val dataC = c.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA)
             val genreC = if (isQPlus) c.getColumnIndex(MediaStore.Audio.Media.GENRE) else -1
             val albumArtistC = if (isRPlus) c.getColumnIndex("album_artist") else -1
@@ -54,6 +56,7 @@ class LocalSource(private val context: Context) : MusicSource {
                     albumMediaId = c.getLong(albumIdC),
                     albumArtist = albumArtist,
                     genre = genre,
+                    sizeBytes = c.getLong(sizeC),
                 )
             }
         }

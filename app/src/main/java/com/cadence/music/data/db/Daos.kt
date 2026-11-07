@@ -214,20 +214,67 @@ interface DownloadDao {
     @Query("SELECT * FROM downloads WHERE status = :status")
     suspend fun byStatus(status: String): List<DownloadEntity>
 
+    /** Next unit of work; user taps outrank bulk album/library queues. */
+    @Query(
+        "SELECT * FROM downloads WHERE status = 'queued' AND nextAttemptAt <= :now " +
+            "ORDER BY priority DESC, enqueuedAt ASC, updatedAt ASC LIMIT 1"
+    )
+    suspend fun nextQueued(now: Long): DownloadEntity?
+
+    /**
+     * Every pending row plus the finished siblings of any batch that still has
+     * pending rows — the scope the progress bar describes, empty when idle.
+     */
+    @Query(
+        "SELECT * FROM downloads " +
+            "WHERE status IN ('queued', 'running') " +
+            "OR batchId IN (SELECT DISTINCT batchId FROM downloads WHERE status IN ('queued', 'running')) " +
+            "ORDER BY priority DESC, enqueuedAt ASC"
+    )
+    fun observeActiveScope(): Flow<List<DownloadEntity>>
+
+    @Query("SELECT COUNT(*) FROM downloads WHERE status = 'queued'")
+    suspend fun queuedCount(): Int
+
     @Query(
         "UPDATE downloads SET status = :status, bytesDone = :bytesDone, " +
-            "updatedAt = :now WHERE trackServerId = :serverId AND sourceId = :sourceId"
+            "totalBytes = :totalBytes, errorText = :errorText, attempts = :attempts, " +
+            "nextAttemptAt = :nextAttemptAt, updatedAt = :now " +
+            "WHERE trackServerId = :serverId AND sourceId = :sourceId"
+    )
+    suspend fun update(
+        serverId: String,
+        sourceId: String,
+        status: String,
+        bytesDone: Long,
+        totalBytes: Long,
+        errorText: String?,
+        attempts: Int,
+        now: Long = System.currentTimeMillis(),
+        /** Set on the retry requeue (spec D5); 0 keeps the row eligible now. */
+        nextAttemptAt: Long = 0L,
+    ): Int
+
+    @Query(
+        "UPDATE downloads SET status = :status, bytesDone = :bytesDone, " +
+            "totalBytes = :totalBytes, updatedAt = :now " +
+            "WHERE trackServerId = :serverId AND sourceId = :sourceId"
     )
     suspend fun updateProgress(
         serverId: String,
         sourceId: String,
         status: String,
         bytesDone: Long,
+        totalBytes: Long,
         now: Long = System.currentTimeMillis(),
-    )
+    ): Int
 
     @Query("DELETE FROM downloads WHERE trackServerId = :serverId AND sourceId = :sourceId")
     suspend fun delete(serverId: String, sourceId: String)
+
+    /** Notification "Cancel all": drops every row of one status at once. */
+    @Query("DELETE FROM downloads WHERE status = :status")
+    suspend fun deleteByStatus(status: String): Int
 
     /** Keeps a download row attached to its track when a sync learns a new server id. */
     @Query("UPDATE downloads SET trackServerId = :newId WHERE trackServerId = :oldId AND sourceId = :sourceId")

@@ -25,7 +25,7 @@ import com.cadence.music.data.tags.primaryArtist
         AlbumArtOverrideEntity::class,
         ArtistOverrideEntity::class,
     ],
-    version = 17,
+    version = 18,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -231,6 +231,30 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_17_18 = object : Migration(17, 18) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // A persistent, controllable download queue: rows exist from the
+                // moment a track is enqueued, carry byte totals and per-track
+                // attempts, and let the UI show order and progress truthfully.
+                db.execSQL("ALTER TABLE downloads ADD COLUMN totalBytes INTEGER NOT NULL DEFAULT -1")
+                db.execSQL("ALTER TABLE downloads ADD COLUMN enqueuedAt INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE downloads ADD COLUMN priority INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE downloads ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0")
+                // Rows of one enqueue call share a batch id; per-row retry backoff
+                // is a wall-clock gate the drain loop must respect.
+                db.execSQL("ALTER TABLE downloads ADD COLUMN batchId INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE downloads ADD COLUMN nextAttemptAt INTEGER NOT NULL DEFAULT 0")
+                // Pre-v18 rows defaulted to enqueuedAt = 0, which sorted them
+                // ahead of everything enqueued after the upgrade.
+                db.execSQL(
+                    "UPDATE downloads SET enqueuedAt = " +
+                        "CAST(strftime('%s','now') AS INTEGER) * 1000 WHERE enqueuedAt = 0"
+                )
+                // Advertised source size, used for offline storage forecasts.
+                db.execSQL("ALTER TABLE tracks ADD COLUMN sizeBytes INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         fun build(context: Context): AppDatabase =
             Room.databaseBuilder(context, AppDatabase::class.java, "cadence.db")
                 .addMigrations(
@@ -248,6 +272,7 @@ abstract class AppDatabase : RoomDatabase() {
                     MIGRATION_14_15,
                     MIGRATION_15_16,
                     MIGRATION_16_17,
+                    MIGRATION_17_18,
                 )
                 // No paths exist from schema 1/2 (they predate exported schemas);
                 // those dev-only installs rebuild destructively instead of crashing.

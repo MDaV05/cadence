@@ -95,8 +95,9 @@ class PlexSource(private val entry: ServerEntry, private val deviceId: String) :
             val m = items.getJSONObject(i)
             val ratingKey = m.optString("ratingKey", null) ?: return@mapNotNull null
             // Direct play: pick the first audio Part; transcode decision deferred (v1).
-            val partKey = m.optJSONArray("Media")?.optJSONObject(0)
-                ?.optJSONArray("Part")?.optJSONObject(0)?.optString("key", null)
+            val part = m.optJSONArray("Media")?.optJSONObject(0)
+                ?.optJSONArray("Part")?.optJSONObject(0)
+            val partKey = part?.optString("key", null)
             val parentKey = m.optString("parentRatingKey", albumRatingKey)
             Track(
                 key = "plex:$ratingKey",
@@ -108,6 +109,7 @@ class PlexSource(private val entry: ServerEntry, private val deviceId: String) :
                 durationMs = m.optLong("duration", 0),
                 localPath = null,
                 streamUrl = partKey?.let { partUrl(it) },
+                sizeBytes = part?.optLong("size", 0) ?: 0,
             )
         }
     }
@@ -132,8 +134,9 @@ class PlexSource(private val entry: ServerEntry, private val deviceId: String) :
                 if (out.size >= 50) break
                 val m = items.getJSONObject(i)
                 val ratingKey = m.optString("ratingKey", null) ?: continue
-                val partKey = m.optJSONArray("Media")?.optJSONObject(0)
-                    ?.optJSONArray("Part")?.optJSONObject(0)?.optString("key", null)
+                val part = m.optJSONArray("Media")?.optJSONObject(0)
+                    ?.optJSONArray("Part")?.optJSONObject(0)
+                val partKey = part?.optString("key", null)
                 out += Track(
                     key = "plex:$ratingKey",
                     sourceId = id,
@@ -144,6 +147,7 @@ class PlexSource(private val entry: ServerEntry, private val deviceId: String) :
                     durationMs = m.optLong("duration", 0),
                     localPath = null,
                     streamUrl = partKey?.let { partUrl(it) },
+                    sizeBytes = part?.optLong("size", 0) ?: 0,
                 )
             }
             if (out.size >= 50) break

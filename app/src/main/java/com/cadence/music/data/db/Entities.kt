@@ -40,6 +40,8 @@ data class TrackEntity(
     val genre: String? = null,
     // Server-side starred/favorite (Subsonic); local tracks never star.
     val starred: Boolean = false,
+    // Advertised source file size in bytes; 0 = unknown. Used for download forecasts.
+    val sizeBytes: Long = 0,
 )
 
 @Entity(tableName = "playlists")
@@ -150,4 +152,15 @@ data class DownloadEntity(
     val updatedAt: Long = System.currentTimeMillis(),
     /** Why the last attempt failed; null for running/done rows. */
     val errorText: String? = null,
+    /** Server Content-Length once known; an estimate while queued; -1 when unknown. */
+    val totalBytes: Long = -1,
+    /** Queue order. User taps get priority 1 and jump ahead of bulk work. */
+    val enqueuedAt: Long = System.currentTimeMillis(),
+    val priority: Int = 0,
+    /** Consecutive transient failures for this track, reset when it is requeued. */
+    val attempts: Int = 0,
+    /** Timestamp of the enqueue call that created this row. Rows of one button press share it. */
+    val batchId: Long = 0L,
+    /** Earliest wall-clock time the worker may pick this row again (per-row retry backoff). 0 = immediately. */
+    val nextAttemptAt: Long = 0L,
 )

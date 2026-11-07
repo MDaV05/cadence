@@ -81,7 +81,7 @@ abstract class EmbyLikeSource(
         val albumId = albumKey.removePrefix(prefix())
         val obj = get(
             "Users/${uid()}/Items?ParentId=$albumId&Recursive=true" +
-                "&IncludeItemTypes=Audio&Fields=RunTimeTicks,IndexNumber",
+                "&IncludeItemTypes=Audio&Fields=RunTimeTicks,IndexNumber,Size",
         ) ?: return emptyList()
         val items = obj.optJSONArray("Items") ?: return emptyList()
         return (0 until items.length()).map { i ->
@@ -96,6 +96,7 @@ abstract class EmbyLikeSource(
                 durationMs = s.optLong("RunTimeTicks", 0) / 10_000,
                 localPath = null,
                 streamUrl = streamUrlFor(s.getString("Id")),
+                sizeBytes = s.optLong("Size", 0),
             )
         }
     }
@@ -103,7 +104,7 @@ abstract class EmbyLikeSource(
     override suspend fun search(query: String): List<Track> {
         val q = java.net.URLEncoder.encode(query, "UTF-8")
         val obj = get(
-            "Users/${uid()}/Items?Recursive=true&IncludeItemTypes=Audio&SearchTerm=$q&Limit=50",
+            "Users/${uid()}/Items?Recursive=true&IncludeItemTypes=Audio&SearchTerm=$q&Limit=50&Fields=Size",
         ) ?: return emptyList()
         val items = obj.optJSONArray("Items") ?: return emptyList()
         return (0 until items.length()).map { i ->
@@ -118,6 +119,7 @@ abstract class EmbyLikeSource(
                 durationMs = s.optLong("RunTimeTicks", 0) / 10_000,
                 localPath = null,
                 streamUrl = streamUrlFor(s.getString("Id")),
+                sizeBytes = s.optLong("Size", 0),
             )
         }
     }

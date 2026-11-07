@@ -85,7 +85,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.cadence.music.AppContainer
 import com.cadence.music.data.SyncState
 import com.cadence.music.data.db.CustomThemeEntity
-import com.cadence.music.data.downloads.progressOf
+import com.cadence.music.data.downloads.DownloadStatus
+import com.cadence.music.data.downloads.activeScope
+import com.cadence.music.data.downloads.byteProgress
 import com.cadence.music.data.metadata.ListenBrainz
 import com.cadence.music.data.prefs.LibraryMode
 import com.cadence.music.data.prefs.Prefs
@@ -2028,6 +2030,7 @@ private fun StorageTab(container: AppContainer, onOpenDownloads: () -> Unit) {
     val scope = rememberCoroutineScope()
     val dlFormat = remember { mutableStateOf(container.prefs.downloadFormat) }
     val dlBitrate = remember { mutableIntStateOf(container.prefs.downloadBitrate) }
+    val dlWifiOnly = remember { mutableStateOf(container.prefs.downloadWifiOnly) }
     val cacheGb = remember { mutableIntStateOf(container.prefs.cacheGb) }
     val cacheUnlimited = remember { mutableStateOf(container.prefs.cacheUnlimited) }
     var refreshTrigger by remember { mutableIntStateOf(0) }
@@ -2037,7 +2040,12 @@ private fun StorageTab(container: AppContainer, onOpenDownloads: () -> Unit) {
     var showDownloadAll by remember { mutableStateOf(false) }
     var cleanNotice by remember { mutableStateOf<String?>(null) }
     val dlRows by container.library.observeDownloads().collectAsStateWithLifecycle(initialValue = emptyList())
-    val prog = remember(dlRows) { progressOf(dlRows.map { it.download.status }) }
+    val offlineCount = remember(dlRows) { dlRows.count { it.download.status == DownloadStatus.DONE } }
+    // The bar describes only the active scope; "N of M" compares against the real library size.
+    val activeRows by container.library.observeActiveScope().collectAsStateWithLifecycle(initialValue = emptyList())
+    val prog = remember(activeRows) { byteProgress(activeScope(activeRows)) }
+    val libraryTrackCount by container.database.trackDao().observeCountAll()
+        .collectAsStateWithLifecycle(initialValue = 0)
 
     LazyColumn(Modifier.fillMaxSize()) {
         item { SectionHeader("Storage breakdown") }
@@ -2141,6 +2149,22 @@ private fun StorageTab(container: AppContainer, onOpenDownloads: () -> Unit) {
                 }
             }
         }
+        item {
+            SettingRow(
+                title = "Download only on Wi-Fi",
+                subtitle = "Queued downloads wait for an unmetered connection",
+                trailing = {
+                    Switch(
+                        checked = dlWifiOnly.value,
+                        onCheckedChange = {
+                            dlWifiOnly.value = it
+                            container.prefs.downloadWifiOnly = it
+                            container.library.applyDownloadNetworkPolicy()
+                        },
+                    )
+                },
+            )
+        }
 
         item { SectionHeader("Stream cache") }
         item {
@@ -2165,24 +2189,23 @@ private fun StorageTab(container: AppContainer, onOpenDownloads: () -> Unit) {
             Column {
                 SettingRow(
                     title = "Downloads",
-                    subtitle = when {
-                        prog.total == 0 -> "Nothing offline yet"
-                        else -> "${prog.done} of ${prog.total} offline"
-                    },
+                    subtitle = "$offlineCount of $libraryTrackCount tracks offline",
                     trailing = {
                         TextButton(onClick = { showDownloadAll = true }) { Text("Download library") }
                     },
                     onClick = onOpenDownloads,
                 )
-                if (prog.total > 0) {
+                if (prog.totalCount > 0) {
+                    val pendingCount = prog.totalCount - prog.doneCount - prog.failedCount
                     LinearProgressIndicator(
                         progress = { prog.fraction },
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                     )
                     Text(
-                        if (prog.done == prog.total) "Library fully offline"
-                        else "${prog.done} done · ${prog.running} downloading" +
-                            (if (prog.failed > 0) " · ${prog.failed} failed" else ""),
+                        "${prog.doneCount} of ${prog.totalCount} complete" +
+                            (if (prog.failedCount > 0) " · ${prog.failedCount} failed" else "") +
+                            (if (pendingCount > 0) " · $pendingCount queued" else "") +
+                            (if (container.prefs.downloadsPaused) " · paused" else ""),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 8.dp),
@@ -2194,7 +2217,7 @@ private fun StorageTab(container: AppContainer, onOpenDownloads: () -> Unit) {
     }
 
     if (showDownloadAll) {
-        DownloadLibraryDialog(container, onDismiss = { showDownloadAll = false })
+        DownloadLibraryDialog(container, scope = scope, onDismiss = { showDownloadAll = false })
     }
 }
 

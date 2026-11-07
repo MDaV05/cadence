@@ -14,17 +14,21 @@ import com.cadence.music.ui.theme.CadenceTheme
 class MainActivity : ComponentActivity() {
 
     private var openAbout by mutableStateOf(false)
+    private var openDownloads by mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         openAbout = intent?.getBooleanExtra("open_about", false) == true
+        openDownloads = intent?.getBooleanExtra("open_downloads", false) == true
 
         setContent {
             CadenceTheme((applicationContext as CadenceApp).container) {
                 AppNav(
                     initialSettingsTab = if (openAbout) 4 else 0, // 4 = About tab
                     onDeepLinkConsumed = { openAbout = false },
+                    openDownloads = openDownloads,
+                    onDownloadsLinkConsumed = { openDownloads = false },
                 )
             }
         }
@@ -34,5 +38,6 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         if (intent.getBooleanExtra("open_about", false)) openAbout = true
+        if (intent.getBooleanExtra("open_downloads", false)) openDownloads = true
     }
 }

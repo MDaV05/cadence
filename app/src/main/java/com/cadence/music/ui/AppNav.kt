@@ -1,5 +1,6 @@
 package com.cadence.music.ui
 
+import android.content.Context
 import android.net.Uri
 import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.background
@@ -23,12 +24,25 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.staticCompositionLocalOf
+import com.cadence.music.data.LibraryRepository
+import com.cadence.music.data.db.TrackEntity
+import com.cadence.music.data.downloads.estimateQueueBytes
+import com.cadence.music.data.downloads.isUnmetered
+import com.cadence.music.data.prefs.Prefs
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Insights
@@ -79,7 +93,12 @@ import com.cadence.music.CadenceApp
 import com.cadence.music.data.update.UpdateStatus
 
 @Composable
-fun AppNav(initialSettingsTab: Int = 0, onDeepLinkConsumed: () -> Unit = {}) {
+fun AppNav(
+    initialSettingsTab: Int = 0,
+    onDeepLinkConsumed: () -> Unit = {},
+    openDownloads: Boolean = false,
+    onDownloadsLinkConsumed: () -> Unit = {},
+) {
     val navController = rememberNavController()
     val backStack by navController.currentBackStackEntryAsState()
     val current = backStack?.destination?.route
@@ -126,6 +145,19 @@ fun AppNav(initialSettingsTab: Int = 0, onDeepLinkConsumed: () -> Unit = {}) {
         if (current != null && current != "settings") deepLinkTab = 0
     }
 
+    // Notification tap: the progress/completion notices deep-link to the queue
+    // via MainActivity's open_downloads extra (mirrors the settings tab above).
+    androidx.compose.runtime.LaunchedEffect(openDownloads) {
+        if (openDownloads) {
+            navController.navigate("downloads") {
+                launchSingleTop = true
+                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                restoreState = true
+            }
+            onDownloadsLinkConsumed()
+        }
+    }
+
     // One-shot hint: the Home "Playlists" quick tile wants Library to open on its
     // Playlists tab. Set right before navigating, consumed by LibraryScreen's
     // initialTab, cleared once Library is left — mirroring deepLinkTab above.
@@ -134,8 +166,22 @@ fun AppNav(initialSettingsTab: Int = 0, onDeepLinkConsumed: () -> Unit = {}) {
         if (current != null && current != "library") libraryStartTab = 0
     }
 
+    // One feedback surface for every download entry point (spec D4): screens
+    // report through its snackbars and its action jumps to the queue.
+    val snackbarHostState = remember { SnackbarHostState() }
+    val downloadFeedback = remember(snackbarHostState) {
+        DownloadFeedbackHost(snackbarHostState) {
+            navController.navigate("downloads") {
+                launchSingleTop = true
+                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                restoreState = true
+            }
+        }
+    }
+
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         bottomBar = {
             val hasNavBar = current in listOf("home", "library", "stats", "search", "settings")
             Column(
@@ -143,6 +189,18 @@ fun AppNav(initialSettingsTab: Int = 0, onDeepLinkConsumed: () -> Unit = {}) {
             ) {
                 val np by container.player.state.collectAsStateWithLifecycle()
                 val skinLayout = com.cadence.music.ui.theme.LocalSkin.current.layout
+                // Global download status; sits directly above the mini player
+                // whenever that is showing, and survives "nothing is playing".
+                DownloadChip(
+                    container = container,
+                    onOpenDownloads = {
+                        navController.navigate("downloads") {
+                            launchSingleTop = true
+                            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                            restoreState = true
+                        }
+                    },
+                )
                 // Hidden on now-playing — the full screen already shows the track.
                 if (np.title.isNotEmpty() && current != "nowplaying") {
                     MiniPlayer(
@@ -245,119 +303,136 @@ fun AppNav(initialSettingsTab: Int = 0, onDeepLinkConsumed: () -> Unit = {}) {
             }
         }
     ) { padding ->
-        NavHost(
-            navController = navController,
-            startDestination = "home",
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                // The outer Scaffold already applied the bottom-bar inset; without
-                // this, inner Scaffolds re-apply it and every tab list ends in
-                // dead space above the nav bar (audit F11).
-                .consumeWindowInsets(padding),
-        ) {
-            composable("home") { HomeScreen(container, reselectTrigger = homeReselectTrigger, onArtistClick = { name ->
-                navController.navigate("artist/${Uri.encode(name)}")
-            }, onAlbumClick = { name ->
-                navController.navigate("album/${Uri.encode(name)}")
-            }, onOpenLibrary = {
-                onTabSelect("library")
-            }, onOpenPlaylists = {
-                libraryStartTab = 3
-                onTabSelect("library")
-            }, onOpenSearch = {
-                onTabSelect("search")
-            }, onOpenDownloads = {
-                navController.navigate("downloads") { launchSingleTop = true; popUpTo(navController.graph.findStartDestination().id) { saveState = true }; restoreState = true }
-            }) }
-            composable("library") { LibraryScreen(container, initialTab = libraryStartTab, reselectTrigger = libraryReselectTrigger, onArtistClick = { name ->
-                navController.navigate("artist/${Uri.encode(name)}")
-            }, onAlbumClick = { name ->
-                navController.navigate("album/${Uri.encode(name)}")
-            }, onOpenPlaylist = { id ->
-                navController.navigate("playlist/$id")
-            }, onOpenLiked = {
-                navController.navigate("liked")
-            }) }
-            composable("liked") { LikedSongsScreen(container, onArtistClick = { name ->
-                navController.navigate("artist/${Uri.encode(name)}")
-            }) }
-            composable("stats") { StatsScreen(container, onArtistClick = { name ->
-                navController.navigate("artist/${Uri.encode(name)}")
-            }) }
-            composable("playlist/{id}") { entry ->
-                val id = entry.arguments?.getString("id")?.toLongOrNull() ?: return@composable
-                PlaylistDetailScreen(container, id, onBack = { navController.popBackStack() })
-            }
-            composable("search") { SearchScreen(container, onArtistClick = { name ->
-                navController.navigate("artist/${Uri.encode(name)}")
-            }, onAlbumClick = { name ->
-                navController.navigate("album/${Uri.encode(name)}")
-            }) }
-            composable("settings") { SettingsScreen(container, initialTab = deepLinkTab, reselectTrigger = settingsReselectTrigger, onOpenEqualizer = {
-                navController.navigate("equalizer")
-            }, onOpenDownloads = {
-                navController.navigate("downloads")
-            }) }
-            composable("equalizer") {
-                EqualizerScreen(container, onBack = { navController.popBackStack() })
-            }
-            composable("downloads") {
-                DownloadsScreen(
-                    container,
-                    onBack = { navController.popBackStack() },
-                    onAlbumClick = { name ->
-                        navController.navigate("album/${Uri.encode(name)}")
-                    },
-                )
-            }
-            composable("nowplaying") {
-                NowPlayingScreen(
-                    container,
-                    onBack = { navController.popBackStack() },
-                    onArtistClick = { name ->
-                        navController.navigate("artist/${Uri.encode(name)}")
-                    },
-                    // Album route keys on albumNorm, not the display name.
-                    onAlbumClick = { norm ->
-                        navController.navigate("album/${Uri.encode(norm)}")
-                    },
-                )
-            }
-            composable("artist/{name}") { entry ->
-                // NavController already decoded the arg; a second decode turns
-                // "+" into a space and crashes on a trailing "%".
-                val name = entry.arguments?.getString("name") ?: return@composable
-                ArtistScreen(
-                    container,
-                    name,
-                    onAlbumClick = { album ->
-                        navController.navigate("album/${Uri.encode(album)}")
-                    },
-                    // launchSingleTop: the sheet's "go to" entries can target
-                    // the artist already on screen; don't stack a duplicate.
-                    onArtistClick = { artist ->
-                        navController.navigate("artist/${Uri.encode(artist)}") { launchSingleTop = true }
-                    },
-                    onBack = { navController.popBackStack() },
-                )
-            }
-            composable("album/{name}") { entry ->
-                val name = entry.arguments?.getString("name") ?: return@composable
-                AlbumScreen(
-                    container,
-                    name,
-                    onArtistClick = { artist ->
-                        navController.navigate("artist/${Uri.encode(artist)}") { launchSingleTop = true }
-                    },
-                    onAlbumClick = { album ->
-                        navController.navigate("album/${Uri.encode(album)}") { launchSingleTop = true }
-                    },
-                    onBack = { navController.popBackStack() },
-                )
+        CompositionLocalProvider(LocalDownloadFeedback provides downloadFeedback) {
+            NavHost(
+                navController = navController,
+                startDestination = "home",
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    // The outer Scaffold already applied the bottom-bar inset; without
+                    // this, inner Scaffolds re-apply it and every tab list ends in
+                    // dead space above the nav bar (audit F11).
+                    .consumeWindowInsets(padding),
+            ) {
+                composable("home") { HomeScreen(container, reselectTrigger = homeReselectTrigger, onArtistClick = { name ->
+                    navController.navigate("artist/${Uri.encode(name)}")
+                }, onAlbumClick = { name ->
+                    navController.navigate("album/${Uri.encode(name)}")
+                }, onOpenLibrary = {
+                    onTabSelect("library")
+                }, onOpenPlaylists = {
+                    libraryStartTab = 3
+                    onTabSelect("library")
+                }, onOpenSearch = {
+                    onTabSelect("search")
+                }, onOpenDownloads = {
+                    navController.navigate("downloads") { launchSingleTop = true; popUpTo(navController.graph.findStartDestination().id) { saveState = true }; restoreState = true }
+                }) }
+                composable("library") { LibraryScreen(container, initialTab = libraryStartTab, reselectTrigger = libraryReselectTrigger, onArtistClick = { name ->
+                    navController.navigate("artist/${Uri.encode(name)}")
+                }, onAlbumClick = { name ->
+                    navController.navigate("album/${Uri.encode(name)}")
+                }, onOpenPlaylist = { id ->
+                    navController.navigate("playlist/$id")
+                }, onOpenLiked = {
+                    navController.navigate("liked")
+                }) }
+                composable("liked") { LikedSongsScreen(container, onArtistClick = { name ->
+                    navController.navigate("artist/${Uri.encode(name)}")
+                }) }
+                composable("stats") { StatsScreen(container, onArtistClick = { name ->
+                    navController.navigate("artist/${Uri.encode(name)}")
+                }) }
+                composable("playlist/{id}") { entry ->
+                    val id = entry.arguments?.getString("id")?.toLongOrNull() ?: return@composable
+                    PlaylistDetailScreen(container, id, onBack = { navController.popBackStack() })
+                }
+                composable("search") { SearchScreen(container, onArtistClick = { name ->
+                    navController.navigate("artist/${Uri.encode(name)}")
+                }, onAlbumClick = { name ->
+                    navController.navigate("album/${Uri.encode(name)}")
+                }) }
+                composable("settings") { SettingsScreen(container, initialTab = deepLinkTab, reselectTrigger = settingsReselectTrigger, onOpenEqualizer = {
+                    navController.navigate("equalizer")
+                }, onOpenDownloads = {
+                    navController.navigate("downloads")
+                }) }
+                composable("equalizer") {
+                    EqualizerScreen(container, onBack = { navController.popBackStack() })
+                }
+                composable("downloads") {
+                    DownloadsScreen(
+                        container,
+                        onBack = { navController.popBackStack() },
+                        onAlbumClick = { name ->
+                            navController.navigate("album/${Uri.encode(name)}")
+                        },
+                        onBrowseLibrary = {
+                            navController.navigate("library") {
+                                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
+                        },
+                        // Same settings-tab deep link the notification path uses:
+                        // pin the tab before navigating (Server = 1, Storage = 2).
+                        onOpenSettingsTab = { tab ->
+                            deepLinkTab = tab
+                            onTabSelect("settings")
+                        },
+                    )
+                }
+                composable("nowplaying") {
+                    NowPlayingScreen(
+                        container,
+                        onBack = { navController.popBackStack() },
+                        onArtistClick = { name ->
+                            navController.navigate("artist/${Uri.encode(name)}")
+                        },
+                        // Album route keys on albumNorm, not the display name.
+                        onAlbumClick = { norm ->
+                            navController.navigate("album/${Uri.encode(norm)}")
+                        },
+                    )
+                }
+                composable("artist/{name}") { entry ->
+                    // NavController already decoded the arg; a second decode turns
+                    // "+" into a space and crashes on a trailing "%".
+                    val name = entry.arguments?.getString("name") ?: return@composable
+                    ArtistScreen(
+                        container,
+                        name,
+                        onAlbumClick = { album ->
+                            navController.navigate("album/${Uri.encode(album)}")
+                        },
+                        // launchSingleTop: the sheet's "go to" entries can target
+                        // the artist already on screen; don't stack a duplicate.
+                        onArtistClick = { artist ->
+                            navController.navigate("artist/${Uri.encode(artist)}") { launchSingleTop = true }
+                        },
+                        onBack = { navController.popBackStack() },
+                    )
+                }
+                composable("album/{name}") { entry ->
+                    val name = entry.arguments?.getString("name") ?: return@composable
+                    AlbumScreen(
+                        container,
+                        name,
+                        onArtistClick = { artist ->
+                            navController.navigate("artist/${Uri.encode(artist)}") { launchSingleTop = true }
+                        },
+                        onAlbumClick = { album ->
+                            navController.navigate("album/${Uri.encode(album)}") { launchSingleTop = true }
+                        },
+                        onBack = { navController.popBackStack() },
+                    )
+                }
             }
         }
     }
+
+    MeteredDataAskDialog()
 }
 
 @Composable
@@ -682,6 +757,124 @@ private fun UpdatePopup(container: AppContainer) {
         },
         dismissButton = {
             TextButton(onClick = { close() }) { Text("Later") }
+        },
+    )
+}
+
+/** Snackbar surface plus queue navigation that every download entry point reports through (spec D4). */
+class DownloadFeedbackHost(
+    val snackbar: SnackbarHostState,
+    val navigateToQueue: () -> Unit,
+)
+
+/** Provided by AppNav's scaffold; screens read this instead of toasting download state. */
+val LocalDownloadFeedback = staticCompositionLocalOf<DownloadFeedbackHost> {
+    DownloadFeedbackHost(SnackbarHostState()) {}
+}
+
+/** A bulk enqueue waiting on the "Download over mobile data?" ask (spec D2). */
+private class PendingMeteredAsk(
+    val trackCount: Int,
+    val estimateBytes: Long,
+    val prefs: Prefs,
+    val library: LibraryRepository,
+    val go: () -> Unit,
+) {
+    var remembered by mutableStateOf(false)
+}
+
+private var pendingMeteredAsk by mutableStateOf<PendingMeteredAsk?>(null)
+
+/**
+ * THE entry point every download button calls (spec D4): enqueues off the main
+ * thread and reports through a snackbar with a "View queue" action. On a
+ * metered link a bulk enqueue asks first (spec D2); single tracks never do.
+ */
+fun enqueueWithFeedback(
+    tracks: List<TrackEntity>,
+    scope: CoroutineScope,
+    library: LibraryRepository,
+    prefs: Prefs,
+    context: Context,
+    snackbar: SnackbarHostState?,
+    navigateToQueue: () -> Unit,
+    priority: Int = 0,
+) {
+    val fresh = tracks.filter { it.path == null }
+    if (fresh.isEmpty()) {
+        scope.launch { snackbar?.showSnackbar("Everything here is already offline") }
+        return
+    }
+    val estimate = estimateQueueBytes(fresh, prefs.downloadFormat, prefs.downloadBitrate)
+    fun go() {
+        // The repository's app-scope enqueue, not the caller's, so it survives
+        // dialog disposal the way the old enqueueDownloadsAsync calls did.
+        library.enqueueDownloadsAsync(fresh, priority)
+        scope.launch {
+            val message = buildString {
+                append("Queued ${fresh.size} track${if (fresh.size == 1) "" else "s"}")
+                if (estimate > 0) append(" · ~${formatBytes(estimate)}")
+                when {
+                    prefs.downloadsPaused -> append(" — downloads are paused")
+                    (prefs.downloadWifiOnly || prefs.waitWifiOnce) && !isUnmetered(context) ->
+                        append(" — waiting for Wi-Fi")
+                }
+            }
+            if (snackbar != null) {
+                val result = snackbar.showSnackbar(message, actionLabel = "View queue")
+                if (result == SnackbarResult.ActionPerformed) navigateToQueue()
+            }
+        }
+    }
+    when {
+        prefs.downloadWifiOnly || isUnmetered(context) -> go()
+        // Single tracks never prompt (spec D2) — small data.
+        fresh.size == 1 -> go()
+        else -> pendingMeteredAsk = PendingMeteredAsk(fresh.size, estimate, prefs, library) { go() }
+    }
+}
+
+/** The bulk-enqueue mobile-data ask, hosted once by AppNav (spec D2). */
+@Composable
+private fun MeteredDataAskDialog() {
+    val ask = pendingMeteredAsk ?: return
+    AlertDialog(
+        onDismissRequest = { pendingMeteredAsk = null },
+        title = { Text("Download over mobile data?") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("~${formatBytes(ask.estimateBytes)} · ${ask.trackCount} tracks")
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = ask.remembered, onCheckedChange = { ask.remembered = it })
+                    Text("Remember my choice", modifier = Modifier.padding(start = 8.dp))
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                pendingMeteredAsk = null
+                // "Remember" makes mobile-data downloads the standing choice;
+                // without it nothing persists and the next bulk ask shows again.
+                // Either way a lingering one-shot wait is superseded by the
+                // user's latest intent: download now.
+                if (ask.remembered) ask.prefs.downloadWifiOnly = false
+                ask.prefs.waitWifiOnce = false
+                ask.library.applyDownloadNetworkPolicy()
+                ask.go()
+            }) { Text("Download now") }
+        },
+        dismissButton = {
+            TextButton(onClick = {
+                pendingMeteredAsk = null
+                // Rows can only wait behind an UNMETERED constraint. "Remember"
+                // persists waiting into Wi-Fi-only (spec D2); without it, just
+                // this batch waits on a one-shot flag that the worker clears
+                // when the queue drains or pauses — no settings change.
+                if (ask.remembered) ask.prefs.downloadWifiOnly = true
+                else ask.prefs.waitWifiOnce = true
+                ask.library.applyDownloadNetworkPolicy()
+                ask.go()
+            }) { Text("Wait for Wi-Fi") }
         },
     )
 }

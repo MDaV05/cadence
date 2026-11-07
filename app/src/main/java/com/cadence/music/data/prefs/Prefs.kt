@@ -158,6 +158,26 @@ class Prefs(context: Context) {
         get() = sp.getInt("download_bitrate", 128)
         set(value) = sp.edit().putInt("download_bitrate", value).apply()
 
+    /** Queue waits for an unmetered link instead of using mobile data. */
+    var downloadWifiOnly: Boolean
+        get() = sp.getBoolean("download_wifi_only", false)
+        set(value) = sp.edit().putBoolean("download_wifi_only", value).apply()
+
+    /** One-shot: the next scheduler start may use metered data even when Wi-Fi-only is on. */
+    var allowMeteredOnce: Boolean
+        get() = sp.getBoolean("download_allow_metered_once", false)
+        set(value) = sp.edit().putBoolean("download_allow_metered_once", value).apply()
+
+    /** One-shot: the next scheduler start waits for unmetered even when Wi-Fi-only is off. */
+    var waitWifiOnce: Boolean
+        get() = sp.getBoolean("download_wait_wifi_once", false)
+        set(value) = sp.edit().putBoolean("download_wait_wifi_once", value).apply()
+
+    /** Persisted so a paused queue stays paused after the process is killed. */
+    var downloadsPaused: Boolean
+        get() = sp.getBoolean("downloads_paused", false)
+        set(value) = sp.edit().putBoolean("downloads_paused", value).apply()
+
     /** One-shot: cleared downloads that were actually server error bodies. */
     var downloadRepairV1: Boolean
         get() = sp.getBoolean("download_repair_v1", false)
