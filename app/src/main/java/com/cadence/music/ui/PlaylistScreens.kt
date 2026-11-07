@@ -4,7 +4,6 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
-import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -501,6 +500,7 @@ fun PlaylistDetailScreen(container: AppContainer, playlistId: Long, onBack: () -
     val player = container.player
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    val feedback = LocalDownloadFeedback.current
     var name by remember(playlistId) { mutableStateOf("") }
     var coverPath by remember(playlistId) { mutableStateOf<String?>(null) }
     var trackCount by remember(playlistId) { mutableStateOf(0) }
@@ -570,20 +570,10 @@ fun PlaylistDetailScreen(container: AppContainer, playlistId: Long, onBack: () -
                     IconButton(onClick = {
                         val missing = tracks.map { it.track }
                             .filter { it.sourceId != "local" && it.path == null }
-                        if (missing.isEmpty()) {
-                            Toast.makeText(context, "Playlist is already offline", Toast.LENGTH_SHORT).show()
-                        } else {
-                            container.library.enqueueDownloadsAsync(missing)
-                            Toast.makeText(
-                                context,
-                                if (container.prefs.downloadsPaused) {
-                                    "Queued ${missing.size} songs — downloads are paused"
-                                } else {
-                                    "Queued ${missing.size} songs"
-                                },
-                                Toast.LENGTH_SHORT,
-                            ).show()
-                        }
+                        enqueueWithFeedback(
+                            missing, scope, container.library, container.prefs, context,
+                            feedback.snackbar, feedback.navigateToQueue,
+                        )
                     }) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Icon(Icons.Filled.Download, "Download playlist")
@@ -705,7 +695,12 @@ fun PlaylistDetailScreen(container: AppContainer, playlistId: Long, onBack: () -
                                 ],
                                 isDownloaded = downloaded,
                                 onDownload = if (!downloaded) {
-                                    { container.library.enqueueDownload(entry.track) }
+                                    {
+                                        enqueueWithFeedback(
+                                            listOf(entry.track), scope, container.library, container.prefs,
+                                            context, feedback.snackbar, feedback.navigateToQueue, priority = 1,
+                                        )
+                                    }
                                 } else {
                                     null
                                 },
@@ -745,6 +740,8 @@ fun PlaylistDetailScreen(container: AppContainer, playlistId: Long, onBack: () -
 fun LikedSongsScreen(container: AppContainer, onArtistClick: (String) -> Unit = {}) {
     val player = container.player
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val feedback = LocalDownloadFeedback.current
     var liked by remember { mutableStateOf<List<TrackEntity>>(emptyList()) }
     LaunchedEffect(Unit) { liked = container.library.likedTracks() }
 
@@ -844,7 +841,12 @@ fun LikedSongsScreen(container: AppContainer, onArtistClick: (String) -> Unit = 
                                 status = row?.download?.status,
                                 isDownloaded = downloaded,
                                 onDownload = if (!downloaded) {
-                                    { container.library.enqueueDownload(track) }
+                                    {
+                                        enqueueWithFeedback(
+                                            listOf(track), scope, container.library, container.prefs,
+                                            context, feedback.snackbar, feedback.navigateToQueue, priority = 1,
+                                        )
+                                    }
                                 } else {
                                     null
                                 },

@@ -65,7 +65,13 @@ class DownloadWorker(context: Context, params: WorkerParameters) :
                 if (prefs.downloadWifiOnly && !isUnmetered(applicationContext)) {
                     return Result.retry()
                 }
-                val row = db.downloadDao().nextQueued(System.currentTimeMillis()) ?: return Result.success()
+                val row = db.downloadDao().nextQueued(System.currentTimeMillis())
+                if (row == null) {
+                    // The queue drained: a one-time mobile-data override has served
+                    // its purpose (spec D2), so the next wait starts clean.
+                    prefs.allowMeteredOnce = false
+                    return Result.success()
+                }
                 val track = db.trackDao().byServerId(row.trackServerId)
                 if (track == null || track.sourceId != row.sourceId) {
                     db.downloadDao().delete(row.trackServerId, row.sourceId)

@@ -2217,7 +2217,7 @@ private fun StorageTab(container: AppContainer, onOpenDownloads: () -> Unit) {
     }
 
     if (showDownloadAll) {
-        DownloadLibraryDialog(container, onDismiss = { showDownloadAll = false })
+        DownloadLibraryDialog(container, scope = scope, onDismiss = { showDownloadAll = false })
     }
 }
 

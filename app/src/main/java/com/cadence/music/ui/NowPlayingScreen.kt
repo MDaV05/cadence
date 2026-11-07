@@ -416,6 +416,7 @@ fun NowPlayingScreen(
             val trackArtist = track?.artistName?.takeIf { it.isNotBlank() }
             val scope = rememberCoroutineScope()
             val starred = currentTrack?.starred == true
+            val feedback = LocalDownloadFeedback.current
 
             if (spotify) {
                 // Spotify Title Row: Title & Artist on left, Heart on right
@@ -845,7 +846,14 @@ fun NowPlayingScreen(
                                 status = downloadRow?.download?.status,
                                 isDownloaded = currentTrack?.path != null,
                                 onDownload = if (currentTrack?.path == null) {
-                                    { currentTrack?.let { container.library.enqueueDownload(it) } }
+                                    {
+                                        currentTrack?.let {
+                                            enqueueWithFeedback(
+                                                listOf(it), scope, container.library, container.prefs,
+                                                context, feedback.snackbar, feedback.navigateToQueue, priority = 1,
+                                            )
+                                        }
+                                    }
                                 } else {
                                     null
                                 },

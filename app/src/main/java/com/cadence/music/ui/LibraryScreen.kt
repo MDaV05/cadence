@@ -253,6 +253,8 @@ fun TrackRow(
     }
     var showSheet by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val feedback = LocalDownloadFeedback.current
 
     Row(
         modifier = Modifier
@@ -297,7 +299,12 @@ fun TrackRow(
                 status = downloadRow?.download?.status ?: downloadStatus,
                 isDownloaded = downloaded,
                 onDownload = if (!downloaded) {
-                    { container.library.enqueueDownload(track) }
+                    {
+                        enqueueWithFeedback(
+                            listOf(track), scope, container.library, container.prefs,
+                            context, feedback.snackbar, feedback.navigateToQueue, priority = 1,
+                        )
+                    }
                 } else {
                     null
                 },
@@ -337,6 +344,7 @@ fun TrackActionsSheet(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val feedback = LocalDownloadFeedback.current
     var showEdit by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var sheetVisible by remember { mutableStateOf(true) }
@@ -557,7 +565,10 @@ fun TrackActionsSheet(
                                 headlineContent = { Text("Keep offline") },
                                 leadingContent = { Icon(Icons.Filled.Download, null) },
                                 modifier = Modifier.clickable {
-                                    container.library.enqueueDownload(track)
+                                    enqueueWithFeedback(
+                                        listOf(track), scope, container.library, container.prefs,
+                                        context, feedback.snackbar, feedback.navigateToQueue, priority = 1,
+                                    )
                                     close()
                                 },
                             )

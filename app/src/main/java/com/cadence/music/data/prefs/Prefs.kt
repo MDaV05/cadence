@@ -163,6 +163,11 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("download_wifi_only", false)
         set(value) = sp.edit().putBoolean("download_wifi_only", value).apply()
 
+    /** One-shot: the next scheduler start may use metered data even when Wi-Fi-only is on. */
+    var allowMeteredOnce: Boolean
+        get() = sp.getBoolean("download_allow_metered_once", false)
+        set(value) = sp.edit().putBoolean("download_allow_metered_once", value).apply()
+
     /** Persisted so a paused queue stays paused after the process is killed. */
     var downloadsPaused: Boolean
         get() = sp.getBoolean("downloads_paused", false)

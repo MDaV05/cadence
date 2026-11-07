@@ -21,11 +21,15 @@ object DownloadScheduler {
     fun start(context: Context, prefs: Prefs, replace: Boolean = false) {
         if (prefs.downloadsPaused) return
         DownloadWorker.clearPause()
+        // Wi-Fi-only bends for a one-shot override (spec D2): "Download anyway"
+        // on the waiting banner lets the next start use any connection. The flag
+        // is cleared by the worker when the queue drains and by pause() below.
+        val wifiOnly = prefs.downloadWifiOnly && !prefs.allowMeteredOnce
         val request = OneTimeWorkRequestBuilder<DownloadWorker>()
             .setConstraints(
                 Constraints.Builder()
                     .setRequiredNetworkType(
-                        if (prefs.downloadWifiOnly) NetworkType.UNMETERED else NetworkType.CONNECTED
+                        if (wifiOnly) NetworkType.UNMETERED else NetworkType.CONNECTED
                     )
                     .build()
             )
@@ -42,6 +46,8 @@ object DownloadScheduler {
     /** Pause keeps partial files; the queue stays visible and resumable. */
     fun pause(context: Context, prefs: Prefs) {
         prefs.downloadsPaused = true
+        // A paused queue invalidates the one-time mobile-data override (spec D2).
+        prefs.allowMeteredOnce = false
         DownloadWorker.requestPause()
         val wm = WorkManager.getInstance(context)
         wm.cancelUniqueWork(WORK_NAME)

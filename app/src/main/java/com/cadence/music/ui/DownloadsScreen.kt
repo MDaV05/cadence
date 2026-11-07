@@ -1,6 +1,5 @@
 package com.cadence.music.ui
 
-import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -70,6 +69,7 @@ import com.cadence.music.data.downloads.estimateQueueBytes
 import com.cadence.music.data.downloads.humanizeDownloadError
 import com.cadence.music.data.downloads.isUnmetered
 import com.cadence.music.data.downloads.observeUnmetered
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -129,8 +129,12 @@ fun DownloadsScreen(
     val wifi by remember(context) { observeUnmetered(context) }
         .collectAsStateWithLifecycle(initialValue = isUnmetered(context))
     val wifiWaiting = !paused && prefs.downloadWifiOnly && !wifi && queuedCount > 0
+    val feedback = LocalDownloadFeedback.current
 
-    fun toast(message: String) = Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+    // Download feedback goes through the app-level snackbar (spec D4), not toasts.
+    fun snack(message: String) {
+        scope.launch { feedback.snackbar.showSnackbar(message) }
+    }
 
     fun verifyDownloads() {
         scope.launch {
@@ -138,7 +142,7 @@ fun DownloadsScreen(
                 runCatching { container.library.repairInvalidDownloads() }
             }
             val repaired = result.getOrNull()
-            toast(
+            snack(
                 when {
                     repaired == null -> "Could not verify downloads"
                     repaired == 0 -> "All downloads verified"
@@ -153,7 +157,7 @@ fun DownloadsScreen(
             val n = withContext(Dispatchers.IO) {
                 runCatching { container.library.retryFailedDownloads() }.getOrDefault(0)
             }
-            toast(if (n == 0) "Nothing to retry" else "Queued $n tracks")
+            snack(if (n == 0) "Nothing to retry" else "Queued $n tracks")
         }
     }
 
@@ -172,11 +176,11 @@ fun DownloadsScreen(
                             if (paused) {
                                 paused = false
                                 container.library.resumeDownloads()
-                                toast("Downloads resumed")
+                                snack("Downloads resumed")
                             } else {
                                 paused = true
                                 container.library.pauseDownloads()
-                                toast("Downloads paused")
+                                snack("Downloads paused")
                             }
                         }) {
                             Icon(
@@ -245,7 +249,7 @@ fun DownloadsScreen(
                         onResume = {
                             paused = false
                             container.library.resumeDownloads()
-                            toast("Downloads resumed")
+                            snack("Downloads resumed")
                         },
                         onDownloadOnMobile = { showMobileConfirm = true },
                     )
@@ -320,12 +324,10 @@ fun DownloadsScreen(
                                                 .filter { it.path == null && it.sourceId != "local" }
                                         }.getOrDefault(emptyList())
                                     }
-                                    if (missing.isEmpty()) {
-                                        toast("Album is already offline")
-                                    } else {
-                                        container.library.enqueueDownloads(missing)
-                                        toast("Queued ${missing.size} tracks")
-                                    }
+                                    enqueueWithFeedback(
+                                        missing, scope, container.library, prefs, context,
+                                        feedback.snackbar, feedback.navigateToQueue,
+                                    )
                                 }
                             },
                             onRemove = {
@@ -349,6 +351,7 @@ fun DownloadsScreen(
     if (showDownloadAll) {
         BulkDownloadDialog(
             container = container,
+            scope = scope,
             title = "Download the whole library?",
             emptyText = "Every track already has an offline copy.",
             loadTracks = { container.library.tracksForBulkDownload() },
@@ -358,6 +361,7 @@ fun DownloadsScreen(
     if (showDownloadLiked) {
         BulkDownloadDialog(
             container = container,
+            scope = scope,
             title = "Download liked songs?",
             emptyText = "No liked songs are waiting to be downloaded.",
             loadTracks = {
@@ -383,7 +387,7 @@ fun DownloadsScreen(
                         val n = withContext(Dispatchers.IO) {
                             runCatching { container.library.clearCompletedDownloads() }.getOrDefault(0)
                         }
-                        toast("Removed $n downloads")
+                        snack("Removed $n downloads")
                     }
                 }) { Text("Delete") }
             },
@@ -408,7 +412,7 @@ fun DownloadsScreen(
                         val n = withContext(Dispatchers.IO) {
                             runCatching { container.library.deleteAlbumDownloads(norm) }.getOrDefault(0)
                         }
-                        toast("Removed $n downloads")
+                        snack("Removed $n downloads")
                     }
                 }) { Text("Delete") }
             },
@@ -421,16 +425,19 @@ fun DownloadsScreen(
             title = { Text("Download on mobile data?") },
             text = {
                 Text(
-                    "Wi-Fi-only downloads will be turned off so the queue can start now. " +
-                        "You can turn it back on in Settings."
+                    "The queue will start now and use mobile data. " +
+                        "Wi-Fi-only resumes once the queue finishes or is paused."
                 )
             },
             confirmButton = {
                 TextButton(onClick = {
                     showMobileConfirm = false
-                    prefs.downloadWifiOnly = false
+                    // One-shot override (spec D2): the next start may use any
+                    // connection; the worker clears the flag when the queue
+                    // drains or is paused.
+                    prefs.allowMeteredOnce = true
                     container.library.resumeDownloads()
-                    toast("Downloading on mobile data")
+                    snack("Downloading on mobile data")
                 }) { Text("Download") }
             },
             dismissButton = {
@@ -772,9 +779,14 @@ private fun AlbumDownloadTile(
  * thread; the confirm button stays disabled until they arrive.
  */
 @Composable
-internal fun DownloadLibraryDialog(container: AppContainer, onDismiss: () -> Unit) {
+internal fun DownloadLibraryDialog(
+    container: AppContainer,
+    scope: CoroutineScope,
+    onDismiss: () -> Unit,
+) {
     BulkDownloadDialog(
         container = container,
+        scope = scope,
         title = "Download the whole library?",
         emptyText = "Every track already has an offline copy.",
         loadTracks = { container.library.tracksForBulkDownload() },
@@ -785,6 +797,7 @@ internal fun DownloadLibraryDialog(container: AppContainer, onDismiss: () -> Uni
 @Composable
 private fun BulkDownloadDialog(
     container: AppContainer,
+    scope: CoroutineScope,
     title: String,
     emptyText: String,
     loadTracks: suspend () -> List<TrackEntity>,
@@ -806,6 +819,7 @@ private fun BulkDownloadDialog(
     val free = remember { context.filesDir.usableSpace }
     val wifi by remember(context) { observeUnmetered(context) }
         .collectAsStateWithLifecycle(initialValue = isUnmetered(context))
+    val feedback = LocalDownloadFeedback.current
     val n = tracks?.size ?: 0
     val needsRoom = estimate > 0 && estimate + BULK_HEADROOM_BYTES > free
 
@@ -869,13 +883,12 @@ private fun BulkDownloadDialog(
                 onClick = {
                     prefs.downloadWifiOnly = wifiOnly
                     container.library.applyDownloadNetworkPolicy()
-                    container.library.enqueueDownloadsAsync(tracks.orEmpty())
-                    val message = when {
-                        prefs.downloadsPaused -> "Queued $n tracks — downloads are paused"
-                        wifiOnly && !wifi -> "Queued — waiting for Wi-Fi"
-                        else -> "Queued $n tracks"
-                    }
-                    Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                    // The caller's scope survives this dialog's disposal, so the
+                    // snackbar still lands after it closes.
+                    enqueueWithFeedback(
+                        tracks.orEmpty(), scope, container.library, prefs, context,
+                        feedback.snackbar, feedback.navigateToQueue,
+                    )
                     onDismiss()
                 },
             ) { Text(if (wifiOnly && !wifi) "Queue" else "Download") }

@@ -70,6 +70,7 @@ fun AlbumScreen(
     val player = container.player
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val feedback = LocalDownloadFeedback.current
     var currentNorm by remember(albumNorm) { mutableStateOf(albumNorm) }
     var tracks by remember { mutableStateOf<List<TrackEntity>>(emptyList()) }
     var art by remember { mutableStateOf<String?>(null) }
@@ -107,14 +108,9 @@ fun AlbumScreen(
         // Album downloads are bulk work: queue them on the serial chain instead
         // of one independent work per track.
         val missing = tracks.filter { it.sourceId != "local" && it.path == null }
-        if (missing.isEmpty()) {
-            toast("Album is already offline")
-            return
-        }
-        container.library.enqueueDownloadsAsync(missing)
-        toast(
-            if (container.prefs.downloadsPaused) "Queued ${missing.size} tracks — downloads are paused"
-            else "Queued ${missing.size} tracks"
+        enqueueWithFeedback(
+            missing, scope, container.library, container.prefs, context,
+            feedback.snackbar, feedback.navigateToQueue,
         )
     }
 
@@ -332,7 +328,12 @@ fun AlbumScreen(
                             status = downloadStatuses["${track.sourceId}:${track.serverId}"],
                             isDownloaded = downloaded,
                             onDownload = if (!downloaded) {
-                                { container.library.enqueueDownload(track) }
+                                {
+                                    enqueueWithFeedback(
+                                        listOf(track), scope, container.library, container.prefs,
+                                        context, feedback.snackbar, feedback.navigateToQueue, priority = 1,
+                                    )
+                                }
                             } else {
                                 null
                             },
