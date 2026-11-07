@@ -127,6 +127,42 @@ interface TrackDao {
 
     @Query("SELECT * FROM tracks ORDER BY id DESC LIMIT 10")
     suspend fun recentlyAdded(): List<TrackEntity>
+
+    // Smart playlist presets: live queries over the tracks table, each capped
+    // at 100 rows — the query IS the playlist, nothing is stored.
+
+    @Query("SELECT * FROM tracks WHERE playCount > 0 ORDER BY playCount DESC, lastPlayed DESC LIMIT 100")
+    fun observeMostPlayed(): Flow<List<TrackEntity>>
+
+    @Query("SELECT COUNT(*) FROM tracks WHERE playCount > 0")
+    fun observeMostPlayedCount(): Flow<Int>
+
+    // No added-date column exists; autoincrement id is the insertion order.
+    @Query("SELECT * FROM tracks ORDER BY id DESC LIMIT 100")
+    fun observeRecentlyAdded(): Flow<List<TrackEntity>>
+
+    @Query("SELECT COUNT(*) FROM tracks")
+    fun observeRecentlyAddedCount(): Flow<Int>
+
+    @Query("SELECT * FROM tracks WHERE lastPlayed IS NOT NULL ORDER BY lastPlayed DESC LIMIT 100")
+    fun observeRecentlyPlayed(): Flow<List<TrackEntity>>
+
+    @Query("SELECT COUNT(*) FROM tracks WHERE lastPlayed IS NOT NULL")
+    fun observeRecentlyPlayedCount(): Flow<Int>
+
+    @Query("SELECT * FROM tracks WHERE playCount = 0 ORDER BY title COLLATE NOCASE ASC LIMIT 100")
+    fun observeNeverPlayed(): Flow<List<TrackEntity>>
+
+    @Query("SELECT COUNT(*) FROM tracks WHERE playCount = 0")
+    fun observeNeverPlayedCount(): Flow<Int>
+
+    // Non-null path = a local file backs the track (local scan URI or a
+    // completed download), i.e. it plays without the network.
+    @Query("SELECT * FROM tracks WHERE path IS NOT NULL ORDER BY title COLLATE NOCASE ASC LIMIT 100")
+    fun observeOffline(): Flow<List<TrackEntity>>
+
+    @Query("SELECT COUNT(*) FROM tracks WHERE path IS NOT NULL")
+    fun observeOfflineCount(): Flow<Int>
 }
 
 @Dao

@@ -337,10 +337,17 @@ fun AppNav(
                     navController.navigate("playlist/$id")
                 }, onOpenLiked = {
                     navController.navigate("liked")
+                }, onOpenSmart = { id ->
+                    navController.navigate("smart/$id")
                 }) }
                 composable("liked") { LikedSongsScreen(container, onArtistClick = { name ->
                     navController.navigate("artist/${Uri.encode(name)}")
                 }) }
+                composable("smart/{id}") { entry ->
+                    SmartPlaylistScreen(container, entry.arguments?.getString("id") ?: "", onBack = { navController.popBackStack() }, onArtistClick = { name ->
+                        navController.navigate("artist/${Uri.encode(name)}")
+                    })
+                }
                 composable("stats") { StatsScreen(container, onArtistClick = { name ->
                     navController.navigate("artist/${Uri.encode(name)}")
                 }) }

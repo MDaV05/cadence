@@ -161,6 +161,7 @@ fun PlaylistsContent(
     onOpen: (Long) -> Unit,
     modifier: Modifier = Modifier,
     onOpenLiked: () -> Unit = {},
+    onOpenSmart: (String) -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
     val playlists by container.library.playlists()
@@ -185,6 +186,9 @@ fun PlaylistsContent(
 
     var renameTarget by remember { mutableStateOf<PlaylistWithCount?>(null) }
     var deleteTarget by remember { mutableStateOf<PlaylistWithCount?>(null) }
+
+    // Rule-based presets: the TrackDao queries are the playlist, nothing is stored.
+    val smartPresets = remember { smartPlaylists(container) }
 
     Column(modifier = modifier.fillMaxSize()) {
         // Pinned smart playlist: a live view over the liked flag, not a real
@@ -288,49 +292,61 @@ fun PlaylistsContent(
             }
         }
 
-        if (playlists.isEmpty()) {
-            Column(
-                modifier = Modifier.weight(1f).fillMaxWidth().padding(32.dp),
-                verticalArrangement = Arrangement.Center,
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Text("No playlists yet", style = MaterialTheme.typography.titleMedium)
+        LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
+            item(key = "smart-header") {
                 Text(
-                    "Tap + to create one, then long-press any song to add it.",
-                    style = MaterialTheme.typography.bodySmall,
+                    "Smart",
+                    style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 4.dp),
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp),
                 )
             }
-        } else {
-            LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
-            items(playlists, key = { it.id }) { p ->
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onOpen(p.id) }
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                ) {
-                    PlaylistCover(container, p.id, p.coverPath, 56.dp, MaterialTheme.shapes.small)
-                    Column(Modifier.weight(1f).padding(start = 14.dp)) {
-                        Text(p.name, maxLines = 1)
+            items(smartPresets, key = { it.id }) { preset ->
+                SmartPlaylistRow(preset, onClick = { onOpenSmart(preset.id) })
+            }
+            if (playlists.isEmpty()) {
+                item(key = "empty") {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(32.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Text("No playlists yet", style = MaterialTheme.typography.titleMedium)
                         Text(
-                            if (p.trackCount == 1) "1 song" else "${p.trackCount} songs",
+                            "Tap + to create one, then long-press any song to add it.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 4.dp),
                         )
                     }
-                    IconButton(onClick = { renameTarget = p }) {
-                        Icon(Icons.Filled.Edit, "Rename ${p.name}")
-                    }
-                    IconButton(onClick = { deleteTarget = p }) {
-                        Icon(Icons.Filled.Delete, "Delete ${p.name}")
+                }
+            } else {
+                items(playlists, key = { it.id }) { p ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onOpen(p.id) }
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                    ) {
+                        PlaylistCover(container, p.id, p.coverPath, 56.dp, MaterialTheme.shapes.small)
+                        Column(Modifier.weight(1f).padding(start = 14.dp)) {
+                            Text(p.name, maxLines = 1)
+                            Text(
+                                if (p.trackCount == 1) "1 song" else "${p.trackCount} songs",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        IconButton(onClick = { renameTarget = p }) {
+                            Icon(Icons.Filled.Edit, "Rename ${p.name}")
+                        }
+                        IconButton(onClick = { deleteTarget = p }) {
+                            Icon(Icons.Filled.Delete, "Delete ${p.name}")
+                        }
                     }
                 }
             }
         }
-    }
     }
 
     if (selectedMix != null) {
@@ -471,6 +487,37 @@ fun PlaylistsContent(
                 TextButton(onClick = { deleteTarget = null }) { Text("Cancel") }
             },
         )
+    }
+}
+
+/** One preset row in the Playlists browser: same cover-placeholder style as Liked Songs. */
+@Composable
+private fun SmartPlaylistRow(preset: SmartPlaylist, onClick: () -> Unit) {
+    val count by preset.count.collectAsStateWithLifecycle(initialValue = 0)
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+    ) {
+        Box(
+            Modifier
+                .size(56.dp)
+                .clip(MaterialTheme.shapes.small)
+                .background(MaterialTheme.colorScheme.primaryContainer),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(preset.icon, null, tint = MaterialTheme.colorScheme.primary)
+        }
+        Column(Modifier.weight(1f).padding(start = 14.dp)) {
+            Text(preset.title, maxLines = 1)
+            Text(
+                if (count == 1) "1 track" else "$count tracks",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 
