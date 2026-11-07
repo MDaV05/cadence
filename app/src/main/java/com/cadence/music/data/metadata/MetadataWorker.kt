@@ -33,7 +33,7 @@ class MetadataWorker(appContext: Context, params: WorkerParameters) :
         val container = (applicationContext as? CadenceApp)?.container ?: return Result.failure()
         val db = container.database
         try {
-            fetchMissingLyrics(db)
+            fetchMissingLyrics(container)
             fetchArtistInfo(db)
             if (container.prefs.metaArtPrewarm) prewarmArt(container)
         } catch (_: Exception) {
@@ -42,19 +42,28 @@ class MetadataWorker(appContext: Context, params: WorkerParameters) :
         return Result.success()
     }
 
-    private suspend fun fetchMissingLyrics(db: com.cadence.music.data.db.AppDatabase) {
+    private suspend fun fetchMissingLyrics(container: com.cadence.music.AppContainer) {
+        val db = container.database
         // ponytail: bounded per run — completed rows are negative-cached, so the
         // queue drains across runs instead of blowing the 10-min worker limit.
         val missing = withContext(Dispatchers.IO) { db.lyricsDao().trackIdsMissingLyrics() }.take(LYRICS_BATCH)
         for (id in missing) {
             if (isStopped) return
             val t = withContext(Dispatchers.IO) { db.trackDao().byId(id) } ?: continue
-            val lines = runCatching {
-                LrcLib.fetchBlocking(t.artistName, t.title, t.durationMs / 1000)
-            }.getOrDefault(emptyList())
-            // Empty text is stored too — a negative cache so we never re-spam LRCLIB.
+            // Source-first: the server's own lyrics beat a fuzzy LRCLIB match
+            // (null for non-subsonic sources — fall through to LRCLIB below).
+            val server = runCatching { container.library.fetchServerLyrics(t) }.getOrNull()
+            val lrc = server?.first ?: run {
+                val lines = runCatching {
+                    LrcLib.fetchBlocking(t.artistName, t.title, t.durationMs / 1000)
+                }.getOrDefault(emptyList())
+                LrcLib.toLrcText(lines)
+            }
+            // Empty text is stored too — a negative cache so we never re-spam
+            // the sources. Plain text lives in the same column; the reader
+            // falls back to a static display when it parses no timestamps.
             withContext(Dispatchers.IO) {
-                db.lyricsDao().upsert(LyricsEntity(trackId = id, syncedLrc = LrcLib.toLrcText(lines)))
+                db.lyricsDao().upsert(LyricsEntity(trackId = id, syncedLrc = lrc))
             }
             delay(250)
         }

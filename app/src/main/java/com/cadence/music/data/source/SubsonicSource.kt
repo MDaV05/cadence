@@ -1,5 +1,7 @@
 package com.cadence.music.data.source
 
+import com.cadence.music.data.metadata.LrcLib
+import com.cadence.music.data.metadata.SyncedLine
 import com.cadence.music.data.prefs.ServerConfig
 import org.json.JSONObject
 import java.io.IOException
@@ -193,4 +195,58 @@ class SubsonicSource(private val configProvider: () -> ServerConfig?) : MusicSou
 
     override suspend fun streamUrl(track: Track): String? =
         track.streamUrl ?: track.key.removePrefix("sub:").let { streamUrlFor(it) }
+
+    /**
+     * Server lyrics, source-of-truth before LRCLIB: OpenSubsonic structured
+     * lyrics (synced converted to .lrc text, unsynced kept as plain lines),
+     * then the legacy getLyrics plain-text endpoint. Null when the server has
+     * none — including older Subsonic implementations that reject
+     * getLyricsBySongId outright.
+     */
+    suspend fun fetchLyrics(trackServerId: String, artist: String, title: String): Pair<String, Boolean>? {
+        val id = trackServerId.removePrefix("sub:")
+        val structured = runCatching {
+            lyricsFromStructured(get("getLyricsBySongId", mapOf("id" to id)))
+        }.getOrNull()
+        if (structured != null) return structured
+        // Legacy endpoint: one plain-text blob, no timestamps.
+        return runCatching {
+            val value = get("getLyrics", mapOf("artist" to artist, "title" to title))
+                .optJSONObject("lyrics")?.optString("value", "").orEmpty().trim()
+            value.takeIf { it.isNotBlank() }?.let { it to false }
+        }.getOrNull()
+    }
+
+    companion object {
+        /**
+         * Picks lyrics from a getLyricsBySongId payload: the first synced
+         * entry converted to .lrc text, else the first unsynced entry's plain
+         * lines. Null when neither is present.
+         */
+        internal fun lyricsFromStructured(resp: JSONObject): Pair<String, Boolean>? {
+            val entries = resp.optJSONObject("lyricsList")?.optJSONArray("structuredLyrics") ?: return null
+            var plain: String? = null
+            for (i in 0 until entries.length()) {
+                val e = entries.optJSONObject(i) ?: continue
+                val lines = e.optJSONArray("line") ?: continue
+                if (e.optBoolean("synced")) {
+                    // Song-level offset shifts every timestamp (spec: ms).
+                    val offset = e.optLong("offset", 0L)
+                    val synced = (0 until lines.length()).mapNotNull { j ->
+                        val l = lines.optJSONObject(j) ?: return@mapNotNull null
+                        l.optString("value", "").takeIf { it.isNotBlank() }
+                            ?.let { SyncedLine(l.optLong("start", 0L) + offset, it) }
+                    }
+                    if (synced.isNotEmpty()) return LrcLib.toLrcText(synced) to true
+                } else if (plain == null) {
+                    val text = (0 until lines.length())
+                        .mapNotNull { j ->
+                            lines.optJSONObject(j)?.optString("value", "")?.takeIf { it.isNotBlank() }
+                        }.joinToString("\n")
+                    if (text.isNotBlank()) plain = text
+                }
+            }
+            return plain?.let { it to false }
+        }
+    }
 }
