@@ -2,7 +2,6 @@ package com.cadence.music.ui
 
 import android.content.Context
 import android.media.AudioManager
-import android.widget.Toast
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -42,7 +41,6 @@ import androidx.compose.material.icons.filled.Airplay
 import androidx.compose.material.icons.filled.Album
 import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.FormatQuote
@@ -268,6 +266,11 @@ fun NowPlayingScreen(
             withContext(Dispatchers.IO) { container.database.trackDao().byServerId(mid2) }
         }
     }
+
+    // Live queue rows so the download badge reflects the real state of the
+    // playing track (queued/running/failed/done) instead of a one-shot flag.
+    val downloadRows by container.library.observeDownloads()
+        .collectAsStateWithLifecycle(initialValue = emptyList())
 
     val gradientColors = when {
         apple -> listOf(
@@ -831,21 +834,32 @@ fun NowPlayingScreen(
                             )
                         }
                         Spacer(Modifier.size(28.dp))
-                        var downloadQueued by remember(state.title) { mutableStateOf(false) }
-                        if (currentTrack?.path == null && currentTrack?.sourceId != "local" && !downloadQueued) {
-                            IconButton(onClick = {
-                                val t = currentTrack ?: return@IconButton
-                                container.library.enqueueDownload(t)
-                                downloadQueued = true
-                                Toast.makeText(context, "Download queued", Toast.LENGTH_SHORT).show()
-                            }) {
-                                Icon(
-                                    Icons.Filled.Download,
-                                    "Download",
-                                    Modifier.size(22.dp),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
+                        // Real download state for the playing track — same
+                        // badge and tap semantics as every track row.
+                        val downloadRow = downloadRows.firstOrNull {
+                            it.download.sourceId == currentTrack?.sourceId &&
+                                it.download.trackServerId == currentTrack?.serverId
+                        }
+                        if (currentTrack != null && currentTrack?.sourceId != "local") {
+                            DownloadStatusIcon(
+                                status = downloadRow?.download?.status,
+                                isDownloaded = currentTrack?.path != null,
+                                onDownload = if (currentTrack?.path == null) {
+                                    { currentTrack?.let { container.library.enqueueDownload(it) } }
+                                } else {
+                                    null
+                                },
+                                onCancel = if (downloadRow != null) {
+                                    { scope.launch { container.library.cancelDownload(downloadRow.download, currentTrack) } }
+                                } else {
+                                    null
+                                },
+                                onRetry = if (downloadRow != null) {
+                                    { scope.launch { container.library.retryDownload(downloadRow.download, currentTrack) } }
+                                } else {
+                                    null
+                                },
+                            )
                             Spacer(Modifier.size(28.dp))
                         }
                     }

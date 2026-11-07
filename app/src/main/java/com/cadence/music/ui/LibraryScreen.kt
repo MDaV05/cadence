@@ -29,6 +29,8 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Smartphone
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -105,6 +107,7 @@ import com.cadence.music.data.DownloadStatusRow
 import com.cadence.music.data.WriteConsentRequired
 import com.cadence.music.data.db.ArtistTile
 import com.cadence.music.data.db.TrackEntity
+import com.cadence.music.data.downloads.DownloadStatus
 import com.cadence.music.data.tags.artistCandidates
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -433,18 +436,13 @@ fun TrackActionsSheet(
         }
     }
 
-    fun deleteDownloaded() {
-        scope.launch {
-            val dl = container.database.downloadDao().byTrack(track.sourceId, track.serverId)
-            if (dl != null) container.library.deleteDownload(dl, track)
-            else container.database.trackDao().setPath(track.id, null)
-            toast("Download deleted")
-            close()
-        }
-    }
-
     if (sheetVisible) {
         val playlists by container.library.playlists()
+            .collectAsStateWithLifecycle(initialValue = emptyList())
+        // Live queue row for the sheet's track — the same source the row badge
+        // reads, so the sheet's download item always reflects the real state
+        // (even while the sheet is open).
+        val downloadRows by container.library.observeDownloads()
             .collectAsStateWithLifecycle(initialValue = emptyList())
         var showNew by remember { mutableStateOf(false) }
         ModalBottomSheet(onDismissRequest = { close() }) {
@@ -511,15 +509,59 @@ fun TrackActionsSheet(
                         }
                     },
                 )
-                if (track.sourceId != "local" && track.path == null) {
-                    ListItem(
-                        headlineContent = { Text("Download for offline") },
-                        leadingContent = { Icon(Icons.Filled.Download, null) },
-                        modifier = Modifier.clickable {
-                            container.library.enqueueDownload(track)
-                            close()
-                        },
-                    )
+                if (track.sourceId != "local") {
+                    // One download item mirroring the row badge's states: the
+                    // live queue row decides between cancel / retry / remove /
+                    // enqueue, so the sheet never offers a stale action.
+                    val downloadRow = downloadRows.firstOrNull {
+                        it.download.sourceId == track.sourceId &&
+                            it.download.trackServerId == track.serverId
+                    }
+                    when {
+                        downloadRow != null && (
+                            downloadRow.download.status == DownloadStatus.QUEUED ||
+                                downloadRow.download.status == DownloadStatus.RUNNING
+                            ) ->
+                            ListItem(
+                                headlineContent = { Text("Cancel download") },
+                                leadingContent = { Icon(Icons.Filled.Close, null) },
+                                modifier = Modifier.clickable {
+                                    scope.launch {
+                                        container.library.cancelDownload(downloadRow.download, track)
+                                    }
+                                    close()
+                                },
+                            )
+                        downloadRow != null && downloadRow.download.status == DownloadStatus.FAILED ->
+                            ListItem(
+                                headlineContent = { Text("Retry download") },
+                                leadingContent = { Icon(Icons.Filled.Refresh, null) },
+                                modifier = Modifier.clickable {
+                                    scope.launch {
+                                        container.library.retryDownload(downloadRow.download, track)
+                                    }
+                                    close()
+                                },
+                            )
+                        downloadRow?.download?.status == DownloadStatus.DONE || track.path != null ->
+                            ListItem(
+                                headlineContent = { Text("Remove download") },
+                                leadingContent = { Icon(Icons.Filled.Delete, null) },
+                                modifier = Modifier.clickable {
+                                    scope.launch { container.library.removeDownloadForTrack(track) }
+                                    close()
+                                },
+                            )
+                        else ->
+                            ListItem(
+                                headlineContent = { Text("Keep offline") },
+                                leadingContent = { Icon(Icons.Filled.Download, null) },
+                                modifier = Modifier.clickable {
+                                    container.library.enqueueDownload(track)
+                                    close()
+                                },
+                            )
+                    }
                 }
                 if (track.sourceId == "local") {
                     ListItem(
@@ -536,17 +578,13 @@ fun TrackActionsSheet(
                     leadingContent = { Icon(Icons.Filled.AddPhotoAlternate, null) },
                     modifier = Modifier.clickable { coverPicker.launch("image/*") },
                 )
-                if (track.sourceId == "local" || track.path != null) {
+                if (track.sourceId == "local") {
                     ListItem(
                         headlineContent = { Text("Delete file") },
                         leadingContent = { Icon(Icons.Filled.Delete, null) },
                         modifier = Modifier.clickable {
-                            if (track.sourceId == "local") {
-                                sheetVisible = false
-                                showDeleteConfirm = true
-                            } else {
-                                deleteDownloaded()
-                            }
+                            sheetVisible = false
+                            showDeleteConfirm = true
                         },
                     )
                 }

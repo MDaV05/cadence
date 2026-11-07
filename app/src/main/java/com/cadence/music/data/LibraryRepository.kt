@@ -1204,6 +1204,28 @@ class LibraryRepository(
     }
 
     /**
+     * Track-sheet removal for one track ("Remove download"): an active writer
+     * is cancelled first — it owns its in-flight partial (see
+     * deleteAlbumDownloads) — then the audio file and resumable partial go,
+     * the path clears, and the status row is dropped. Rowless leftovers (a
+     * path with no queue row) are cleaned up by the same path: the delete is
+     * a no-op and the file lookup is keyed by source/server id, not the row.
+     */
+    suspend fun removeDownloadForTrack(track: TrackEntity) {
+        withContext(Dispatchers.IO) {
+            val active = com.cadence.music.data.downloads.DownloadWorker.isActive(track.id)
+            if (active) com.cadence.music.data.downloads.DownloadWorker.requestCancel(track.id)
+            if (!active) {
+                track.path?.takeIf { it.startsWith("file:") }?.let { fileFromPath(it) }
+                    ?.let { runCatching { it.delete() } }
+                deleteDownloadFiles(java.io.File(context.filesDir, "downloads"), track.sourceId, track.serverId)
+                if (track.sourceId != "local") db.trackDao().setPath(track.id, null)
+            }
+            db.downloadDao().delete(track.serverId, track.sourceId)
+        }
+    }
+
+    /**
      * Drops a queued/running/failed row. A running worker gets a cancel signal
      * and owns cleanup of its in-flight partial; deleting the file from under
      * an open stream would leave the writer pointing at an unlinked inode.
