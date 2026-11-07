@@ -181,6 +181,11 @@ fun AlbumScreen(
             "${it.download.sourceId}:${it.download.trackServerId}" to it.download.status
         }
     }
+    val downloadRowsByKey = remember(downloadRows) {
+        downloadRows.associate {
+            "${it.download.sourceId}:${it.download.trackServerId}" to it
+        }
+    }
     val downloadServerTracks = remember(tracks) {
         tracks.filter { it.sourceId != "local" }
     }
@@ -322,11 +327,22 @@ fun AlbumScreen(
                     )
                     if (track.sourceId != "local") {
                         val downloaded = track.path != null
+                        val row = downloadRowsByKey["${track.sourceId}:${track.serverId}"]
                         DownloadStatusIcon(
                             status = downloadStatuses["${track.sourceId}:${track.serverId}"],
                             isDownloaded = downloaded,
                             onDownload = if (!downloaded) {
                                 { container.library.enqueueDownload(track) }
+                            } else {
+                                null
+                            },
+                            onCancel = if (row != null) {
+                                { scope.launch { container.library.cancelDownload(row.download, row.track) } }
+                            } else {
+                                null
+                            },
+                            onRetry = if (row != null) {
+                                { scope.launch { container.library.retryDownload(row.download, row.track) } }
                             } else {
                                 null
                             },

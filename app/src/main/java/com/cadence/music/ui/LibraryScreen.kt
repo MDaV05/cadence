@@ -101,6 +101,7 @@ import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.itemKey
 import coil.compose.AsyncImage
 import com.cadence.music.AppContainer
+import com.cadence.music.data.DownloadStatusRow
 import com.cadence.music.data.WriteConsentRequired
 import com.cadence.music.data.db.ArtistTile
 import com.cadence.music.data.db.TrackEntity
@@ -241,12 +242,14 @@ fun TrackRow(
     onArtistClick: (String) -> Unit = {},
     onAlbumClick: (String) -> Unit = {},
     downloadStatus: String? = null,
+    downloadRow: DownloadStatusRow? = null,
     onClick: () -> Unit,
 ) {
     val art by produceState<String?>(null, track.id) {
         value = container.artResolver.urlFor(track)
     }
     var showSheet by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
 
     Row(
         modifier = Modifier
@@ -267,7 +270,6 @@ fun TrackRow(
             Text(track.title, style = MaterialTheme.typography.bodyLarge, maxLines = 1)
             val sub = when {
                 track.sourceId == "local" -> listOfNotNull(track.artistName.ifBlank { null }, "Local")
-                track.path != null -> listOfNotNull(track.artistName.ifBlank { null }, "Downloaded")
                 else -> listOfNotNull(track.artistName.ifBlank { null }, formatStreamTag(container.prefs, track.sourceId, track.serverId))
             }
             Text(
@@ -282,15 +284,27 @@ fun TrackRow(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        // Server tracks always show their offline state, and the empty state is
-        // itself the download action — no need to long-press for common work.
+        // Server tracks always show their offline state, and the badge is the
+        // tap target: queued/running cancels, failed retries — no long-press
+        // needed for common work. The offline check lives on the badge now,
+        // so the row subtitle keeps the source tag instead of "Downloaded".
         if (track.sourceId != "local") {
             val downloaded = track.path != null
             DownloadStatusIcon(
-                status = downloadStatus,
+                status = downloadRow?.download?.status ?: downloadStatus,
                 isDownloaded = downloaded,
                 onDownload = if (!downloaded) {
                     { container.library.enqueueDownload(track) }
+                } else {
+                    null
+                },
+                onCancel = if (downloadRow != null) {
+                    { scope.launch { container.library.cancelDownload(downloadRow.download, downloadRow.track) } }
+                } else {
+                    null
+                },
+                onRetry = if (downloadRow != null) {
+                    { scope.launch { container.library.retryDownload(downloadRow.download, downloadRow.track) } }
                 } else {
                     null
                 },
@@ -809,9 +823,9 @@ private fun songsTab(
     // Running-download keys collected once at the list level, never per item.
     val downloadRows by container.library.observeDownloads()
         .collectAsStateWithLifecycle(initialValue = emptyList())
-    val downloadStatuses = remember(downloadRows) {
+    val downloadRowsByKey = remember(downloadRows) {
         downloadRows.associate {
-            "${it.download.sourceId}:${it.download.trackServerId}" to it.download.status
+            "${it.download.sourceId}:${it.download.trackServerId}" to it
         }
     }
 
@@ -901,7 +915,7 @@ private fun songsTab(
                         track,
                         onArtistClick,
                         onAlbumClick,
-                        downloadStatus = downloadStatuses["${track.sourceId}:${track.serverId}"],
+                        downloadRow = downloadRowsByKey["${track.sourceId}:${track.serverId}"],
                     ) { player.playNow(listOf(track.toTrack())) }
                 }
             }

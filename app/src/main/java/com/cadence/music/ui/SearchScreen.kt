@@ -65,12 +65,12 @@ fun SearchScreen(
     }
     var history by remember { mutableStateOf(container.prefs.searchHistory) }
 
-    // Running-download keys collected once at the list level, never per item.
+    // Running-download rows collected once at the list level, never per item.
     val downloadRows by container.library.observeDownloads()
         .collectAsStateWithLifecycle(initialValue = emptyList())
-    val downloadStatuses = remember(downloadRows) {
+    val downloadRowsByKey = remember(downloadRows) {
         downloadRows.associate {
-            "${it.download.sourceId}:${it.download.trackServerId}" to it.download.status
+            "${it.download.sourceId}:${it.download.trackServerId}" to it
         }
     }
 
@@ -173,7 +173,7 @@ fun SearchScreen(
                                     track,
                                     onArtistClick,
                                     onAlbumClick,
-                                    downloadStatus = downloadStatuses["${track.sourceId}:${track.serverId}"],
+                                    downloadRow = downloadRowsByKey["${track.sourceId}:${track.serverId}"],
                                 ) {
                                     recordQuery(query)
                                     focusManager.clearFocus()

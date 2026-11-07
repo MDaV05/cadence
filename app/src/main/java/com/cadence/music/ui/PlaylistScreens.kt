@@ -525,6 +525,11 @@ fun PlaylistDetailScreen(container: AppContainer, playlistId: Long, onBack: () -
             "${it.download.sourceId}:${it.download.trackServerId}" to it.download.status
         }
     }
+    val downloadRowsByKey = remember(downloadRows) {
+        downloadRows.associate {
+            "${it.download.sourceId}:${it.download.trackServerId}" to it
+        }
+    }
     val serverTracks = remember(tracks) { tracks.filter { it.track.sourceId != "local" } }
     val offlineCount = remember(serverTracks, downloadStatuses) {
         serverTracks.count {
@@ -691,6 +696,9 @@ fun PlaylistDetailScreen(container: AppContainer, playlistId: Long, onBack: () -
                         )
                         if (entry.track.sourceId != "local") {
                             val downloaded = entry.track.path != null
+                            val row = downloadRowsByKey[
+                                "${entry.track.sourceId}:${entry.track.serverId}"
+                            ]
                             DownloadStatusIcon(
                                 status = downloadStatuses[
                                     "${entry.track.sourceId}:${entry.track.serverId}"
@@ -698,6 +706,16 @@ fun PlaylistDetailScreen(container: AppContainer, playlistId: Long, onBack: () -
                                 isDownloaded = downloaded,
                                 onDownload = if (!downloaded) {
                                     { container.library.enqueueDownload(entry.track) }
+                                } else {
+                                    null
+                                },
+                                onCancel = if (row != null) {
+                                    { scope.launch { container.library.cancelDownload(row.download, row.track) } }
+                                } else {
+                                    null
+                                },
+                                onRetry = if (row != null) {
+                                    { scope.launch { container.library.retryDownload(row.download, row.track) } }
                                 } else {
                                     null
                                 },
@@ -729,6 +747,15 @@ fun LikedSongsScreen(container: AppContainer, onArtistClick: (String) -> Unit = 
     val scope = rememberCoroutineScope()
     var liked by remember { mutableStateOf<List<TrackEntity>>(emptyList()) }
     LaunchedEffect(Unit) { liked = container.library.likedTracks() }
+
+    // Running-download rows collected once at the list level, never per item.
+    val downloadRows by container.library.observeDownloads()
+        .collectAsStateWithLifecycle(initialValue = emptyList())
+    val downloadRowsByKey = remember(downloadRows) {
+        downloadRows.associate {
+            "${it.download.sourceId}:${it.download.trackServerId}" to it
+        }
+    }
 
     Column(Modifier.fillMaxSize().statusBarsPadding()) {
         Text(
@@ -809,6 +836,29 @@ fun LikedSongsScreen(container: AppContainer, onArtistClick: (String) -> Unit = 
                                     modifier = Modifier.clickable { onArtistClick(track.artistName) },
                                 )
                             }
+                        }
+                        if (track.sourceId != "local") {
+                            val downloaded = track.path != null
+                            val row = downloadRowsByKey["${track.sourceId}:${track.serverId}"]
+                            DownloadStatusIcon(
+                                status = row?.download?.status,
+                                isDownloaded = downloaded,
+                                onDownload = if (!downloaded) {
+                                    { container.library.enqueueDownload(track) }
+                                } else {
+                                    null
+                                },
+                                onCancel = if (row != null) {
+                                    { scope.launch { container.library.cancelDownload(row.download, row.track) } }
+                                } else {
+                                    null
+                                },
+                                onRetry = if (row != null) {
+                                    { scope.launch { container.library.retryDownload(row.download, row.track) } }
+                                } else {
+                                    null
+                                },
+                            )
                         }
                         IconButton(
                             onClick = {
