@@ -143,6 +143,18 @@ fun AppNav(initialSettingsTab: Int = 0, onDeepLinkConsumed: () -> Unit = {}) {
             ) {
                 val np by container.player.state.collectAsStateWithLifecycle()
                 val skinLayout = com.cadence.music.ui.theme.LocalSkin.current.layout
+                // Global download status; sits directly above the mini player
+                // whenever that is showing, and survives "nothing is playing".
+                DownloadChip(
+                    container = container,
+                    onOpenDownloads = {
+                        navController.navigate("downloads") {
+                            launchSingleTop = true
+                            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                            restoreState = true
+                        }
+                    },
+                )
                 // Hidden on now-playing — the full screen already shows the track.
                 if (np.title.isNotEmpty() && current != "nowplaying") {
                     MiniPlayer(
