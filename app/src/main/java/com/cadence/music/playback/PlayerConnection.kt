@@ -59,6 +59,10 @@ class PlayerConnection(
     val sleepRemainingMs: StateFlow<Long?> = _sleepRemainingMs
     private var sleepJob: Job? = null
 
+    private val _sleepAtTrackEnd = MutableStateFlow(false)
+    /** True when the sleep timer is set to pause at the end of the current track. */
+    val sleepAtTrackEnd: StateFlow<Boolean> = _sleepAtTrackEnd
+
     // Live queue snapshot driven by controller timeline events, so UI observes
     // changes instead of re-reading the controller on every recomposition.
     private val _queue = MutableStateFlow<List<MediaItem>>(emptyList())
@@ -107,11 +111,23 @@ class PlayerConnection(
                 }
 
                 override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                    // End-of-track sleep: the previous item just completed — pause
+                    // before the next one gets going.
+                    if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO && _sleepAtTrackEnd.value) {
+                        endOfTrackPause(c)
+                    }
                     val title = mediaItem?.mediaMetadata?.title?.toString() ?: ""
                     val artist = mediaItem?.mediaMetadata?.artist?.toString() ?: ""
                     _state.value = _state.value.copy(title = title, artist = artist)
                     scheduleListen(mediaItem)
                     refreshQueue(c)
+                }
+
+                override fun onPlaybackStateChanged(playbackState: Int) {
+                    // Queue's very end: no transition event, just STATE_ENDED.
+                    if (playbackState == Player.STATE_ENDED && _sleepAtTrackEnd.value) {
+                        endOfTrackPause(c)
+                    }
                 }
 
                 override fun onPositionDiscontinuity(
@@ -128,6 +144,8 @@ class PlayerConnection(
                     ) {
                         finishListenNow()
                         scheduleListen(c.currentMediaItem)
+                        // The loop point is the only "completion" repeat-one reports.
+                        if (_sleepAtTrackEnd.value) endOfTrackPause(c)
                     }
                 }
 
@@ -290,10 +308,22 @@ class PlayerConnection(
         }
     }
 
+    /** Pauses the player when the current track completes ("End of track" sleep). */
+    fun sleepAtEndOfTrack() {
+        cancelSleepTimer()
+        _sleepAtTrackEnd.value = true
+    }
+
+    private fun endOfTrackPause(c: MediaController) {
+        _sleepAtTrackEnd.value = false
+        c.pause()
+    }
+
     fun cancelSleepTimer() {
         sleepJob?.cancel()
         sleepJob = null
         _sleepRemainingMs.value = null
+        _sleepAtTrackEnd.value = false
         controller?.volume = 1.0f
     }
 

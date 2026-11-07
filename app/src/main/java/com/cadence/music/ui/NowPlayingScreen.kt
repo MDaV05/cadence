@@ -133,6 +133,7 @@ fun NowPlayingScreen(
     var position by remember { mutableLongStateOf(0L) }
     var duration by remember { mutableLongStateOf(0L) }
     val sleepLeft by player.sleepRemainingMs.collectAsStateWithLifecycle()
+    val sleepAtEnd by player.sleepAtTrackEnd.collectAsStateWithLifecycle()
     val queueSnapshot by player.queueItems.collectAsStateWithLifecycle()
     val queueIdx by player.queueIndexFlow.collectAsStateWithLifecycle()
     var showSleepDialog by remember { mutableStateOf(false) }
@@ -534,7 +535,7 @@ fun NowPlayingScreen(
                     IconButton(onClick = { showSleepDialog = true }) {
                         Icon(
                             Icons.Filled.Bedtime, "Sleep timer", Modifier.size(22.dp),
-                            tint = if (sleepLeft != null) primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            tint = if (sleepLeft != null || sleepAtEnd) primary else MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                     if (lyrics.isNotEmpty() || unsynced != null) {
@@ -890,7 +891,7 @@ fun NowPlayingScreen(
                     IconButton(onClick = { showSleepDialog = true }) {
                         Icon(
                             Icons.Filled.Bedtime, "Sleep timer", Modifier.size(22.dp),
-                            tint = if (sleepLeft != null) primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            tint = if (sleepLeft != null || sleepAtEnd) primary else MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                     sleepLeft?.let {
@@ -1205,7 +1206,11 @@ fun NowPlayingScreen(
                             showSleepDialog = false
                         }) { Text("$minutes minutes") }
                     }
-                    if (sleepLeft != null) {
+                    TextButton(onClick = {
+                        player.sleepAtEndOfTrack()
+                        showSleepDialog = false
+                    }) { Text("End of track") }
+                    if (sleepLeft != null || sleepAtEnd) {
                         TextButton(onClick = {
                             player.cancelSleepTimer()
                             showSleepDialog = false
