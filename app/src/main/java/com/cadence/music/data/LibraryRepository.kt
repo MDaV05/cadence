@@ -913,6 +913,9 @@ class LibraryRepository(
             dls.map { DownloadStatusRow(it, byKey["${it.sourceId}:${it.trackServerId}"]) }
         }
 
+    /** Pending rows plus the finished siblings of their batches — the scope progress surfaces describe. */
+    fun observeActiveScope(): Flow<List<DownloadEntity>> = db.downloadDao().observeActiveScope()
+
     /**
      * Adds tracks to the persistent queue. A user tap gets priority 1 so it
      * jumps ahead of an album or whole-library batch, but still uses the same

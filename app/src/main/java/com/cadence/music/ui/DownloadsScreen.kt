@@ -64,11 +64,12 @@ import com.cadence.music.data.DownloadStatusRow
 import com.cadence.music.data.db.AlbumGroup
 import com.cadence.music.data.db.TrackEntity
 import com.cadence.music.data.downloads.DownloadStatus
+import com.cadence.music.data.downloads.activeScope
+import com.cadence.music.data.downloads.byteProgress
 import com.cadence.music.data.downloads.estimateQueueBytes
 import com.cadence.music.data.downloads.humanizeDownloadError
 import com.cadence.music.data.downloads.isUnmetered
 import com.cadence.music.data.downloads.observeUnmetered
-import com.cadence.music.data.downloads.progressOf
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -88,6 +89,10 @@ fun DownloadsScreen(
         .collectAsStateWithLifecycle(initialValue = emptyList())
     val albums by container.library.albumGroups()
         .collectAsStateWithLifecycle(initialValue = emptyList())
+    // Active-scope rows: pending downloads plus the finished siblings of their
+    // batches — the only rows the progress bar is allowed to describe.
+    val activeRows by container.library.observeActiveScope()
+        .collectAsStateWithLifecycle(initialValue = emptyList())
 
     var paused by remember { mutableStateOf(prefs.downloadsPaused) }
     var menuOpen by remember { mutableStateOf(false) }
@@ -97,7 +102,7 @@ fun DownloadsScreen(
     var albumToRemove by remember { mutableStateOf<AlbumGroup?>(null) }
     var showMobileConfirm by remember { mutableStateOf(false) }
 
-    val activeRows = remember(rows) {
+    val queueRows = remember(rows) {
         rows.filter {
             it.download.status == DownloadStatus.RUNNING ||
                 it.download.status == DownloadStatus.QUEUED
@@ -117,11 +122,13 @@ fun DownloadsScreen(
             .sortedBy { it.first.lowercase() }
     }
     val albumByNorm = remember(albums) { albums.associateBy { it.norm } }
-    val progress = remember(rows) { progressOf(rows.map { it.download.status }) }
+    val progress = remember(activeRows) { byteProgress(activeScope(activeRows)) }
     val totalBytes = remember(doneRows) { doneRows.sumOf { it.download.bytesDone } }
+    val runningCount = queueRows.count { it.download.status == DownloadStatus.RUNNING }
+    val queuedCount = queueRows.size - runningCount
     val wifi by remember(context) { observeUnmetered(context) }
         .collectAsStateWithLifecycle(initialValue = isUnmetered(context))
-    val wifiWaiting = !paused && prefs.downloadWifiOnly && !wifi && progress.queued > 0
+    val wifiWaiting = !paused && prefs.downloadWifiOnly && !wifi && queuedCount > 0
 
     fun toast(message: String) = Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
 
@@ -160,7 +167,7 @@ fun DownloadsScreen(
                     }
                 },
                 actions = {
-                    if (progress.active) {
+                    if (progress.totalCount > 0) {
                         IconButton(onClick = {
                             if (paused) {
                                 paused = false
@@ -229,7 +236,10 @@ fun DownloadsScreen(
                 item(span = { GridItemSpan(maxLineSpan) }, key = "summary") {
                     DownloadSummary(
                         progress = progress,
-                        totalBytes = totalBytes,
+                        offlineCount = doneRows.size,
+                        storedBytes = totalBytes,
+                        runningCount = runningCount,
+                        queuedCount = queuedCount,
                         paused = paused,
                         wifiWaiting = wifiWaiting,
                         onResume = {
@@ -240,12 +250,12 @@ fun DownloadsScreen(
                         onDownloadOnMobile = { showMobileConfirm = true },
                     )
                 }
-                if (activeRows.isNotEmpty()) {
+                if (queueRows.isNotEmpty()) {
                     item(span = { GridItemSpan(maxLineSpan) }, key = "active-header") {
-                        SectionTitle("In progress", "${activeRows.size} in queue")
+                        SectionTitle("In progress", "${queueRows.size} in queue")
                     }
                     items(
-                        activeRows,
+                        queueRows,
                         key = { "queue:${it.download.sourceId}:${it.download.trackServerId}" },
                         span = { GridItemSpan(maxLineSpan) },
                     ) { row ->
@@ -471,8 +481,11 @@ private fun EmptyDownloads(
 
 @Composable
 private fun DownloadSummary(
-    progress: com.cadence.music.data.downloads.DownloadProgress,
-    totalBytes: Long,
+    progress: com.cadence.music.data.downloads.ByteProgress,
+    offlineCount: Int,
+    storedBytes: Long,
+    runningCount: Int,
+    queuedCount: Int,
     paused: Boolean,
     wifiWaiting: Boolean,
     onResume: () -> Unit,
@@ -487,17 +500,17 @@ private fun DownloadSummary(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(
-                        "${progress.done} offline",
+                        "$offlineCount offline",
                         style = MaterialTheme.typography.titleMedium,
                     )
                     Text(
-                        "${formatBytes(totalBytes)} stored" +
-                            if (progress.pending > 0) " · ${progress.pending} in queue" else "",
+                        "${formatBytes(storedBytes)} stored" +
+                            if (runningCount + queuedCount > 0) " · ${runningCount + queuedCount} in queue" else "",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                if (progress.visibleTotal > 0) {
+                if (progress.totalCount > 0) {
                     Text(
                         "${(progress.fraction * 100).roundToInt()}%",
                         style = MaterialTheme.typography.titleMedium,
@@ -505,22 +518,22 @@ private fun DownloadSummary(
                     )
                 }
             }
-            if (progress.visibleTotal > 0) {
+            if (progress.totalCount > 0) {
                 LinearProgressIndicator(
                     progress = { progress.fraction },
                     modifier = Modifier.fillMaxWidth().clip(MaterialTheme.shapes.extraSmall),
                 )
             }
             val detail = buildList {
-                if (progress.running > 0) add("${progress.running} downloading")
-                if (progress.queued > 0) add("${progress.queued} queued")
-                if (progress.failed > 0) add("${progress.failed} failed")
+                if (runningCount > 0) add("$runningCount downloading")
+                if (queuedCount > 0) add("$queuedCount queued")
+                if (progress.failedCount > 0) add("${progress.failedCount} failed")
             }
             if (detail.isNotEmpty()) {
                 Text(
                     detail.joinToString(" · "),
                     style = MaterialTheme.typography.bodySmall,
-                    color = if (progress.failed > 0) MaterialTheme.colorScheme.error
+                    color = if (progress.failedCount > 0) MaterialTheme.colorScheme.error
                     else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }

@@ -85,7 +85,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.cadence.music.AppContainer
 import com.cadence.music.data.SyncState
 import com.cadence.music.data.db.CustomThemeEntity
-import com.cadence.music.data.downloads.progressOf
+import com.cadence.music.data.downloads.DownloadStatus
+import com.cadence.music.data.downloads.activeScope
+import com.cadence.music.data.downloads.byteProgress
 import com.cadence.music.data.metadata.ListenBrainz
 import com.cadence.music.data.prefs.LibraryMode
 import com.cadence.music.data.prefs.Prefs
@@ -2038,7 +2040,12 @@ private fun StorageTab(container: AppContainer, onOpenDownloads: () -> Unit) {
     var showDownloadAll by remember { mutableStateOf(false) }
     var cleanNotice by remember { mutableStateOf<String?>(null) }
     val dlRows by container.library.observeDownloads().collectAsStateWithLifecycle(initialValue = emptyList())
-    val prog = remember(dlRows) { progressOf(dlRows.map { it.download.status }) }
+    val offlineCount = remember(dlRows) { dlRows.count { it.download.status == DownloadStatus.DONE } }
+    // The bar describes only the active scope; "N of M" compares against the real library size.
+    val activeRows by container.library.observeActiveScope().collectAsStateWithLifecycle(initialValue = emptyList())
+    val prog = remember(activeRows) { byteProgress(activeScope(activeRows)) }
+    val libraryTrackCount by container.database.trackDao().observeCountAll()
+        .collectAsStateWithLifecycle(initialValue = 0)
 
     LazyColumn(Modifier.fillMaxSize()) {
         item { SectionHeader("Storage breakdown") }
@@ -2182,25 +2189,22 @@ private fun StorageTab(container: AppContainer, onOpenDownloads: () -> Unit) {
             Column {
                 SettingRow(
                     title = "Downloads",
-                    subtitle = when {
-                        prog.visibleTotal == 0 -> "Nothing offline yet"
-                        prog.pending > 0 -> "${prog.done} offline · ${prog.pending} in queue"
-                        else -> "${prog.done} offline"
-                    },
+                    subtitle = "$offlineCount of $libraryTrackCount tracks offline",
                     trailing = {
                         TextButton(onClick = { showDownloadAll = true }) { Text("Download library") }
                     },
                     onClick = onOpenDownloads,
                 )
-                if (prog.visibleTotal > 0) {
+                if (prog.totalCount > 0) {
+                    val pendingCount = prog.totalCount - prog.doneCount - prog.failedCount
                     LinearProgressIndicator(
                         progress = { prog.fraction },
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                     )
                     Text(
-                        "${prog.done} of ${prog.visibleTotal} complete" +
-                            (if (prog.failed > 0) " · ${prog.failed} failed" else "") +
-                            (if (prog.pending > 0) " · ${prog.pending} queued" else "") +
+                        "${prog.doneCount} of ${prog.totalCount} complete" +
+                            (if (prog.failedCount > 0) " · ${prog.failedCount} failed" else "") +
+                            (if (pendingCount > 0) " · $pendingCount queued" else "") +
                             (if (container.prefs.downloadsPaused) " · paused" else ""),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
