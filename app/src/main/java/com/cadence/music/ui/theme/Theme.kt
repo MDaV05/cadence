@@ -82,6 +82,7 @@ fun customToSpec(e: CustomThemeEntity) = ThemeSpec(
 // 3. Apple Music: Cupertino crisp red, clean sans, soft corners, Apple layout
 // 4. Analog: warm sienna/cream, Fraunces serif display, sharp corners, turntable vinyl
 // 5. Studio: electric cyan, JetBrains Mono typography, sharp corners, hardware aesthetic
+// 6. Nocturne: brass-on-black late-night jazz club, Fraunces serif display, pill controls
 val BUILTIN_THEMES = listOf(
     ThemeSpec(
         id = "iris",
@@ -136,6 +137,17 @@ val BUILTIN_THEMES = listOf(
         bgDark = 0xFF0A0D10.toInt(),
         font = SkinFont.MONO,
         corners = SkinCorners.SHARP,
+        layout = SkinLayout.STANDARD,
+    ),
+    ThemeSpec(
+        id = "nocturne",
+        name = "Nocturne",
+        accentLight = 0xFF7A5E1C.toInt(),
+        accentDark = 0xFFDDB558.toInt(),
+        bgLight = 0xFFF7F4EC.toInt(),
+        bgDark = 0xFF0F0D0A.toInt(),
+        font = SkinFont.SERIF_DISPLAY,
+        corners = SkinCorners.PILL,
         layout = SkinLayout.STANDARD,
     ),
 )

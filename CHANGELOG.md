@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.19.0
+
+- **"Nocturne" theme**: warm brass accent on aged paper (light) and
+  charred walnut (dark), Fraunces serif display type, pill-shaped
+  controls. The first brass-on-black look in the built-in set.
+
 ## 0.17.5
 
 - **Network Failover Fixes**:
